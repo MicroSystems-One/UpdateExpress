@@ -20,7 +20,7 @@ internal static class InstallationManager
     internal static string UserExe => Path.Combine(UserInstallDir, "UpdateExpress.exe");
     private static readonly string StartMenuDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "MicroSystems");
     private static readonly string Shortcut = Path.Combine(StartMenuDir, "Update Express.lnk");
-    private const string DesktopIconName = "UpdateExpress-U-v0.7.2.6.41.ico";
+    private const string DesktopIconName = "UpdateExpress-U-v0.7.2.6.42.ico";
     private const string DesktopIconResource = "UpdateExpress.Assets.UpdateExpress.ico";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\MicroSystems.UpdateExpress";
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -240,6 +240,7 @@ internal static class InstallationManager
 
     private static void StopInstalledProcesses(string targetExe)
     {
+        string targetFull = Path.GetFullPath(targetExe);
         foreach (var proc in Process.GetProcessesByName("UpdateExpress"))
         {
             using (proc)
@@ -247,20 +248,40 @@ internal static class InstallationManager
                 try
                 {
                     if (proc.Id == Environment.ProcessId) continue;
-                    string? path = proc.MainModule?.FileName;
-                    if (!string.Equals(path, targetExe, StringComparison.OrdinalIgnoreCase)) continue;
-                    proc.Kill();
-                    if (!proc.WaitForExit(10000)) throw new IOException("Update Express could not be stopped for upgrade.");
+                    // Do not use Process.MainModule — it requires full access and fails with
+                    // Access Denied against the elevated MainWindow from a medium-IL helper.
+                    if (!UpgradeShutdown.TryGetProcessPath(proc.Id, out string? path) ||
+                        !string.Equals(path, targetFull, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (proc.MainWindowHandle != IntPtr.Zero)
+                    {
+                        proc.CloseMainWindow();
+                        if (proc.WaitForExit(8000))
+                        {
+                            AgentLog.Write("Closed Update Express UI PID " + proc.Id + " for upgrade.");
+                            continue;
+                        }
+                    }
+
+                    proc.Kill(entireProcessTree: true);
+                    if (!proc.WaitForExit(10000))
+                        throw new IOException("Update Express could not be stopped for upgrade.");
                     AgentLog.Write("Stopped Update Express process PID " + proc.Id + " for upgrade.");
                 }
                 catch (System.ComponentModel.Win32Exception ex)
-                { throw new IOException("Could not stop Update Express for upgrade: " + ex.Message, ex); }
+                {
+                    throw new IOException(
+                        "Could not stop Update Express for upgrade (access denied). Close the Update Express window and try again.",
+                        ex);
+                }
             }
         }
     }
 
     private static void StopInstalledAgent(string targetExe)
     {
+        string targetFull = Path.GetFullPath(targetExe);
         foreach (var proc in Process.GetProcessesByName("UpdateExpress"))
         {
             using (proc)
@@ -269,18 +290,21 @@ internal static class InstallationManager
                 {
                     // Never terminate unrelated processes or the detached helper.
                     if (proc.Id == Environment.ProcessId) continue;
-                    string? path = proc.MainModule?.FileName;
-                    if (!string.Equals(path, targetExe, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!UpgradeShutdown.TryGetProcessPath(proc.Id, out string? path) ||
+                        !string.Equals(path, targetFull, StringComparison.OrdinalIgnoreCase))
+                        continue;
                     // Only stop --agent processes. If the user has the main UI open, show a clear error.
                     bool isAgent = File.Exists(AgentPidFile) && int.TryParse(File.ReadAllText(AgentPidFile), out int agentPid) && agentPid == proc.Id;
                     if (!isAgent)
                         throw new IOException("Lukk det installerte Update Express-vinduet før oppgradering eller avinstallasjon.");
-                    proc.Kill();
+                    proc.Kill(entireProcessTree: true);
                     if (!proc.WaitForExit(10000)) throw new IOException("Bakgrunnsagenten kunne ikke avsluttes.");
                     AgentLog.Write("Stopped installed agent PID " + proc.Id);
                 }
                 catch (System.ComponentModel.Win32Exception ex)
-                { throw new IOException("Kunne ikke kontrollere/stoppe Update Express-prosessen: " + ex.Message, ex); }
+                {
+                    throw new IOException("Kunne ikke kontrollere/stoppe Update Express-prosessen: " + ex.Message, ex);
+                }
             }
         }
     }

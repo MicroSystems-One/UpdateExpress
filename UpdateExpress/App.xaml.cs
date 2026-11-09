@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using UpdateExpress.Services;
 namespace UpdateExpress;
@@ -8,6 +9,7 @@ public partial class App : System.Windows.Application
     private TrayAgent? _agent;
     private System.Threading.Mutex? _agentMutex;
     private bool _ownsAgentMutex;
+    private CancellationTokenSource? _upgradeShutdownCts;
     protected override void OnStartup(System.Windows.StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -81,11 +83,30 @@ public partial class App : System.Windows.Application
             ? new LauncherWindow() : new MainWindow();
         MainWindow = window;
         window.Show();
+        if (window is MainWindow)
+        {
+            // Tray self-update (medium IL) signals this elevated UI to close on confirm.
+            _upgradeShutdownCts = UpgradeShutdown.Listen(() =>
+            {
+                try
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        AgentLog.Write("Closing Update Express UI after upgrade confirmation.");
+                        Shutdown();
+                    }));
+                }
+                catch (Exception ex) { AgentLog.Write("Could not schedule UI shutdown for upgrade: " + ex.Message); }
+            });
+        }
         if (args.Contains("--proxy-settings", StringComparer.OrdinalIgnoreCase) && window is MainWindow main)
             main.Dispatcher.BeginInvoke(new Action(main.ShowProxySettings));
     }
     protected override void OnExit(System.Windows.ExitEventArgs e)
     {
+        try { _upgradeShutdownCts?.Cancel(); } catch { }
+        _upgradeShutdownCts?.Dispose();
+        _upgradeShutdownCts = null;
         _agent?.Dispose();
         if (_agent is not null)
         {

@@ -177,7 +177,7 @@ internal sealed class TrayAgent : IDisposable
                     $"Available: {result.AvailableVersion}\n\n" +
                     $"{notes}\n\n" +
                     (canInstall
-                        ? "Yes = Install now (download + verify SHA-256 + replace)\nNo = Open download page\nCancel = Later\n\nNo automatic restart."
+                        ? "Yes = Install now (closes open Update Express, then download + verify SHA-256 + replace)\nNo = Open download page\nCancel = Later"
                         : hasDownload
                             ? "SHA-256 is missing from the update channel, so Install is unavailable.\nYes = Open download page\nNo = Later"
                             : "No HTTPS download URL is published yet."),
@@ -187,6 +187,12 @@ internal sealed class TrayAgent : IDisposable
 
                 if (canInstall && choice == DialogResult.Yes)
                 {
+                    // Close elevated MainWindow before download/replace (avoids Access Denied on upgrade).
+                    if (!UpgradeShutdown.EnsureUiClosedForUpgrade())
+                    {
+                        ShowAppBalloon("Update Express", "Upgrade cancelled — close Update Express and try again.", ToolTipIcon.Warning);
+                        return false;
+                    }
                     StartAppUpdateInstall(result);
                     return true;
                 }
