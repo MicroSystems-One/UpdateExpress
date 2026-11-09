@@ -376,56 +376,101 @@ internal static class DownloadPromptAutomation
             return;
         }
 
-        AgentLog.Write($"{displayName} install helper: installing {ids.Count} queued update(s).");
-        try
+        var prompt = CategoryPromptState.Load(category);
+        var queue = ids.Select(id =>
         {
-            var results = WindowsUpdateReader.InstallSelected(
-                ids.Select(id => new UpdateEntry { UpdateId = id }).ToList(),
-                msg => AgentLog.Write($"{displayName} install: " + msg));
+            var meta = prompt.Updates.FirstOrDefault(u =>
+                u.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase));
+            string title = meta?.Title ?? id;
+            if (!string.IsNullOrWhiteSpace(meta?.KB))
+                title = meta!.KB + " — " + title;
+            return new InstallationQueueItem("Windows Update", title);
+        }).ToList();
 
-            CategoryPromptState.ClearInstallQueue(category);
-            CategoryPromptState.Clear(category);
-
-            int ok = results.Count(r => r.Status is "Installert" or "Already up to date");
-            bool rebootHint = results.Any(r => (r.Source ?? "").Contains("Restart", StringComparison.OrdinalIgnoreCase));
-            string detail = string.Join("\n", results.Select(r =>
-                $"{r.KB} {r.Title}: {r.Status}" + (string.IsNullOrWhiteSpace(r.ErrorCode) ? "" : $" ({r.ErrorCode})")));
-
-            var policy = UpdatePolicy.Load();
-            policy.Normalize();
-            var cat = category == "general" ? policy.WindowsAutomation.General : policy.WindowsAutomation.Critical;
-            string preferred = AutomationSchedule.PreferredOrDefault(cat.PreferredInstallTime);
-            bool weekly = category == "general";
-            int minInterval = weekly ? 1440 : 60;
-            WindowsAutomationStatus.WriteCategory(
-                category,
-                rebootHint ? "Installed (restart needed)" : "Installed",
-                $"{ok}/{results.Count} completed. Update Express did not restart Windows.",
-                NextDue(DateTime.Now, cat, preferred, weekly, minInterval));
-            ActivityLog.TryWrite(displayName + "Automation", "Installed", new { ok, Total = results.Count, rebootHint }, mode: "Automatic", source: "ElevatedHelper");
-
-            System.Windows.MessageBox.Show(
-                $"{displayName} update installation finished.\n\n{detail}\n\n" +
-                (rebootHint
-                    ? "A restart may be required. Update Express never restarts Windows automatically — please restart when convenient."
-                    : "No automatic restart was performed."),
-                "Update Express",
-                System.Windows.MessageBoxButton.OK,
-                rebootHint ? System.Windows.MessageBoxImage.Warning : System.Windows.MessageBoxImage.Information);
-        }
-        catch (Exception ex)
+        AgentLog.Write($"{displayName} install helper: installing {ids.Count} queued update(s) with progress UI.");
+        var manager = new InstallationManagerWindow(queue)
         {
-            AgentLog.Write($"{displayName} install helper failed: " + ex);
-            ActivityLog.TryWrite(displayName + "Automation", "InstallFailed", ex.ToString(), mode: "Automatic", source: "ElevatedHelper");
-            WindowsAutomationStatus.WriteCategory(category, "Failed", ex.Message, DateTime.Now.AddHours(1));
-            var prompt = CategoryPromptState.Load(category);
-            prompt.State = "awaitingPrompt";
-            prompt.Save();
-            System.Windows.MessageBox.Show(
-                $"Could not install {displayName.ToLowerInvariant()} updates.\n\n" + ex.Message + "\n\nSee agent.log for details.",
-                "Update Express",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Error);
-        }
+            Title = $"Update Express – {displayName} installation",
+            WindowStartupLocation = System.Windows.WindowStartupLocation.CenterScreen
+        };
+
+        manager.Loaded += async (_, _) =>
+        {
+            manager.PrepareRunning();
+            manager.BeginItem(0, $"Downloading / installing {displayName.ToLowerInvariant()} updates…");
+            try
+            {
+                var selected = ids.Select(id => new UpdateEntry { UpdateId = id }).ToList();
+                IProgress<string> progress = new Progress<string>(stage =>
+                {
+                    try { manager.Dispatcher.BeginInvoke(new Action(() => manager.SetStage(stage))); }
+                    catch { }
+                    AgentLog.Write($"{displayName} install: " + stage);
+                });
+
+                var results = await WindowsUpdateReader.RunStaAsync(() =>
+                        WindowsUpdateReader.InstallSelected(selected, stage => ((IProgress<string>)progress).Report(stage)))
+                    .ConfigureAwait(true);
+
+                for (int i = 0; i < ids.Count; i++)
+                {
+                    string id = ids[i];
+                    var result = results.FirstOrDefault(x =>
+                                    !string.IsNullOrWhiteSpace(x.UpdateId) &&
+                                    x.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase))
+                                ?? (i < results.Count ? results[i] : null);
+                    string state = result == null ? "Not verified" :
+                        result.Status is "Installert" or "Already up to date" ? "Completed" :
+                        result.Status is "Delvis fullført" ? "Not verified" :
+                        "Failed" + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " " + result.ErrorCode);
+                    manager.CompleteItem(i, state, state.StartsWith("Failed", StringComparison.Ordinal));
+                }
+
+                CategoryPromptState.ClearInstallQueue(category);
+                CategoryPromptState.Clear(category);
+
+                int ok = results.Count(r => r.Status is "Installert" or "Already up to date");
+                bool rebootHint = results.Any(r => (r.Source ?? "").Contains("Restart", StringComparison.OrdinalIgnoreCase));
+                var policy = UpdatePolicy.Load();
+                policy.Normalize();
+                var cat = category == "general" ? policy.WindowsAutomation.General : policy.WindowsAutomation.Critical;
+                string preferred = AutomationSchedule.PreferredOrDefault(cat.PreferredInstallTime);
+                bool weekly = category == "general";
+                int minInterval = weekly ? 1440 : 60;
+                WindowsAutomationStatus.WriteCategory(
+                    category,
+                    rebootHint ? "Installed (restart needed)" : "Installed",
+                    $"{ok}/{results.Count} completed. Update Express did not restart Windows.",
+                    NextDue(DateTime.Now, cat, preferred, weekly, minInterval));
+                ActivityLog.TryWrite(displayName + "Automation", "Installed", new { ok, Total = results.Count, rebootHint }, mode: "Automatic", source: "ElevatedHelper");
+
+                manager.Finish();
+                if (rebootHint)
+                {
+                    manager.SetStage("Finished — a restart may be required. Update Express never restarts Windows automatically.");
+                }
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Write($"{displayName} install helper failed: " + ex);
+                ActivityLog.TryWrite(displayName + "Automation", "InstallFailed", ex.ToString(), mode: "Automatic", source: "ElevatedHelper");
+                WindowsAutomationStatus.WriteCategory(category, "Failed", ex.Message, DateTime.Now.AddHours(1));
+                var retry = CategoryPromptState.Load(category);
+                retry.State = "awaitingPrompt";
+                retry.Save();
+                for (int i = 0; i < queue.Count; i++)
+                    manager.CompleteItem(i, "Failed", true);
+                manager.Finish();
+                manager.SetStage("Failed: " + ex.Message);
+                System.Windows.MessageBox.Show(
+                    manager,
+                    $"Could not install {displayName.ToLowerInvariant()} updates.\n\n" + ex.Message + "\n\nSee agent.log for details.",
+                    "Update Express",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+            }
+        };
+
+        manager.ShowDialog();
     }
 }

@@ -45,6 +45,9 @@ public partial class SoftwareUpdatesDialog : Window
 
     private void InstallNow_Click(object sender, RoutedEventArgs e)
     {
+        ProgressPanel.Visibility = Visibility.Visible;
+        ProgressLabel.Text = "Starting installation — administrator approval may be required…";
+        ActionsPanel.IsEnabled = false;
         Decision = PromptDecision.InstallNow;
         DialogResult = true;
         Close();
