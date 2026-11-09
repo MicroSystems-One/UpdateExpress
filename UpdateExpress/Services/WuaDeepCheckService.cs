@@ -71,8 +71,15 @@ internal sealed class WuaDeepCheckReport
     internal void Save()
     {
         Directory.CreateDirectory(DirectoryPath);
-        File.WriteAllText(LastJsonPath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
-        File.WriteAllText(LastTextPath, BuildAiPrompt(), new UTF8Encoding(false));
+        string prompt = BuildAiPrompt();
+        string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(LastJsonPath, json, new UTF8Encoding(false));
+        File.WriteAllText(LastTextPath, prompt, new UTF8Encoding(false));
+        // Keep dated copies so "WUA status report" can open previous runs.
+        string stamp = Finished == default ? DateTime.Now.ToString("yyyyMMdd-HHmmss") : Finished.ToLocalTime().ToString("yyyyMMdd-HHmmss");
+        File.WriteAllText(Path.Combine(DirectoryPath, $"wua-deep-check-{stamp}.txt"), prompt, new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(DirectoryPath, $"wua-deep-check-{stamp}.json"), json, new UTF8Encoding(false));
+        PruneOldArchives(keep: 30);
     }
 
     internal static string? LoadLatestPrompt()
@@ -84,6 +91,62 @@ internal sealed class WuaDeepCheckReport
             return JsonSerializer.Deserialize<WuaDeepCheckReport>(File.ReadAllText(LastJsonPath))?.BuildAiPrompt();
         }
         catch { return null; }
+    }
+
+    internal sealed record SavedReport(string Path, string DisplayName, DateTime LastWrite);
+
+    internal static List<SavedReport> ListSavedReports()
+    {
+        var list = new List<SavedReport>();
+        try
+        {
+            Directory.CreateDirectory(DirectoryPath);
+            if (File.Exists(LastTextPath))
+            {
+                var info = new FileInfo(LastTextPath);
+                list.Add(new SavedReport(LastTextPath, "Latest deep check", info.LastWriteTime));
+            }
+            foreach (var path in Directory.EnumerateFiles(DirectoryPath, "wua-deep-check-*.txt")
+                         .OrderByDescending(File.GetLastWriteTime))
+            {
+                string name = System.IO.Path.GetFileNameWithoutExtension(path);
+                // wua-deep-check-yyyyMMdd-HHmmss
+                string stamp = name.StartsWith("wua-deep-check-", StringComparison.OrdinalIgnoreCase)
+                    ? name["wua-deep-check-".Length..]
+                    : name;
+                list.Add(new SavedReport(path, stamp, File.GetLastWriteTime(path)));
+            }
+        }
+        catch { }
+        return list;
+    }
+
+    internal static string? LoadPromptFromFile(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+            return File.ReadAllText(path);
+        }
+        catch { return null; }
+    }
+
+    private static void PruneOldArchives(int keep)
+    {
+        try
+        {
+            var files = Directory.EnumerateFiles(DirectoryPath, "wua-deep-check-*.txt")
+                .OrderByDescending(File.GetLastWriteTime)
+                .Skip(keep)
+                .ToList();
+            foreach (var txt in files)
+            {
+                try { File.Delete(txt); } catch { }
+                string json = System.IO.Path.ChangeExtension(txt, ".json");
+                try { if (File.Exists(json)) File.Delete(json); } catch { }
+            }
+        }
+        catch { }
     }
 }
 

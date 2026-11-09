@@ -172,6 +172,7 @@
      <Button x:Name="HistoryButton" Grid.Row="0" Grid.Column="2" Content="☷  Installation History" Click="History_Click" Margin="0,0,6,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
      <Button Grid.Row="0" Grid.Column="3" Content="↓  Export CSV" Click="Export_Click" Margin="0,0,0,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
      <Button x:Name="ErrorReportButton" Grid.Row="1" Grid.Column="0" Content="📋  Error report" Click="ErrorReport_Click" ToolTip="AI troubleshooting prompt from the last Windows Update fix" Margin="0,0,6,0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
+     <Button x:Name="WuaStatusReportButton" Grid.Row="1" Grid.Column="1" Content="📄  WUA status report" Click="WuaStatusReport_Click" ToolTip="Open the latest or a previous WUA deep check report" Margin="0,0,6,0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
      <Button x:Name="DiagnosticsButton" Grid.Row="1" Grid.Column="2" Content="⚙  Diagnostics" Click="Diagnostics_Click" Margin="0,0,6,0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
      <Button x:Name="HealthButton" Grid.Row="1" Grid.Column="3" Content="✓  Check Status" Click="Health_Click" Margin="0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
     </Grid>
