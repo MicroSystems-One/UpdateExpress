@@ -1,7 +1,7 @@
-<Window x:Class="UpdateExpress.CriticalUpdatesDialog"
+<Window x:Class="UpdateExpress.SoftwareUpdatesDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Update Express – Critical updates"
+        Title="Update Express – Updates"
         Width="640" Height="480" MinWidth="560" MinHeight="420"
         ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
         Background="#F3F6FB" FontFamily="Segoe UI">
@@ -14,7 +14,7 @@
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
-      <TextBlock Text="Critical Windows updates ready" FontSize="20" FontWeight="SemiBold" Foreground="#152137"/>
+      <TextBlock x:Name="HeadingText" Text="Windows updates ready" FontSize="20" FontWeight="SemiBold" Foreground="#152137"/>
       <TextBlock x:Name="SummaryText" Grid.Row="1" Margin="0,8,0,10" TextWrapping="Wrap" Foreground="#334155"/>
       <ListBox x:Name="UpdatesList" Grid.Row="2" BorderBrush="#DDE3EB" BorderThickness="1"
                ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
@@ -22,7 +22,7 @@
                  Text="Update Express never restarts Windows automatically. Save your work before installing; a restart may still be required afterwards."/>
       <WrapPanel Grid.Row="4" HorizontalAlignment="Right">
         <Button Content="Install now" Click="InstallNow_Click" Margin="0,0,8,0" Padding="12,6"/>
-        <Button x:Name="TonightButton" Content="Install tonight" Click="Tonight_Click" Margin="0,0,8,0" Padding="12,6"/>
+        <Button x:Name="PreferredButton" Content="Install at preferred time" Click="Preferred_Click" Margin="0,0,8,0" Padding="12,6"/>
         <Button Content="Remind in 1 hour" Click="RemindHour_Click" Margin="0,0,8,0" Padding="12,6"/>
         <Button Content="Remind tomorrow" Click="RemindDay_Click" Margin="0,0,8,0" Padding="12,6"/>
         <Button Content="Later" Click="Later_Click" Padding="12,6"/>

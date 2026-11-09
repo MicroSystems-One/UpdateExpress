@@ -10,7 +10,7 @@ public sealed class CategoryAutomationPolicy
     public int IntervalMinutes { get; set; } = 60;
     /// <summary>off | checkOnly | downloadAndPrompt | autoInstall</summary>
     public string Mode { get; set; } = "checkOnly";
-    public string PreferredInstallTime { get; set; } = "20:00";
+    public string PreferredInstallTime { get; set; } = AutomationSchedule.DefaultPreferredTime;
     /// <summary>0=Monday … 6=Sunday, 7=every day. Used by weekly general updates.</summary>
     public int Weekday { get; set; } = 2;
 }
@@ -30,14 +30,14 @@ public sealed class WindowsAutomationPolicy
         Enabled = true,
         IntervalMinutes = 1440,
         Mode = "downloadAndPrompt",
-        PreferredInstallTime = "20:00"
+        PreferredInstallTime = AutomationSchedule.DefaultPreferredTime
     };
     public CategoryAutomationPolicy General { get; set; } = new()
     {
         Enabled = true,
         IntervalMinutes = 10080,
         Mode = "downloadAndPrompt",
-        PreferredInstallTime = "20:00",
+        PreferredInstallTime = AutomationSchedule.DefaultPreferredTime,
         Weekday = 2
     };
 
@@ -87,9 +87,29 @@ public sealed class UpdatePolicy
     {
         WindowsAutomation ??= WindowsAutomationPolicy.CreateDefault();
         WindowsAutomation.Defender ??= new CategoryAutomationPolicy { Enabled = true, IntervalMinutes = 60, Mode = "autoInstall" };
-        WindowsAutomation.Critical ??= new CategoryAutomationPolicy { Enabled = true, IntervalMinutes = 1440, Mode = "downloadAndPrompt" };
-        WindowsAutomation.General ??= new CategoryAutomationPolicy { Enabled = true, IntervalMinutes = 10080, Mode = "downloadAndPrompt", Weekday = 2 };
+        WindowsAutomation.Critical ??= new CategoryAutomationPolicy
+        {
+            Enabled = true,
+            IntervalMinutes = 1440,
+            Mode = "downloadAndPrompt",
+            PreferredInstallTime = AutomationSchedule.DefaultPreferredTime
+        };
+        WindowsAutomation.General ??= new CategoryAutomationPolicy
+        {
+            Enabled = true,
+            IntervalMinutes = 10080,
+            Mode = "downloadAndPrompt",
+            PreferredInstallTime = AutomationSchedule.DefaultPreferredTime,
+            Weekday = 2
+        };
         WindowsAutomation.NeverAutoReboot = true;
+
+        if (string.IsNullOrWhiteSpace(WindowsAutomation.Critical.PreferredInstallTime) ||
+            WindowsAutomation.Critical.PreferredInstallTime.Trim() == "20:00")
+            WindowsAutomation.Critical.PreferredInstallTime = AutomationSchedule.DefaultPreferredTime;
+        if (string.IsNullOrWhiteSpace(WindowsAutomation.General.PreferredInstallTime) ||
+            WindowsAutomation.General.PreferredInstallTime.Trim() == "20:00")
+            WindowsAutomation.General.PreferredInstallTime = AutomationSchedule.DefaultPreferredTime;
 
         // Hard rules for v1 (B+C): only Defender may auto-install.
         if (!string.Equals(WindowsAutomation.Defender.Mode, "autoInstall", StringComparison.OrdinalIgnoreCase) &&

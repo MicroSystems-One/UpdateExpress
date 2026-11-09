@@ -29,6 +29,14 @@ public partial class App : System.Windows.Application
             Shutdown();
             return;
         }
+        if (args.Contains("--apply-general-install", StringComparer.OrdinalIgnoreCase))
+        {
+            // Elevated helper for Category 3: install queued general software updates only.
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            GeneralAutomation.ApplyQueuedInstall();
+            Shutdown();
+            return;
+        }
         if (args.Contains("--agent", StringComparer.OrdinalIgnoreCase))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;

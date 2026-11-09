@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -6,29 +5,41 @@ using UpdateExpress.Services;
 
 namespace UpdateExpress;
 
-public partial class CriticalUpdatesDialog : Window
+public partial class SoftwareUpdatesDialog : Window
 {
     public enum PromptDecision
     {
         Later,
         InstallNow,
-        InstallTonight,
+        InstallAtPreferred,
         RemindOneHour,
         RemindTomorrow
     }
 
     public PromptDecision Decision { get; private set; } = PromptDecision.Later;
 
-    public CriticalUpdatesDialog(IReadOnlyList<CriticalPromptUpdate> updates, string preferredTime, bool downloaded)
+    public SoftwareUpdatesDialog(
+        string displayName,
+        IReadOnlyList<PromptUpdateItem> updates,
+        string preferredTime,
+        bool downloaded)
     {
         InitializeComponent();
-        TonightButton.Content = $"Install at {preferredTime}";
+        Title = $"Update Express – {displayName} updates";
+        HeadingText.Text = $"{displayName} Windows updates ready";
+        PreferredButton.Content = $"Install at {preferredTime}";
         int count = updates.Count;
+        string kind = displayName.ToLowerInvariant();
         SummaryText.Text = downloaded
-            ? $"{count} critical/important update(s) downloaded. Choose when to install:"
-            : $"{count} critical/important update(s) found. Download may finish during install. Choose when to install:";
+            ? $"{count} {kind} update(s) downloaded. Choose when to install:"
+            : $"{count} {kind} update(s) found. Download may finish during install. Choose when to install:";
         UpdatesList.ItemsSource = updates
-            .Select(u => $"{u.Priority}: {(string.IsNullOrWhiteSpace(u.KB) ? u.UpdateId : u.KB)} — {u.Title}")
+            .Select(u =>
+            {
+                string label = string.IsNullOrWhiteSpace(u.Priority) ? "Update" : u.Priority;
+                string id = string.IsNullOrWhiteSpace(u.KB) ? u.UpdateId : u.KB;
+                return $"{label}: {id} — {u.Title}";
+            })
             .ToList();
     }
 
@@ -39,9 +50,9 @@ public partial class CriticalUpdatesDialog : Window
         Close();
     }
 
-    private void Tonight_Click(object sender, RoutedEventArgs e)
+    private void Preferred_Click(object sender, RoutedEventArgs e)
     {
-        Decision = PromptDecision.InstallTonight;
+        Decision = PromptDecision.InstallAtPreferred;
         DialogResult = true;
         Close();
     }

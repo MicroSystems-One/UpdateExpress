@@ -230,7 +230,7 @@ public partial class MainWindow : Window
         if (!TimeSpan.TryParseExact(CriticalPreferredTime.Text.Trim(), @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out _) ||
             !TimeSpan.TryParseExact(GeneralPreferredTime.Text.Trim(), @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out _))
         {
-            MessageBox.Show(this, "Preferred times must be HH:mm, for example 20:00.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Preferred times must be HH:mm, for example 12:00.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -261,8 +261,8 @@ public partial class MainWindow : Window
         MessageBox.Show(this,
             "Windows automation policy saved.\n\n" +
             "Defender (K1) can auto-install via the background agent.\n" +
-            "Critical (K2) downloads in the background and asks before install.\n" +
-            "General (K3) prompts are not automated yet.\n" +
+            "Critical (K2) and General (K3) download in the background and ask before install.\n" +
+            "Default preferred time is 12:00. Update Express never reboots Windows.\n" +
             "Driver/application checkboxes remain preferences only.",
             "Update Express");
     }
@@ -276,10 +276,10 @@ public partial class MainWindow : Window
         DefenderIntervalMinutes.Text = wa.Defender.IntervalMinutes.ToString();
         CriticalAutoEnabled.IsChecked = wa.Critical.Enabled;
         CriticalIntervalMinutes.Text = wa.Critical.IntervalMinutes.ToString();
-        CriticalPreferredTime.Text = string.IsNullOrWhiteSpace(wa.Critical.PreferredInstallTime) ? "20:00" : wa.Critical.PreferredInstallTime;
+        CriticalPreferredTime.Text = string.IsNullOrWhiteSpace(wa.Critical.PreferredInstallTime) ? AutomationSchedule.DefaultPreferredTime : wa.Critical.PreferredInstallTime;
         GeneralAutoEnabled.IsChecked = wa.General.Enabled;
         GeneralIntervalMinutes.Text = wa.General.IntervalMinutes.ToString();
-        GeneralPreferredTime.Text = string.IsNullOrWhiteSpace(wa.General.PreferredInstallTime) ? "20:00" : wa.General.PreferredInstallTime;
+        GeneralPreferredTime.Text = string.IsNullOrWhiteSpace(wa.General.PreferredInstallTime) ? AutomationSchedule.DefaultPreferredTime : wa.General.PreferredInstallTime;
         AutoDrivers.IsChecked = _policy.AutomaticDrivers;
         AutoApplications.IsChecked = _policy.AutomaticApplications;
         RefreshAutomationStatusTexts();
@@ -296,7 +296,7 @@ public partial class MainWindow : Window
         }
         DefenderAutomationStatus.Text = Format(status.Defender, "waiting for agent");
         CriticalAutomationStatus.Text = Format(status.Critical, "waiting for agent");
-        GeneralAutomationStatus.Text = Format(status.General, "not automated yet");
+        GeneralAutomationStatus.Text = Format(status.General, "waiting for agent");
         AutomationStatusText.Text =
             $"Windows automation: Defender={status.Defender.LastResult}" +
             $"  |  Critical={status.Critical.LastResult}" +
@@ -536,8 +536,9 @@ public partial class MainWindow : Window
         ["Mode: Auto-install (K1)"] = "Modus: Auto-installasjon (K1)",
         ["Mode: Download + ask (soon)"] = "Modus: Last ned + spør (kommer)",
         ["Mode: Download + ask (K2)"] = "Modus: Last ned + spør (K2)",
-        ["Never auto-reboot. Firmware remains manual. Critical updates download in the background and ask before install. General prompts come next."] =
-            "Aldri auto-omstart. Fastvare forblir manuell. Kritiske oppdateringer lastes ned i bakgrunnen og spør før installasjon. Generelle spørsmål kommer neste.",
+        ["Mode: Download + ask (K3)"] = "Modus: Last ned + spør (K3)",
+        ["Never auto-reboot. Firmware remains manual. Critical and general updates download in the background and ask before install. Default preferred time is 12:00."] =
+            "Aldri auto-omstart. Fastvare forblir manuell. Kritiske og generelle oppdateringer lastes ned i bakgrunnen og spør før installasjon. Standard foretrukket tid er 12:00.",
         ["Enabled"] = "Aktivert",
         ["Every day"] = "Hver dag", ["Monday"] = "Mandag", ["Tuesday"] = "Tirsdag", ["Wednesday"] = "Onsdag",
         ["Thursday"] = "Torsdag", ["Friday"] = "Fredag", ["Saturday"] = "Lørdag", ["Sunday"] = "Søndag"

@@ -60,15 +60,16 @@ internal sealed class TrayAgent : IDisposable
         // Avoid an expensive WUA scan during Windows sign-in. Scan after 5 minutes,
         // then at most every six hours. Manual scans use the same overlap guard.
         _timer = new System.Threading.Timer(_ => { _nextScheduled = DateTime.Now.Add(_interval); StartScan(); }, null, TimeSpan.FromMinutes(5), _interval);
-        // Categories 1–2: poll often; each job decides whether it is due.
+        // Categories 1–3: poll often; each job decides whether it is due.
         CriticalAutomation.SetBalloon((title, text) => ShowAppBalloon(title, text, ToolTipIcon.Info));
         _defenderTimer = new System.Threading.Timer(_ =>
         {
             _ = DefenderAutomation.RunDueJobAsync();
             _ = CriticalAutomation.RunDueJobAsync(_dispatcher);
+            _ = GeneralAutomation.RunDueJobAsync(_dispatcher);
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
         WriteMonitorStatus("waiting", 0, 0, null, null);
-        AgentLog.Write("Tray agent started; WUA monitor every 6h; Defender+Critical automation poll every 5m.");
+        AgentLog.Write("Tray agent started; WUA monitor every 6h; Defender+Critical+General automation poll every 5m.");
     }
 
     private void StartScan()
