@@ -153,6 +153,10 @@
      <TextBlock Grid.Column="1" x:Name="MonitorElapsedText" Text="" FontSize="12" Foreground="#F47700" VerticalAlignment="Center" Margin="12,0,0,0"/>
     </Grid>
    </Border>
+   <TextBlock x:Name="RebootNeededBanner" Text="⚠  Reboot needed" Visibility="Collapsed"
+              FontSize="15" FontWeight="Bold" Foreground="#C62828"
+              HorizontalAlignment="Center" Margin="0,0,0,8"
+              ToolTip="Windows reports a pending restart. Save your work and restart this PC."/>
    <TextBlock x:Name="StatusText" Visibility="Collapsed" Text="Ready"/>
    <StackPanel x:Name="InstallProgressPanel" Visibility="Collapsed" Margin="0,4,0,6">
     <TextBlock x:Name="InstallProgressLabel" Text="Preparing installation…" FontSize="12" Foreground="#52617A" Margin="0,0,0,3"/>

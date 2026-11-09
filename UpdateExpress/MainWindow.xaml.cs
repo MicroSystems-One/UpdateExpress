@@ -422,6 +422,36 @@ public partial class MainWindow : Window
     }
     private readonly DispatcherTimer _reminderTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly DispatcherTimer _monitorUiTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly DispatcherTimer _rebootBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(700) };
+    private bool _rebootBlinkOn = true;
+
+    private void RefreshRebootNeededBanner()
+    {
+        if (RebootNeededBanner is null) return;
+        bool needed = RebootPendingReader.IsRebootPending();
+        RebootNeededBanner.Visibility = needed ? Visibility.Visible : Visibility.Collapsed;
+        RebootNeededBanner.ToolTip = needed
+            ? "Windows reports a pending restart (" + RebootPendingReader.Detail() + "). Save your work and restart this PC."
+            : null;
+        if (needed && !_rebootBlinkTimer.IsEnabled) _rebootBlinkTimer.Start();
+        if (!needed)
+        {
+            _rebootBlinkTimer.Stop();
+            RebootNeededBanner.Opacity = 1;
+        }
+    }
+
+    private void RebootBlinkTimer_Tick(object? sender, EventArgs e)
+    {
+        if (RebootNeededBanner.Visibility != Visibility.Visible)
+        {
+            _rebootBlinkTimer.Stop();
+            return;
+        }
+        _rebootBlinkOn = !_rebootBlinkOn;
+        RebootNeededBanner.Opacity = _rebootBlinkOn ? 1.0 : 0.25;
+    }
+
     private void RefreshMonitorPanel()
     {
         var status = MonitorStatus.Read();
@@ -497,15 +527,18 @@ public partial class MainWindow : Window
         RefreshScheduleStatus();
         _reminderTimer.Tick += (_, _) => CheckReminder();
         _reminderTimer.Start();
-        _monitorUiTimer.Tick += (_, _) => { RefreshMonitorPanel(); RefreshAutomationStatusTexts(); };
+        _monitorUiTimer.Tick += (_, _) => { RefreshMonitorPanel(); RefreshAutomationStatusTexts(); RefreshRebootNeededBanner(); };
         _monitorUiTimer.Start();
+        _rebootBlinkTimer.Tick += RebootBlinkTimer_Tick;
         RefreshMonitorPanel();
         RefreshAutomationStatusTexts();
+        RefreshRebootNeededBanner();
         Loaded += async (_, _) =>
         {
             CheckReminder();
             await RefreshDefenderAsync();
             await RefreshFirewallAsync();
+            RefreshRebootNeededBanner();
             // Quiet self-update check when the main window opens (prompt only if newer).
             AppUpdatePrompt.StartCheck(
                 automatic: true,
@@ -592,6 +625,7 @@ public partial class MainWindow : Window
         ["Install Selected Updates"] = "Installer valgte oppdateringer", ["Installation History"] = "Installasjonshistorikk",
         ["Windows Update fix"] = "Windows Update-fiks", ["WUA deep check"] = "WUA dybdesjekk",
         ["WUA status report"] = "WUA statusrapport", ["Error report"] = "Feilrapport",
+        ["Reboot needed"] = "Omstart nødvendig",
         ["Export CSV"] = "Eksporter CSV", ["Diagnostics"] = "Diagnostikk", ["Check Status"] = "Kontroller status",
         ["Refresh Security Status"] = "Oppdater sikkerhetsstatus", ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
         ["Results"] = "Resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
@@ -1145,6 +1179,7 @@ public partial class MainWindow : Window
             InstallButton.Content = "↓  Install Selected Updates";
             ScanButton.IsEnabled = HistoryButton.IsEnabled = AppsScanButton.IsEnabled = true;
             UpdateSelectionControls();
+            RefreshRebootNeededBanner();
         }
     }
 
