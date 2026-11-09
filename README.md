@@ -2,7 +2,7 @@
 
 Windows update management application for MicroSystems technicians and MSPs.
 
-**Current version:** 0.7.2.6.38  
+**Current version:** 0.7.2.6.39  
 **Platform:** Windows 10/11 x64  
 **Stack:** .NET 10 / WPF / C#
 
@@ -14,7 +14,7 @@ Requirements: .NET 10 SDK on Windows.
 BYGG-EXE.cmd
 ```
 
-Output: `Publisert\UpdateExpress_v0.7.2.6.38.exe`
+Output: `Publisert\UpdateExpress_v0.7.2.6.39.exe`
 
 ## Notes
 

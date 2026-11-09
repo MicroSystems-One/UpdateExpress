@@ -20,7 +20,7 @@ internal static class InstallationManager
     internal static string UserExe => Path.Combine(UserInstallDir, "UpdateExpress.exe");
     private static readonly string StartMenuDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "MicroSystems");
     private static readonly string Shortcut = Path.Combine(StartMenuDir, "Update Express.lnk");
-    private const string DesktopIconName = "UpdateExpress-U-v0.7.2.6.38.ico";
+    private const string DesktopIconName = "UpdateExpress-U-v0.7.2.6.39.ico";
     private const string DesktopIconResource = "UpdateExpress.Assets.UpdateExpress.ico";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\MicroSystems.UpdateExpress";
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -91,8 +91,33 @@ internal static class InstallationManager
         AgentLog.Write($"Launching detached maintenance: {operation} (parent {parentPid})");
         using var maintenanceProcess = Process.Start(new ProcessStartInfo(helper, arguments) { UseShellExecute = true, WorkingDirectory = helperDir, Verb = allUsers ? "runas" : "open" })
             ?? throw new InvalidOperationException("Kunne ikke starte vedlikeholdsprosessen.");
-        // Release any locks held by this process before the helper touches installed files.
-        System.Windows.Application.Current.Shutdown();
+        // Release locks before the helper replaces files. Shutdown must run on the WPF UI thread
+        // (tray self-update downloads on a background thread).
+        ShutdownCurrentApplication();
+    }
+
+    private static void ShutdownCurrentApplication()
+    {
+        var app = System.Windows.Application.Current;
+        if (app is null)
+        {
+            Environment.Exit(0);
+            return;
+        }
+        if (app.Dispatcher.CheckAccess())
+        {
+            app.Shutdown();
+            return;
+        }
+        try
+        {
+            app.Dispatcher.Invoke(() => app.Shutdown());
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Dispatcher shutdown failed; forcing process exit: " + ex.Message);
+            Environment.Exit(0);
+        }
     }
 
     internal static void ApplyMaintenance(string[] args)
