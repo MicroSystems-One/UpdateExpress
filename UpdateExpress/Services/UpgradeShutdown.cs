@@ -19,6 +19,12 @@ internal static class UpgradeShutdown
 
     private const int ProcessQueryLimitedInformation = 0x1000;
 
+    /// <summary>
+    /// When &gt; 0, this process initiated EnsureUiClosedForUpgrade and must ignore its own
+    /// shutdown signal (otherwise MainWindow closes before download/replace can start).
+    /// </summary>
+    private static int _suppressSelfShutdown;
+
     internal static void RequestUiClose()
     {
         try
@@ -59,6 +65,12 @@ internal static class UpgradeShutdown
                 while (!token.IsCancellationRequested)
                 {
                     if (!ev.WaitOne(500)) continue;
+                    if (Volatile.Read(ref _suppressSelfShutdown) > 0)
+                    {
+                        // This process is the upgrade initiator — peers still see the signal.
+                        Thread.Sleep(400);
+                        continue;
+                    }
                     AgentLog.Write("UI received shutdown-for-upgrade signal.");
                     try { onRequested(); }
                     catch (Exception ex) { AgentLog.Write("Upgrade shutdown callback failed: " + ex.Message); }
@@ -74,41 +86,59 @@ internal static class UpgradeShutdown
     }
 
     /// <summary>
-    /// Ask open Update Express UI to close and wait until it is gone.
+    /// Ask other Update Express UI processes to close and wait until they are gone.
+    /// Does not shut down the calling process — download/verify still needs to run here.
     /// Falls back to a Retry dialog for builds that do not listen for the signal.
     /// </summary>
     internal static bool EnsureUiClosedForUpgrade()
     {
-        RequestUiClose();
-        TryClosePeerMainWindows();
-
-        if (WaitUntilNoPeerUi(TimeSpan.FromSeconds(15)))
+        Interlocked.Increment(ref _suppressSelfShutdown);
+        try
         {
+            // Close peers first without the named event when possible — signaling while we
+            // listen would previously shut down MainWindow before the download started.
+            TryClosePeerMainWindows();
+            if (WaitUntilNoPeerUi(TimeSpan.FromSeconds(8)))
+            {
+                ClearPendingRequest();
+                AgentLog.Write("No peer Update Express UI remains; continuing upgrade in this process.");
+                return true;
+            }
+
+            RequestUiClose();
+            TryClosePeerMainWindows();
+            if (WaitUntilNoPeerUi(TimeSpan.FromSeconds(15)))
+            {
+                ClearPendingRequest();
+                return true;
+            }
+
+            while (HasPeerUiProcess())
+            {
+                var choice = System.Windows.Forms.MessageBox.Show(
+                    "Update Express is still open.\n\n" +
+                    "Close the Update Express window, then click Retry to continue the upgrade.\n\n" +
+                    "(The update window runs elevated, so it must close before files can be replaced.)",
+                    "Update Express",
+                    System.Windows.Forms.MessageBoxButtons.RetryCancel,
+                    System.Windows.Forms.MessageBoxIcon.Warning);
+                if (choice != System.Windows.Forms.DialogResult.Retry)
+                {
+                    ClearPendingRequest();
+                    return false;
+                }
+                RequestUiClose();
+                TryClosePeerMainWindows();
+                WaitUntilNoPeerUi(TimeSpan.FromSeconds(10));
+            }
+
             ClearPendingRequest();
             return true;
         }
-
-        while (HasPeerUiProcess())
+        finally
         {
-            var choice = System.Windows.Forms.MessageBox.Show(
-                "Update Express is still open.\n\n" +
-                "Close the Update Express window, then click Retry to continue the upgrade.\n\n" +
-                "(The update window runs elevated, so it must close before files can be replaced.)",
-                "Update Express",
-                System.Windows.Forms.MessageBoxButtons.RetryCancel,
-                System.Windows.Forms.MessageBoxIcon.Warning);
-            if (choice != System.Windows.Forms.DialogResult.Retry)
-            {
-                ClearPendingRequest();
-                return false;
-            }
-            RequestUiClose();
-            TryClosePeerMainWindows();
-            WaitUntilNoPeerUi(TimeSpan.FromSeconds(10));
+            Interlocked.Decrement(ref _suppressSelfShutdown);
         }
-
-        ClearPendingRequest();
-        return true;
     }
 
     private static void TryClosePeerMainWindows()

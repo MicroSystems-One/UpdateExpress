@@ -1,0 +1,19 @@
+<Window x:Class="UpdateExpress.SelfUpdateProgressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Updating Update Express"
+        Width="420" Height="160" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        Background="#F3F6FB" FontFamily="Segoe UI"
+        ShowInTaskbar="True" Topmost="True">
+  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="12" Padding="18">
+    <StackPanel>
+      <TextBlock Text="Installing Update Express update…" FontSize="15" FontWeight="SemiBold" Foreground="#152137"/>
+      <TextBlock x:Name="StageText" Margin="0,10,0,10" TextWrapping="Wrap" Foreground="#52617A"
+                 Text="Preparing…"/>
+      <ProgressBar Height="8" IsIndeterminate="True" Foreground="#F47700"/>
+      <TextBlock Margin="0,10,0,0" FontSize="11" Foreground="#7A8699"
+                 Text="Do not close this window. The app will restart when the package is verified."/>
+    </StackPanel>
+  </Border>
+</Window>

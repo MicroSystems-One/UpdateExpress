@@ -521,14 +521,24 @@ public partial class MainWindow : Window
     {
         _ = Dispatcher.InvokeAsync(async () =>
         {
+            var progressUi = new SelfUpdateProgressWindow { Owner = this };
+            progressUi.Show();
             try
             {
                 StatusText.Visibility = Visibility.Visible;
                 StatusText.Text = "Downloading Update Express update…";
+                progressUi.SetStage("Downloading Update Express update…");
                 await AppUpdateInstaller.PrepareAndLaunchAsync(offer, stage =>
                 {
                     AgentLog.Write("App update (UI): " + stage);
-                    try { Dispatcher.BeginInvoke(new Action(() => StatusText.Text = stage)); }
+                    try
+                    {
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            StatusText.Text = stage;
+                            progressUi.SetStage(stage);
+                        }));
+                    }
                     catch { }
                 }).ConfigureAwait(true);
                 // LaunchSelfUpdate shuts down this process on success.
@@ -537,6 +547,7 @@ public partial class MainWindow : Window
             {
                 AgentLog.Write("App update install from main window failed: " + ex);
                 AppUpdatePrompt.ReleaseCheckLock();
+                try { progressUi.Close(); } catch { }
                 StatusText.Text = "Update Express update failed.";
                 MessageBox.Show(this,
                     "Could not install the Update Express update.\n\n" + ex.Message +
