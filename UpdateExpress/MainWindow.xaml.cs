@@ -579,7 +579,7 @@ public partial class MainWindow : Window
     {
         ["Windows Update Control"] = "Windows Update-kontroll", ["Check for Updates"] = "Søk etter oppdateringer",
         ["Install Selected Updates"] = "Installer valgte oppdateringer", ["Installation History"] = "Installasjonshistorikk",
-        ["Windows Update fix"] = "Windows Update-fiks", ["Error report"] = "Feilrapport",
+        ["Windows Update fix"] = "Windows Update-fiks", ["WUA deep check"] = "WUA dybdesjekk", ["Error report"] = "Feilrapport",
         ["Export CSV"] = "Eksporter CSV", ["Diagnostics"] = "Diagnostikk", ["Check Status"] = "Kontroller status",
         ["Refresh Security Status"] = "Oppdater sikkerhetsstatus", ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
         ["Results"] = "Resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
@@ -805,6 +805,13 @@ public partial class MainWindow : Window
     {
         if (_busy) return;
         var dlg = new WindowsUpdateFixDialog { Owner = this };
+        dlg.ShowDialog();
+    }
+
+    private void WuaDeepCheck_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var dlg = new WuaDeepCheckDialog { Owner = this };
         dlg.ShowDialog();
     }
 

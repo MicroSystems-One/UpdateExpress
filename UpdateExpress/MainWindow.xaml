@@ -166,13 +166,14 @@
      </Grid>
      <Button x:Name="InstallButton" Content="↓  Install Selected Updates" Click="Install_Click" IsEnabled="False" Margin="0" Width="180" HorizontalAlignment="Left" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
     </StackPanel>
-    <Grid Grid.Column="1" Margin="12,0,0,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="155"/><ColumnDefinition Width="170"/><ColumnDefinition Width="140"/></Grid.ColumnDefinitions>
+    <Grid Grid.Column="1" Margin="12,0,0,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="155"/><ColumnDefinition Width="140"/><ColumnDefinition Width="170"/><ColumnDefinition Width="140"/></Grid.ColumnDefinitions>
      <Button x:Name="WindowsUpdateFixButton" Grid.Row="0" Grid.Column="0" Content="⚒  Windows Update fix" Click="WindowsUpdateFix_Click" ToolTip="Quick / Medium / Deep repair for stuck or empty Windows Update" Margin="0,0,6,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button x:Name="HistoryButton" Grid.Row="0" Grid.Column="1" Content="☷  Installation History" Click="History_Click" Margin="0,0,6,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button Grid.Row="0" Grid.Column="2" Content="↓  Export CSV" Click="Export_Click" Margin="0,0,0,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
+     <Button x:Name="WuaDeepCheckButton" Grid.Row="0" Grid.Column="1" Content="🔍  WUA deep check" Click="WuaDeepCheck_Click" ToolTip="Read-only deep analysis when Windows Update fix did not help (network, services, WUA). ~2–4 min." Margin="0,0,6,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
+     <Button x:Name="HistoryButton" Grid.Row="0" Grid.Column="2" Content="☷  Installation History" Click="History_Click" Margin="0,0,6,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
+     <Button Grid.Row="0" Grid.Column="3" Content="↓  Export CSV" Click="Export_Click" Margin="0,0,0,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
      <Button x:Name="ErrorReportButton" Grid.Row="1" Grid.Column="0" Content="📋  Error report" Click="ErrorReport_Click" ToolTip="AI troubleshooting prompt from the last Windows Update fix" Margin="0,0,6,0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button x:Name="DiagnosticsButton" Grid.Row="1" Grid.Column="1" Content="⚙  Diagnostics" Click="Diagnostics_Click" Margin="0,0,6,0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button x:Name="HealthButton" Grid.Row="1" Grid.Column="2" Content="✓  Check Status" Click="Health_Click" Margin="0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
+     <Button x:Name="DiagnosticsButton" Grid.Row="1" Grid.Column="2" Content="⚙  Diagnostics" Click="Diagnostics_Click" Margin="0,0,6,0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
+     <Button x:Name="HealthButton" Grid.Row="1" Grid.Column="3" Content="✓  Check Status" Click="Health_Click" Margin="0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
     </Grid>
    </Grid>
   </StackPanel></Border>
