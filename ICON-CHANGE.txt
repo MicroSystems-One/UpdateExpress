@@ -1,0 +1,5 @@
+Update Express v0.7.2.6.30 – U icon update
+Replaced Assets/MicroSystems-M.png and Assets/UpdateExpress.ico with classic orange U.
+MicroSystems corporate logo Assets/MicroSystems.png unchanged.
+No application logic changed.
+Build on Windows with BYGG-EXE.cmd.

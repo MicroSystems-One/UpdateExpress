@@ -1,0 +1,57 @@
+## Build results
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rtifacts/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+## .NET / Visual Studio
+.vs/
+*.DotSettings.user
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Publish / installer outputs
+Publisert/*.exe
+Publisert/*.pdb
+Publisert/*.dll
+*.Publish.xml
+
+## NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+## Logs and local state
+*.log
+*.tmp
+*.temp
+agent.pid
+monitor-state.txt
+monitor-status.json
+monitor-initialized.flag
+
+## OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*~
+
+## Secrets / local config (never commit)
+*.pfx
+*.snk
+*.pem
+*.key
+.env
+.env.*
+secrets.json
+credentials.json

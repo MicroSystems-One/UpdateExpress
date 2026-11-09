@@ -1,0 +1,84 @@
+﻿using System.Diagnostics;
+using System.Text.Json;
+using UpdateExpress.Models;
+
+namespace UpdateExpress.Services;
+
+/// <summary>Read-only inventory of installed PnP drivers. Fail closed when device identity is ambiguous.</summary>
+internal static class InstalledDriverReader
+{
+    private sealed record Installed(string DeviceId, string Version, string Name);
+    private static string Normalize(string s) => s.Trim().Replace('/', '\\').ToUpperInvariant();
+
+    private static List<Installed> Inventory()
+    {
+        // Win32_PnPSignedDriver exposes the installed driver version and PNP device instance ID.
+        // Do not install drivers or change device settings here.
+        const string script = "$ErrorActionPreference='Stop'; @(Get-CimInstance Win32_PnPSignedDriver | Where-Object { $_.DeviceID -and $_.DriverVersion } | ForEach-Object { [pscustomobject]@{ DeviceId=[string]$_.DeviceID; Version=[string]$_.DriverVersion; Name=[string]$_.DeviceName } }) | ConvertTo-Json -Compress -Depth 3";
+        var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script));
+        using var process = new Process { StartInfo = new ProcessStartInfo
+        {
+            FileName = "powershell.exe", Arguments = "-NoProfile -NonInteractive -EncodedCommand " + encoded,
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
+            RedirectStandardError = false
+        } };
+        process.Start();
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        if (!process.WaitForExit(20000))
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            return new();
+        }
+        var output = outputTask.GetAwaiter().GetResult();
+        if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output)) return new();
+        using var json = JsonDocument.Parse(output);
+        var result = new List<Installed>();
+        var elements = json.RootElement.ValueKind == JsonValueKind.Array
+            ? json.RootElement.EnumerateArray().ToArray() : new[] { json.RootElement };
+        foreach (var item in elements)
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+            var id = item.TryGetProperty("DeviceId", out var d) ? d.GetString() ?? "" : "";
+            var version = item.TryGetProperty("Version", out var v) ? v.GetString() ?? "" : "";
+            var name = item.TryGetProperty("Name", out var n) ? n.GetString() ?? "" : "";
+            if (!string.IsNullOrWhiteSpace(id) && Version.TryParse(version, out _))
+                result.Add(new(id, version, name));
+        }
+        return result;
+    }
+
+    internal static void Classify(List<UpdateEntry> entries)
+    {
+        List<Installed> installed;
+        try { installed = Inventory(); }
+        catch (Exception ex)
+        {
+            foreach (var entry in entries.Where(e => e.Category == "Driver / firmware" && !e.DriverAssigned && e.DriverStatus != "Firmware"))
+                entry.DriverReason = "Installed driver inventory unavailable: " + ex.Message;
+            return;
+        }
+        foreach (var entry in entries.Where(e => e.Category == "Driver / firmware" && e.DriverStatus != "Firmware"))
+        {
+            if (!Version.TryParse(entry.DriverVersion, out var offered)) continue;
+            var hardware = Normalize(entry.DriverHardwareId);
+            if (string.IsNullOrWhiteSpace(hardware)) continue;
+            // Hardware ID is a prefix of the PnP instance ID; require an ID boundary,
+            // not a vendor/name/class match. If multiple devices match, do not guess.
+            var matches = installed.Where(d =>
+            {
+                var id = Normalize(d.DeviceId);
+                return id == hardware || id.StartsWith(hardware + "\\", StringComparison.Ordinal) ||
+                    id.StartsWith(hardware + "&", StringComparison.Ordinal);
+            }).ToList();
+            if (matches.Count != 1) continue;
+            var match = matches[0];
+            if (!Version.TryParse(match.Version, out var current)) continue;
+            entry.InstalledDriverVersion = match.Version;
+            var comparison = offered.CompareTo(current);
+            // Preserve explicit WUA recommendation as status; still report version relationship.
+            var relation = comparison > 0 ? "higher" : comparison < 0 ? "lower" : "equal";
+            entry.DriverReason = $"Installed PnP device: {match.Name} ({match.DeviceId}). Offered version is {relation} than installed {match.Version}. WUA assigned: {entry.DriverAssigned}.";
+            if (!entry.DriverAssigned) entry.DriverStatus = comparison > 0 ? "Newer" : comparison < 0 ? "Older" : "Same version";
+        }
+    }
+}
