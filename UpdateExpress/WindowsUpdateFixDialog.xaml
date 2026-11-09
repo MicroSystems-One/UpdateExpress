@@ -1,0 +1,67 @@
+<Window x:Class="UpdateExpress.WindowsUpdateFixDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Windows Update fix"
+        Width="560" Height="480" MinWidth="520" MinHeight="420"
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
+        Background="#F3F6FB" FontFamily="Segoe UI"
+        ShowInTaskbar="False">
+  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="14" Padding="18">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <TextBlock Text="Windows Update fix" FontSize="18" FontWeight="SemiBold" Foreground="#152137"/>
+      <TextBlock Grid.Row="1" Margin="0,8,0,12" TextWrapping="Wrap" Foreground="#52617A"
+                 Text="Use when Windows Update shows nothing, is stuck, or returns error codes. Requires administrator. Folders are renamed (backup), not deleted."/>
+      <StackPanel Grid.Row="2" Margin="0,0,0,10">
+        <RadioButton x:Name="QuickOption" GroupName="FixLevel" IsChecked="True" Margin="0,0,0,8"
+                     Checked="Level_Changed">
+          <StackPanel>
+            <TextBlock Text="Quick fix" FontWeight="SemiBold" Foreground="#152137"/>
+            <TextBlock Text="Stop services → rename SoftwareDistribution + catroot2 → start services → detect updates"
+                       TextWrapping="Wrap" Foreground="#52617A" FontSize="11" Margin="0,2,0,0"/>
+          </StackPanel>
+        </RadioButton>
+        <RadioButton x:Name="MediumOption" GroupName="FixLevel" Margin="0,0,0,8" Checked="Level_Changed">
+          <StackPanel>
+            <TextBlock Text="Medium fix" FontWeight="SemiBold" Foreground="#152137"/>
+            <TextBlock Text="Quick fix + SFC /scannow (15–45 min)"
+                       TextWrapping="Wrap" Foreground="#52617A" FontSize="11" Margin="0,2,0,0"/>
+          </StackPanel>
+        </RadioButton>
+        <RadioButton x:Name="DeepOption" GroupName="FixLevel" Margin="0,0,0,0" Checked="Level_Changed">
+          <StackPanel>
+            <TextBlock Text="Deep fix" FontWeight="SemiBold" Foreground="#152137"/>
+            <TextBlock Text="Medium fix + DISM /RestoreHealth (30–90+ min, needs network)"
+                       TextWrapping="Wrap" Foreground="#52617A" FontSize="11" Margin="0,2,0,0"/>
+          </StackPanel>
+        </RadioButton>
+      </StackPanel>
+      <Border Grid.Row="3" BorderBrush="#DDE3EB" BorderThickness="1" CornerRadius="8" Background="#F8FAFC" Padding="8">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <TextBlock x:Name="LogText" Text="Select a level and click Run." TextWrapping="Wrap"
+                     FontFamily="Consolas" FontSize="11" Foreground="#334155"/>
+        </ScrollViewer>
+      </Border>
+      <StackPanel Grid.Row="4" Margin="0,10,0,0" Visibility="Collapsed" x:Name="ProgressPanel">
+        <TextBlock x:Name="ProgressLabel" Text="Running…" FontSize="12" Foreground="#52617A" Margin="0,0,0,4"/>
+        <ProgressBar Height="7" IsIndeterminate="True" Foreground="#F47700"/>
+      </StackPanel>
+      <DockPanel Grid.Row="5" Margin="0,14,0,0" LastChildFill="False">
+        <Button x:Name="ErrorReportButton" DockPanel.Dock="Left" Content="Error report" Height="30" MinHeight="30"
+                Padding="12,3" Margin="0,0,8,0" IsEnabled="False" Click="ErrorReport_Click"/>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button x:Name="RunButton" Content="Run" Height="30" MinHeight="30" Padding="16,3" Margin="0,0,8,0" Click="Run_Click"
+                  Background="#F47700" Foreground="White" BorderBrush="#F47700" FontWeight="SemiBold"/>
+          <Button x:Name="CloseButton" Content="Close" Height="30" MinHeight="30" Padding="16,3" Click="Close_Click"/>
+        </StackPanel>
+      </DockPanel>
+    </Grid>
+  </Border>
+</Window>

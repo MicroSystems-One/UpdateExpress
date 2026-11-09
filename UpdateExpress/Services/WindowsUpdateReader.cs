@@ -70,16 +70,16 @@ public static class WindowsUpdateReader
         {
             if (severity.Equals("Critical", StringComparison.OrdinalIgnoreCase)) return ("Critical", "Official MSRC severity: Critical. " + metadata);
             if (severity.Equals("Important", StringComparison.OrdinalIgnoreCase)) return ("Important", "Official MSRC severity: Important. " + metadata);
-            if (severity.Equals("Moderate", StringComparison.OrdinalIgnoreCase)) return ("Recommended", "Official MSRC severity: Moderate (displayed as Recommended). " + metadata);
-            if (severity.Equals("Low", StringComparison.OrdinalIgnoreCase)) return ("Recommended", "Official MSRC severity: Low (displayed as Recommended). " + metadata);
+            if (severity.Equals("Moderate", StringComparison.OrdinalIgnoreCase)) return ("Moderate", "Official MSRC severity: Moderate. " + metadata);
+            if (severity.Equals("Low", StringComparison.OrdinalIgnoreCase)) return ("Low", "Official MSRC severity: Low (displayed as Moderate / K3). " + metadata);
             if (category == "Preview / valgfri") return ("Optional", "Preview/optional update classification; NOT an official MSRC severity. " + metadata);
         }
         if (driver) return ("Unknown", "No verified WUA/MSRC priority for this driver; WUA IsAssigned is shown separately. " + metadata);
         // KB2267602 is the Microsoft Defender Security Intelligence definitions update.
-        // Recommended is an operational suggestion, NOT an MSRC severity rating.
+        // Moderate (K3) here is an operational grade, NOT an official MSRC severity rating.
         string kb = KBs(update);
         if (kb.Split(',', StringSplitOptions.TrimEntries).Any(id => id.Equals("KB2267602", StringComparison.OrdinalIgnoreCase)))
-            return ("Recommended", "Microsoft Defender Security Intelligence (KB2267602). Operational recommendation based on update identity, not an official MSRC severity. " + metadata);
+            return ("Moderate", "Microsoft Defender Security Intelligence (KB2267602). Operational Moderate (K3) based on update identity, not an official MSRC severity. " + metadata);
         return ("Unrated", "No verified MSRC severity or applicable operational classification. " + metadata);
     }
     public static List<UpdateEntry> AdvancedPending(bool includeOptional = false, bool allDrivers = false)

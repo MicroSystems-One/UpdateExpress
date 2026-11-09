@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using UpdateExpress.Models;
 namespace UpdateExpress.Services;
 public sealed class AppUpdate(string name, string id, string installed, string available)
 {
@@ -12,9 +13,18 @@ public sealed class AppUpdate(string name, string id, string installed, string a
  public string Date => "";
  public string ErrorCode => "";
  public string DisplayName => Id.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase) && !Name.StartsWith("Microsoft ", StringComparison.OrdinalIgnoreCase) ? "Microsoft " + Name : Name;
- // WinGet upgrade does not provide a reliable security severity level.
+ // WinGet upgrade does not provide a reliable security severity level → display as Regular (K4).
  public string Priority => "Unrated";
- public string PriorityExplanation => "WinGet reports an available application version but does not provide verified security severity. Unrated is not a recommendation to skip the update.";
+ public string PriorityDisplay
+ {
+  get { var g = PriorityGrade.ForApplication(); return g.Display; }
+ }
+ public string PriorityColorHex
+ {
+  get { var g = PriorityGrade.ForApplication(); return g.ColorHex; }
+ }
+ public string PriorityExplanation =>
+  "WinGet reports an available application version but does not provide verified security severity. Shown as Regular (K4), not a recommendation to skip the update.";
  public bool AutoUpdate { get; set; }
 }
 public sealed record WingetScanResult(List<AppUpdate> Updates, string Raw, string Message);

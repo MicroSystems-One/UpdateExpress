@@ -1,0 +1,31 @@
+<Window x:Class="UpdateExpress.ErrorReportDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Error report"
+        Width="720" Height="540" MinWidth="640" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="#F3F6FB" FontFamily="Segoe UI"
+        ShowInTaskbar="False">
+  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="14" Padding="18">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <TextBlock Text="Error report / AI prompt" FontSize="18" FontWeight="SemiBold" Foreground="#152137"/>
+      <TextBlock Grid.Row="1" Margin="0,8,0,10" TextWrapping="Wrap" Foreground="#52617A"
+                 Text="Copy this prompt into an AI chat or ticket for further Windows Update troubleshooting. Generated from the last Windows Update fix run."/>
+      <TextBox x:Name="ReportBox" Grid.Row="2" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+               VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+               FontFamily="Consolas" FontSize="11" BorderBrush="#DDE3EB" Padding="10"
+               Background="#F8FAFC"/>
+      <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+        <Button Content="Copy to clipboard" Height="30" MinHeight="30" Padding="12,3" Margin="0,0,8,0" Click="Copy_Click"/>
+        <Button Content="Open log folder" Height="30" MinHeight="30" Padding="12,3" Margin="0,0,8,0" Click="OpenFolder_Click"/>
+        <Button Content="Close" Height="30" MinHeight="30" Padding="16,3" Click="Close_Click"/>
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

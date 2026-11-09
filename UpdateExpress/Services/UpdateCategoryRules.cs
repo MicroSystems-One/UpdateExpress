@@ -36,7 +36,7 @@ internal static class UpdateCategoryRules
 
     /// <summary>
     /// K3: remaining SafeDefault software (not K1/K2, not preview/optional/feature/drivers).
-    /// Includes Unrated and Recommended (Moderate/Low MSRC). Feature updates stay manual.
+    /// Includes Unrated and Moderate/Low MSRC. Feature updates stay manual.
     /// </summary>
     internal static bool IsGeneralSoftware(UpdateEntry entry)
     {

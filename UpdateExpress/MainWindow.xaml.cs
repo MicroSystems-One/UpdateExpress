@@ -579,6 +579,7 @@ public partial class MainWindow : Window
     {
         ["Windows Update Control"] = "Windows Update-kontroll", ["Check for Updates"] = "Søk etter oppdateringer",
         ["Install Selected Updates"] = "Installer valgte oppdateringer", ["Installation History"] = "Installasjonshistorikk",
+        ["Windows Update fix"] = "Windows Update-fiks", ["Error report"] = "Feilrapport",
         ["Export CSV"] = "Eksporter CSV", ["Diagnostics"] = "Diagnostikk", ["Check Status"] = "Kontroller status",
         ["Refresh Security Status"] = "Oppdater sikkerhetsstatus", ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
         ["Results"] = "Resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
@@ -800,6 +801,19 @@ public partial class MainWindow : Window
             UpdateSelectionControls(); UpdateAppSelection();
         }
     }
+    private void WindowsUpdateFix_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var dlg = new WindowsUpdateFixDialog { Owner = this };
+        dlg.ShowDialog();
+    }
+
+    private void ErrorReport_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new ErrorReportDialog { Owner = this };
+        dlg.ShowDialog();
+    }
+
     private async void Diagnostics_Click(object sender, RoutedEventArgs e)
     {
         if (!DiagnosticsButton.IsEnabled) return;

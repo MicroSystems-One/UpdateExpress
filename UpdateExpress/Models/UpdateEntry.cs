@@ -9,8 +9,18 @@ public sealed class UpdateEntry
     public string DriverClassification { get; set; } = "";
     public string KB { get; set; } = "";
     public string Title { get; set; } = "";
+    /// <summary>Raw severity/classification (Critical, Important, Moderate, Low, Unrated, Unknown, …).</summary>
     public string Priority { get; set; } = "Unknown";
     public string PriorityExplanation { get; set; } = "No severity information was recorded for this entry.";
+    /// <summary>Colored Priority column: Critical (K1) … Unknown (K5).</summary>
+    public string PriorityDisplay
+    {
+        get { var g = PriorityGrade.ForUpdate(this); return g.Display; }
+    }
+    public string PriorityColorHex
+    {
+        get { var g = PriorityGrade.ForUpdate(this); return g.ColorHex; }
+    }
     // WUA IWindowsDriverUpdate metadata is preferred; title parsing is only a fallback.
     public string DriverVersionFromWua { get; set; } = "";
     public string DriverHardwareId { get; set; } = "";
