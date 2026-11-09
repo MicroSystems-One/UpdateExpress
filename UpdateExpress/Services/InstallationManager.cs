@@ -47,14 +47,45 @@ internal static class InstallationManager
         LaunchMaintenance("uninstall", RunningMachineCopy || (!File.Exists(UserExe) && File.Exists(MachineExe)), false, false, false);
     }
 
-    private static void LaunchMaintenance(string operation, bool allUsers, bool desktop, bool startMenu, bool agent)
+    /// <summary>
+    /// Phase 2a self-update: replace the installed EXE with a verified package from temp.
+    /// History/settings are preserved. The helper is a copy of the currently running build.
+    /// </summary>
+    internal static void LaunchSelfUpdate(string verifiedPackagePath)
     {
-        string source = Environment.ProcessPath ?? throw new InvalidOperationException("Fant ikke programfilen.");
+        if (string.IsNullOrWhiteSpace(verifiedPackagePath) || !File.Exists(verifiedPackagePath))
+            throw new FileNotFoundException("Verified update package was not found.", verifiedPackagePath);
+        bool machine = RunningMachineCopy || (!File.Exists(UserExe) && File.Exists(MachineExe));
+        string targetDir = machine ? MachineInstallDir : UserInstallDir;
+        string menuDir = machine
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems")
+            : StartMenuDir;
+        string menuShortcut = Path.Combine(menuDir, "Update Express.lnk");
+        string desktopShortcut = Path.Combine(
+            Environment.GetFolderPath(machine ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory),
+            "Update Express.lnk");
+        bool desktop = File.Exists(desktopShortcut);
+        bool startMenu = File.Exists(menuShortcut);
+        bool agent = false;
+        if (!machine)
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKey, false);
+            agent = key?.GetValue(RunName) is string;
+        }
+        AgentLog.Write($"Launching self-update: package={verifiedPackagePath}; scope={(machine ? "machine" : "user")}; agent={agent}");
+        LaunchMaintenance("upgrade", machine, desktop, startMenu, agent, verifiedPackagePath);
+    }
+
+    private static void LaunchMaintenance(string operation, bool allUsers, bool desktop, bool startMenu, bool agent, string? packageSource = null)
+    {
+        string running = Environment.ProcessPath ?? throw new InvalidOperationException("Fant ikke programfilen.");
+        string source = packageSource ?? running;
         // Stage the helper outside InstallDir so the target file can be replaced safely.
+        // Helper must be the currently running build (contains this maintenance code).
         string helperDir = Path.Combine(Path.GetTempPath(), "MicroSystems-UpdateExpress-Maintenance", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(helperDir);
         string helper = Path.Combine(helperDir, "UpdateExpress-Maintenance.exe");
-        File.Copy(source, helper);
+        File.Copy(running, helper);
         int parentPid = Environment.ProcessId;
         string arguments = $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers ? "machine" : "user")} {(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)}";
         AgentLog.Write($"Launching detached maintenance: {operation} (parent {parentPid})");
@@ -66,8 +97,8 @@ internal static class InstallationManager
 
     internal static void ApplyMaintenance(string[] args)
     {
-        // Arguments: --apply-maintenance <install|repair|uninstall> <parentPID> <sourceEXE>
-        if (args.Length != 8 || !new[] { "install", "repair", "uninstall" }.Contains(args[1], StringComparer.OrdinalIgnoreCase)
+        // Arguments: --apply-maintenance <install|repair|uninstall|upgrade> <parentPID> <sourceEXE>
+        if (args.Length != 8 || !new[] { "install", "repair", "uninstall", "upgrade" }.Contains(args[1], StringComparer.OrdinalIgnoreCase)
             || !int.TryParse(args[2], out int parentPid))
             throw new ArgumentException("Ugyldige parametere for vedlikehold.");
         string operation = args[1].ToLowerInvariant();
@@ -89,9 +120,11 @@ internal static class InstallationManager
         try
         {
             // Wait for the launcher that started us to close.
-            try { using var parent = Process.GetProcessById(parentPid); parent.WaitForExit(15000); }
+            try { using var parent = Process.GetProcessById(parentPid); parent.WaitForExit(30000); }
             catch (ArgumentException) { /* Parent has exited already. */ }
-            if (operation == "uninstall" || operation == "install" || operation == "repair")
+            if (operation == "upgrade")
+                StopInstalledProcesses(targetExe);
+            else if (operation == "uninstall" || operation == "install" || operation == "repair")
                 StopInstalledAgent(targetExe);
             if (operation == "uninstall")
             {
@@ -118,10 +151,11 @@ internal static class InstallationManager
                 else if (File.Exists(menuShortcut)) File.Delete(menuShortcut);
                 if (desktop) CreateShortcut(desktopShortcut, targetExe, "--installed", targetDir, iconPath);
                 else if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
+                string displayVersion = ReadDisplayVersion(targetExe);
                 using (var key = hive.CreateSubKey(UninstallKey))
                 {
                     key.SetValue("DisplayName", "Update Express – MicroSystems");
-                    key.SetValue("DisplayVersion", "0.7.0.0");
+                    key.SetValue("DisplayVersion", displayVersion);
                     key.SetValue("Publisher", "MicroSystems");
                     key.SetValue("InstallLocation", targetDir);
                     key.SetValue("DisplayIcon", targetExe);
@@ -135,13 +169,18 @@ internal static class InstallationManager
                 }
                 if (agent) Process.Start(new ProcessStartInfo(targetExe, "--agent")
                     { UseShellExecute = true, WorkingDirectory = targetDir });
-                AgentLog.Write($"Install/repair completed: scope={(machine ? "machine" : "user")}, agent={agent}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
+                if (operation == "upgrade")
+                    Process.Start(new ProcessStartInfo(targetExe, "--installed")
+                    { UseShellExecute = true, WorkingDirectory = targetDir });
+                AgentLog.Write($"{operation} completed: scope={(machine ? "machine" : "user")}, agent={agent}, version={displayVersion}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
                 string completedAction = operation == "repair" ? "repaired" : operation == "upgrade" ? "updated" : "installed";
                 string scopeText = machine ? "all users" : "the current user";
                 MessageBox.Show($"Update Express was {completedAction} successfully for {scopeText}.\n\n"
+                    + $"Version: {displayVersion}\n"
                     + (agent ? "Background monitoring is enabled for this user." : "Background monitoring is disabled.")
-                    + "\n\nYou can pin Update Express to the taskbar from the Start menu.",
+                    + (operation == "upgrade" ? "\n\nUpdate Express will open now." : "\n\nYou can pin Update Express to the taskbar from the Start menu."),
                     "Update Express", MessageBoxButton.OK, MessageBoxImage.Information);
+                TryDeleteTree(Path.GetDirectoryName(source));
             }
         }
         catch (Exception ex)
@@ -149,6 +188,49 @@ internal static class InstallationManager
             AgentLog.Write("Maintenance FAILED: " + ex);
             MessageBox.Show("Vedlikehold mislyktes: " + ex.Message + "\n\nSe agent.log for detaljer.",
                 "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static string ReadDisplayVersion(string exePath)
+    {
+        try
+        {
+            var info = FileVersionInfo.GetVersionInfo(exePath);
+            string version = (info.ProductVersion ?? info.FileVersion ?? "").Split('+')[0].Trim();
+            return string.IsNullOrWhiteSpace(version) ? ProductVersion.Display : version;
+        }
+        catch { return ProductVersion.Display; }
+    }
+
+    private static void TryDeleteTree(string? directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory)) return;
+        // Only clean staged update packages under our temp update root.
+        string root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "MicroSystems-UpdateExpress-Update"));
+        string full = Path.GetFullPath(directory);
+        if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
+        try { if (Directory.Exists(full)) Directory.Delete(full, true); }
+        catch (Exception ex) { AgentLog.Write("Could not delete staged update package folder: " + ex.Message); }
+    }
+
+    private static void StopInstalledProcesses(string targetExe)
+    {
+        foreach (var proc in Process.GetProcessesByName("UpdateExpress"))
+        {
+            using (proc)
+            {
+                try
+                {
+                    if (proc.Id == Environment.ProcessId) continue;
+                    string? path = proc.MainModule?.FileName;
+                    if (!string.Equals(path, targetExe, StringComparison.OrdinalIgnoreCase)) continue;
+                    proc.Kill();
+                    if (!proc.WaitForExit(10000)) throw new IOException("Update Express could not be stopped for upgrade.");
+                    AgentLog.Write("Stopped Update Express process PID " + proc.Id + " for upgrade.");
+                }
+                catch (System.ComponentModel.Win32Exception ex)
+                { throw new IOException("Could not stop Update Express for upgrade: " + ex.Message, ex); }
+            }
         }
     }
 

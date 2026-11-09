@@ -122,24 +122,29 @@ internal sealed class TrayAgent : IDisposable
                 };
             }
 
+            bool installing = false;
             try
             {
                 await _dispatcher.InvokeAsync(() =>
                 {
                     if (_disposed) return;
-                    PresentAppUpdateResult(result);
+                    installing = PresentAppUpdateResult(result);
                 });
             }
             catch (Exception ex) { AgentLog.Write("Cannot present app update result: " + ex.Message); }
             finally
             {
-                Interlocked.Exchange(ref _appUpdateCheckRunning, 0);
-                SetAppUpdateMenuEnabled(true);
+                if (!installing)
+                {
+                    Interlocked.Exchange(ref _appUpdateCheckRunning, 0);
+                    SetAppUpdateMenuEnabled(true);
+                }
             }
         });
     }
 
-    private void PresentAppUpdateResult(AppUpdateCheckResult result)
+    /// <returns>True when an install was started and the process is expected to shut down.</returns>
+    private bool PresentAppUpdateResult(AppUpdateCheckResult result)
     {
         switch (result.Status)
         {
@@ -150,30 +155,39 @@ internal sealed class TrayAgent : IDisposable
                     "Update Express",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
-                break;
+                return false;
 
             case AppUpdateStatus.UpdateAvailable:
             {
                 string notes = string.IsNullOrWhiteSpace(result.ReleaseNotes) ? "No release notes provided." : result.ReleaseNotes!;
                 ShowAppBalloon("Update Express", $"Version {result.AvailableVersion} is available.", ToolTipIcon.Info);
+                bool canInstall = !string.IsNullOrWhiteSpace(result.DownloadUrl) && !string.IsNullOrWhiteSpace(result.Sha256);
                 bool hasDownload = !string.IsNullOrWhiteSpace(result.DownloadUrl);
                 var choice = System.Windows.Forms.MessageBox.Show(
                     $"A newer Update Express version is available.\n\n" +
                     $"Installed: {result.InstalledVersion}\n" +
                     $"Available: {result.AvailableVersion}\n\n" +
                     $"{notes}\n\n" +
-                    (hasDownload
-                        ? "Phase 1 does not install automatically.\nChoose Yes to open the HTTPS download page, or No to dismiss."
-                        : "No HTTPS download URL is published yet."),
+                    (canInstall
+                        ? "Yes = Install now (download + verify SHA-256 + replace)\nNo = Open download page\nCancel = Later\n\nNo automatic restart."
+                        : hasDownload
+                            ? "SHA-256 is missing from the update channel, so Install is unavailable.\nYes = Open download page\nNo = Later"
+                            : "No HTTPS download URL is published yet."),
                     "Update Express update available",
-                    hasDownload ? MessageBoxButtons.YesNo : MessageBoxButtons.OK,
+                    canInstall ? MessageBoxButtons.YesNoCancel : hasDownload ? MessageBoxButtons.YesNo : MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
-                if (hasDownload && choice == DialogResult.Yes)
+
+                if (canInstall && choice == DialogResult.Yes)
+                {
+                    StartAppUpdateInstall(result);
+                    return true;
+                }
+                if ((canInstall && choice == DialogResult.No) || (!canInstall && hasDownload && choice == DialogResult.Yes))
                 {
                     if (!AppUpdateChecker.TryOpenDownload(result.DownloadUrl, out string? error))
                         System.Windows.Forms.MessageBox.Show("Could not open download page: " + error, "Update Express", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
-                break;
+                return false;
             }
 
             default:
@@ -183,8 +197,49 @@ internal sealed class TrayAgent : IDisposable
                     "Update Express",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
-                break;
+                return false;
         }
+    }
+
+    private void StartAppUpdateInstall(AppUpdateCheckResult offer)
+    {
+        ShowAppBalloon("Update Express", "Downloading update…", ToolTipIcon.Info);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await AppUpdateInstaller.PrepareAndLaunchAsync(offer, stage =>
+                {
+                    AgentLog.Write("App update: " + stage);
+                    try { _dispatcher.BeginInvoke(new Action(() => ShowAppBalloon("Update Express", stage, ToolTipIcon.Info))); }
+                    catch { }
+                }).ConfigureAwait(false);
+                // LaunchSelfUpdate shuts down this process on success.
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Write("App update install failed: " + ex);
+                try
+                {
+                    await _dispatcher.InvokeAsync(() =>
+                    {
+                        ShowAppBalloon("Update Express", "Update installation failed.", ToolTipIcon.Error);
+                        System.Windows.Forms.MessageBox.Show(
+                            "Could not install the Update Express update.\n\n" + ex.Message +
+                            "\n\nThe installed version was not changed.",
+                            "Update Express",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Error);
+                    });
+                }
+                catch (Exception uiEx) { AgentLog.Write("Cannot show update failure UI: " + uiEx.Message); }
+                finally
+                {
+                    Interlocked.Exchange(ref _appUpdateCheckRunning, 0);
+                    SetAppUpdateMenuEnabled(true);
+                }
+            }
+        });
     }
 
     private void ShowAppBalloon(string title, string text, ToolTipIcon icon)

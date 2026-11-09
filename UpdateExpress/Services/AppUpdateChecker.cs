@@ -40,12 +40,13 @@ internal sealed class AppUpdateCheckResult
     public string? AvailableVersion { get; init; }
     public string? ReleaseNotes { get; init; }
     public string? DownloadUrl { get; init; }
+    public string? Sha256 { get; init; }
     public string? Error { get; init; }
 }
 
 /// <summary>
-/// Phase 1: read-only HTTPS check against the public UpdateExpress-Releases channel.
-/// Never downloads installers into the application directory and never replaces files.
+/// Reads the public UpdateExpress-Releases channel. Phase 1 checks versions;
+/// Phase 2a uses the same metadata for verified installation.
 /// </summary>
 internal static class AppUpdateChecker
 {
@@ -78,6 +79,7 @@ internal static class AppUpdateChecker
             if (manifest is null || string.IsNullOrWhiteSpace(manifest.Version))
                 return Failed(installed, "Update channel returned invalid JSON (missing version).");
 
+            string? sha256 = string.IsNullOrWhiteSpace(manifest.Sha256) ? null : manifest.Sha256.Trim();
             int comparison = CompareVersions(manifest.Version.Trim(), installed);
             if (comparison > 0)
             {
@@ -87,7 +89,8 @@ internal static class AppUpdateChecker
                     InstalledVersion = installed,
                     AvailableVersion = manifest.Version.Trim(),
                     ReleaseNotes = string.IsNullOrWhiteSpace(manifest.ReleaseNotes) ? null : manifest.ReleaseNotes.Trim(),
-                    DownloadUrl = NormalizeHttpsUrl(manifest.DownloadUrl)
+                    DownloadUrl = NormalizeHttpsUrl(manifest.DownloadUrl),
+                    Sha256 = sha256
                 };
             }
 
@@ -97,7 +100,8 @@ internal static class AppUpdateChecker
                 InstalledVersion = installed,
                 AvailableVersion = manifest.Version.Trim(),
                 ReleaseNotes = string.IsNullOrWhiteSpace(manifest.ReleaseNotes) ? null : manifest.ReleaseNotes.Trim(),
-                DownloadUrl = NormalizeHttpsUrl(manifest.DownloadUrl)
+                DownloadUrl = NormalizeHttpsUrl(manifest.DownloadUrl),
+                Sha256 = sha256
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
