@@ -1,0 +1,16 @@
+<UserControl x:Class="UpdateExpress.ErrorCodeStatusControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+             Cursor="Hand" ToolTip="Click for meaning and recommended fix"
+             MouseLeftButtonUp="Root_MouseLeftButtonUp">
+  <TextBlock x:Name="Label"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Center"
+             TextAlignment="Center"
+             FontFamily="Segoe UI"
+             FontSize="12"
+             FontWeight="SemiBold"
+             Foreground="#C62828"
+             TextTrimming="CharacterEllipsis"/>
+</UserControl>

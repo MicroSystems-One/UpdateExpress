@@ -10,10 +10,15 @@ public partial class WindowsUpdateFixDialog : Window
     private bool _running;
     private WindowsUpdateFixReport? _lastReport;
 
-    public WindowsUpdateFixDialog()
+    public WindowsUpdateFixDialog(WindowsUpdateFixLevel? preferredLevel = null)
     {
         InitializeComponent();
+        if (preferredLevel == WindowsUpdateFixLevel.Deep) DeepOption.IsChecked = true;
+        else if (preferredLevel == WindowsUpdateFixLevel.Medium) MediumOption.IsChecked = true;
+        else if (preferredLevel == WindowsUpdateFixLevel.Quick) QuickOption.IsChecked = true;
         RefreshErrorReportEnabled();
+        if (preferredLevel is not null)
+            AppendLine("Suggested: " + preferredLevel + " — " + WindowsUpdateFixService.Describe(preferredLevel.Value));
     }
 
     private WindowsUpdateFixLevel SelectedLevel =>

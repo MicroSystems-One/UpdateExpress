@@ -66,9 +66,11 @@ public sealed class UpdateEntry
     public bool IsHistoryFailed => Status is "Mislykket" or "Avbrutt" or "Failed" or "Cancelled" or "Feilet / avbrutt";
     public bool IsHistorySuccessful => Status is "Vellykket" or "Successful" or "Installert";
     public bool IsHistoryPartial => Status is "Vellykket med feil" or "Delvis fullført" or "Partial";
+    /// <summary>Failed entry with an HRESULT — Status cell pulses ErrorCode / Fix it.</summary>
+    public bool HasFixableErrorCode => IsHistoryFailed && !string.IsNullOrWhiteSpace(ErrorCode);
     // Keep the original HRESULT in ErrorCode for logging and export. In the grid,
     // display the HRESULT instead of a failure label, never beside a success label.
-    public string DisplayStatus => IsHistoryFailed && !string.IsNullOrWhiteSpace(ErrorCode)
+    public string DisplayStatus => HasFixableErrorCode
         ? ErrorCode
         : Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(DriverStatus) && string.IsNullOrWhiteSpace(Date)
             ? DriverStatus : Status;

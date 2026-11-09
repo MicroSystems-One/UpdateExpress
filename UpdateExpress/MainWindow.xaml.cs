@@ -852,9 +852,27 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "PDF export failed", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
+    private void ErrorCodeFix_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateEntry? entry = null;
+        if (sender is FrameworkElement fe && fe.DataContext is UpdateEntry fromSender)
+            entry = fromSender;
+        else if (UpdatesGrid.SelectedItem is UpdateEntry selected)
+            entry = selected;
+        if (entry is null || !entry.HasFixableErrorCode) return;
+        var dlg = new ErrorCodeFixDialog(entry) { Owner = this };
+        dlg.ShowDialog();
+    }
+
     private void UpdateDetails_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (UpdatesGrid.SelectedItem is not UpdateEntry entry) return;
+        if (entry.HasFixableErrorCode)
+        {
+            var dlg = new ErrorCodeFixDialog(entry) { Owner = this };
+            dlg.ShowDialog();
+            return;
+        }
         string assessment = _activeTab == "history"
             ? "Historical event only. Current installed status and removal capability are NOT verified."
             : _activeTab == "drivers"

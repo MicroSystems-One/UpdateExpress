@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace UpdateExpress.Services;
 
-internal enum WindowsUpdateFixLevel
+public enum WindowsUpdateFixLevel
 {
     Quick = 1,
     Medium = 2,
