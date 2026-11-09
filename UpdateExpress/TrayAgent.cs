@@ -19,6 +19,7 @@ internal sealed class TrayAgent : IDisposable
     private readonly ToolStripMenuItem _scanNow;
     private readonly ToolStripMenuItem _checkAppUpdate;
     private readonly System.Threading.Timer _timer;
+    private readonly System.Threading.Timer _defenderTimer;
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
     private readonly string _baselinePath = Path.Combine(InstallationManager.InstallDir, "monitor-initialized.flag");
     private readonly string _statePath = Path.Combine(InstallationManager.InstallDir, "monitor-state.txt");
@@ -57,8 +58,13 @@ internal sealed class TrayAgent : IDisposable
         // Avoid an expensive WUA scan during Windows sign-in. Scan after 5 minutes,
         // then at most every six hours. Manual scans use the same overlap guard.
         _timer = new System.Threading.Timer(_ => { _nextScheduled = DateTime.Now.Add(_interval); StartScan(); }, null, TimeSpan.FromMinutes(5), _interval);
+        // Category 1: poll often; DefenderAutomation decides whether the hourly job is due.
+        _defenderTimer = new System.Threading.Timer(_ =>
+        {
+            _ = DefenderAutomation.RunDueJobAsync();
+        }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
         WriteMonitorStatus("waiting", 0, 0, null, null);
-        AgentLog.Write("Tray agent started; read-only WUA monitoring every 6h (first scan after 5m).");
+        AgentLog.Write("Tray agent started; WUA monitor every 6h; Defender automation poll every 5m.");
     }
 
     private void StartScan()
@@ -362,6 +368,7 @@ internal sealed class TrayAgent : IDisposable
     {
         _disposed = true;
         _timer.Dispose();
+        _defenderTimer.Dispose();
         AgentLog.Write("Agent stopped.");
         _tray.Visible = false;
         _tray.Dispose();

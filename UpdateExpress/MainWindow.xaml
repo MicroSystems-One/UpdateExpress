@@ -147,6 +147,7 @@
       <TextBlock x:Name="MonitorStateText" Text="Background monitoring: waiting for agent" FontSize="12" FontWeight="SemiBold" Foreground="#152137"/>
       <TextBlock x:Name="MonitorDetailsText" Text="Last check: —  |  Available: —  |  New: —" FontSize="12" Foreground="#52617A" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
       <TextBlock x:Name="MonitorUpdatesText" Text="Updates: —" FontSize="12" Foreground="#52617A" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" ToolTip="Last available updates"/>
+      <TextBlock x:Name="AutomationStatusText" Text="Windows automation: —" FontSize="12" Foreground="#52617A" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" ToolTip="Category automation status"/>
      </StackPanel>
      <TextBlock Grid.Column="1" x:Name="MonitorElapsedText" Text="" FontSize="12" Foreground="#F47700" VerticalAlignment="Center" Margin="12,0,0,0"/>
     </Grid>
@@ -188,8 +189,54 @@
     <WrapPanel VerticalAlignment="Center" Margin="0,0,0,13"><TextBlock Text="Weekday:" VerticalAlignment="Center" Margin="0,0,8,0"/><ComboBox x:Name="DayChoice" Width="132" SelectedIndex="3" Margin="0,0,18,0"><ComboBoxItem Content="Every day"/><ComboBoxItem Content="Monday"/><ComboBoxItem Content="Tuesday"/><ComboBoxItem Content="Wednesday"/><ComboBoxItem Content="Thursday"/><ComboBoxItem Content="Friday"/><ComboBoxItem Content="Saturday"/><ComboBoxItem Content="Sunday"/></ComboBox><TextBlock Text="Time:" VerticalAlignment="Center" Margin="0,0,8,0"/><TextBox x:Name="TimeChoice" Text="20:00" Width="76" Height="32" Padding="8,5" Margin="0,0,20,0"/><TextBlock x:Name="ClockFormatCaption" Text="Time format:" VerticalAlignment="Center" Margin="0,0,6,0"/><RadioButton x:Name="Clock12Option" Style="{StaticResource SegmentRadio}" Content="12h" GroupName="ClockFormat" VerticalAlignment="Center" Checked="ClockFormat_Changed" Margin="0,0,5,0"/><RadioButton x:Name="Clock24Option" Style="{StaticResource SegmentRadio}" Content="24h" GroupName="ClockFormat" VerticalAlignment="Center" Checked="ClockFormat_Changed" Margin="0,0,16,0"/><TextBlock x:Name="LanguageCaption" Text="Language:" VerticalAlignment="Center" Margin="0,0,6,0"/><RadioButton x:Name="EnglishOption" Style="{StaticResource SegmentRadio}" Content="English" GroupName="Language" VerticalAlignment="Center" Checked="Language_Changed" Margin="0,0,5,0"/><RadioButton x:Name="NorwegianOption" Style="{StaticResource SegmentRadio}" Content="Norsk" GroupName="Language" VerticalAlignment="Center" Checked="Language_Changed" Margin="0,0,16,0"/><CheckBox x:Name="RemindersEnabled" Content="Enable Reminders" IsChecked="False"/></WrapPanel>
     <WrapPanel Margin="0,0,0,-8"><Button Content="▣  Save Schedule" Click="SaveSchedule_Click"/><Button Content="♧  Test Notification" Click="TestReminder_Click"/><Button Content="☷  Notification History" Click="ReminderHistory_Click"/></WrapPanel>
     <TextBlock x:Name="ScheduleStatus" Foreground="#52617A" Margin="0,8,0,0" TextWrapping="Wrap"/>
-    <Separator Margin="0,8,0,8"/><TextBlock Text="Update Policy (future automation)" FontWeight="SemiBold" Margin="0,0,0,5"/><WrapPanel><CheckBox x:Name="AutoWindows" Content="Windows automatic" Margin="0,0,18,6" IsChecked="True"/><CheckBox x:Name="AutoDrivers" Content="Drivers automatic (optional)" Margin="0,0,18,6"/><CheckBox x:Name="AutoApplications" Content="Application automatic (optional)" Margin="0,0,18,6" Click="AutoApplications_Click"/><TextBlock Text="Firmware: manual only" Foreground="#9B5A00" VerticalAlignment="Center" Margin="0,0,10,6"/><Button Content="Save Policy" Click="SavePolicy_Click" Padding="10,4" MinHeight="29"/></WrapPanel>
+    <Separator Margin="0,8,0,8"/>
+    <TextBlock Text="Windows automation (3 categories)" FontWeight="SemiBold" Margin="0,0,0,6"/>
+    <CheckBox x:Name="WindowsAutomationEnabled" Content="Enable Windows automation" Margin="0,0,0,8" IsChecked="True"/>
+    <Grid Margin="0,0,0,8">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Border Grid.Column="0" Background="#F8FAFC" BorderBrush="#DDE3EB" BorderThickness="1" CornerRadius="8" Padding="8">
+        <StackPanel>
+          <TextBlock Text="1. Defender signatures" FontWeight="SemiBold" Margin="0,0,0,6"/>
+          <CheckBox x:Name="DefenderAutoEnabled" Content="Enabled" Margin="0,0,0,4" IsChecked="True"/>
+          <TextBlock Text="Interval (minutes)" FontSize="11" Foreground="#52617A"/>
+          <TextBox x:Name="DefenderIntervalMinutes" Text="60" Height="28" Margin="0,2,0,4" Padding="6,3"/>
+          <TextBlock Text="Mode: Auto-install (K1)" FontSize="11" Foreground="#0F766E"/>
+          <TextBlock x:Name="DefenderAutomationStatus" Text="Status: —" FontSize="11" Foreground="#52617A" Margin="0,6,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
+      <Border Grid.Column="2" Background="#F8FAFC" BorderBrush="#DDE3EB" BorderThickness="1" CornerRadius="8" Padding="8">
+        <StackPanel>
+          <TextBlock Text="2. Critical updates" FontWeight="SemiBold" Margin="0,0,0,6"/>
+          <CheckBox x:Name="CriticalAutoEnabled" Content="Enabled" Margin="0,0,0,4" IsChecked="True"/>
+          <TextBlock Text="Interval (minutes)" FontSize="11" Foreground="#52617A"/>
+          <TextBox x:Name="CriticalIntervalMinutes" Text="1440" Height="28" Margin="0,2,0,4" Padding="6,3"/>
+          <TextBlock Text="Mode: Download + ask (soon)" FontSize="11" Foreground="#B7791F"/>
+          <TextBlock Text="Preferred time" FontSize="11" Foreground="#52617A" Margin="0,4,0,0"/>
+          <TextBox x:Name="CriticalPreferredTime" Text="20:00" Height="28" Margin="0,2,0,0" Padding="6,3"/>
+          <TextBlock x:Name="CriticalAutomationStatus" Text="Status: not automated yet" FontSize="11" Foreground="#52617A" Margin="0,6,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
+      <Border Grid.Column="4" Background="#F8FAFC" BorderBrush="#DDE3EB" BorderThickness="1" CornerRadius="8" Padding="8">
+        <StackPanel>
+          <TextBlock Text="3. General Windows updates" FontWeight="SemiBold" Margin="0,0,0,6"/>
+          <CheckBox x:Name="GeneralAutoEnabled" Content="Enabled" Margin="0,0,0,4" IsChecked="True"/>
+          <TextBlock Text="Interval (minutes)" FontSize="11" Foreground="#52617A"/>
+          <TextBox x:Name="GeneralIntervalMinutes" Text="10080" Height="28" Margin="0,2,0,4" Padding="6,3"/>
+          <TextBlock Text="Mode: Download + ask (soon)" FontSize="11" Foreground="#B7791F"/>
+          <TextBlock Text="Preferred time" FontSize="11" Foreground="#52617A" Margin="0,4,0,0"/>
+          <TextBox x:Name="GeneralPreferredTime" Text="20:00" Height="28" Margin="0,2,0,0" Padding="6,3"/>
+          <TextBlock x:Name="GeneralAutomationStatus" Text="Status: not automated yet" FontSize="11" Foreground="#52617A" Margin="0,6,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
+    </Grid>
+    <TextBlock Text="Never auto-reboot. Firmware remains manual. Critical/general install prompts come in a later step." FontSize="11" Foreground="#52617A" Margin="0,0,0,8" TextWrapping="Wrap"/>
+    <WrapPanel Margin="0,0,0,4">
+      <CheckBox x:Name="AutoDrivers" Content="Drivers automatic (optional, not implemented)" Margin="0,0,18,6"/>
+      <CheckBox x:Name="AutoApplications" Content="Application automatic (optional, not implemented)" Margin="0,0,18,6" Click="AutoApplications_Click"/>
+      <TextBlock Text="Firmware: manual only" Foreground="#9B5A00" VerticalAlignment="Center" Margin="0,0,10,6"/>
+      <Button Content="Save Policy" Click="SavePolicy_Click" Padding="10,4" MinHeight="29"/>
+    </WrapPanel>
   </StackPanel></Expander></Border>
-  <TextBlock Grid.Row="4" Text="Update Express: Manual installation requires confirmation. Driver and firmware updates are not installed automatically. Background monitoring does not install updates or restart Windows." Foreground="#52617A" FontSize="12" Margin="4,10,0,0" TextWrapping="Wrap"/>
+  <TextBlock Grid.Row="4" x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical/general Windows updates still require confirmation (coming next). Drivers/firmware are not installed automatically. Update Express never restarts Windows automatically." Foreground="#52617A" FontSize="12" Margin="4,10,0,0" TextWrapping="Wrap"/>
  </Grid>
 </Window>

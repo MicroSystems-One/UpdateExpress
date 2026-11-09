@@ -212,10 +212,44 @@ public partial class MainWindow : Window
     }
     private void SavePolicy_Click(object sender, RoutedEventArgs e)
     {
-        _policy.AutomaticWindows = AutoWindows.IsChecked == true;
+        if (!int.TryParse(DefenderIntervalMinutes.Text.Trim(), out int defenderMinutes) || defenderMinutes < 15)
+        {
+            MessageBox.Show(this, "Defender interval must be at least 15 minutes.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (!int.TryParse(CriticalIntervalMinutes.Text.Trim(), out int criticalMinutes) || criticalMinutes < 60)
+        {
+            MessageBox.Show(this, "Critical interval must be at least 60 minutes.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (!int.TryParse(GeneralIntervalMinutes.Text.Trim(), out int generalMinutes) || generalMinutes < 1440)
+        {
+            MessageBox.Show(this, "General interval must be at least 1440 minutes (1 day).", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (!TimeSpan.TryParseExact(CriticalPreferredTime.Text.Trim(), @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out _) ||
+            !TimeSpan.TryParseExact(GeneralPreferredTime.Text.Trim(), @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out _))
+        {
+            MessageBox.Show(this, "Preferred times must be HH:mm, for example 20:00.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        _policy.WindowsAutomation.Enabled = WindowsAutomationEnabled.IsChecked == true;
+        _policy.WindowsAutomation.Defender.Enabled = DefenderAutoEnabled.IsChecked == true;
+        _policy.WindowsAutomation.Defender.IntervalMinutes = defenderMinutes;
+        _policy.WindowsAutomation.Defender.Mode = "autoInstall";
+        _policy.WindowsAutomation.Critical.Enabled = CriticalAutoEnabled.IsChecked == true;
+        _policy.WindowsAutomation.Critical.IntervalMinutes = criticalMinutes;
+        _policy.WindowsAutomation.Critical.PreferredInstallTime = CriticalPreferredTime.Text.Trim();
+        _policy.WindowsAutomation.Critical.Mode = "downloadAndPrompt";
+        _policy.WindowsAutomation.General.Enabled = GeneralAutoEnabled.IsChecked == true;
+        _policy.WindowsAutomation.General.IntervalMinutes = generalMinutes;
+        _policy.WindowsAutomation.General.PreferredInstallTime = GeneralPreferredTime.Text.Trim();
+        _policy.WindowsAutomation.General.Mode = "downloadAndPrompt";
+        _policy.WindowsAutomation.NeverAutoReboot = true;
+
         _policy.AutomaticDrivers = AutoDrivers.IsChecked == true;
         _policy.AutomaticApplications = AutoApplications.IsChecked == true;
-        // Keep approvals for packages not present in the current scan.
         _policy.AutomaticApplicationIds ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var app in _appEntries)
         {
@@ -223,7 +257,51 @@ public partial class MainWindow : Window
             else _policy.AutomaticApplicationIds.Remove(app.Id);
         }
         _policy.Save();
-        MessageBox.Show(this, "Policy saved locally. Application approvals are preferences only; unattended installation is not implemented.", "Update Express");
+        RefreshAutomationStatusTexts();
+        MessageBox.Show(this,
+            "Windows automation policy saved.\n\n" +
+            "Defender (K1) can auto-install via the background agent.\n" +
+            "Critical/general prompts are prepared in policy but not automated yet.\n" +
+            "Driver/application checkboxes remain preferences only.",
+            "Update Express");
+    }
+
+    private void LoadAutomationPolicyIntoUi()
+    {
+        _policy.Normalize();
+        var wa = _policy.WindowsAutomation;
+        WindowsAutomationEnabled.IsChecked = wa.Enabled;
+        DefenderAutoEnabled.IsChecked = wa.Defender.Enabled;
+        DefenderIntervalMinutes.Text = wa.Defender.IntervalMinutes.ToString();
+        CriticalAutoEnabled.IsChecked = wa.Critical.Enabled;
+        CriticalIntervalMinutes.Text = wa.Critical.IntervalMinutes.ToString();
+        CriticalPreferredTime.Text = string.IsNullOrWhiteSpace(wa.Critical.PreferredInstallTime) ? "20:00" : wa.Critical.PreferredInstallTime;
+        GeneralAutoEnabled.IsChecked = wa.General.Enabled;
+        GeneralIntervalMinutes.Text = wa.General.IntervalMinutes.ToString();
+        GeneralPreferredTime.Text = string.IsNullOrWhiteSpace(wa.General.PreferredInstallTime) ? "20:00" : wa.General.PreferredInstallTime;
+        AutoDrivers.IsChecked = _policy.AutomaticDrivers;
+        AutoApplications.IsChecked = _policy.AutomaticApplications;
+        RefreshAutomationStatusTexts();
+    }
+
+    private void RefreshAutomationStatusTexts()
+    {
+        var status = WindowsAutomationStatus.Load();
+        string Format(CategoryAutomationStatus item, string pendingNote)
+        {
+            if (item.LastRun is null) return "Status: " + pendingNote;
+            string next = item.NextDue?.ToString("dd.MM HH:mm") ?? "—";
+            return $"Status: {item.LastResult} · last {item.LastRun:dd.MM HH:mm} · next {next}";
+        }
+        DefenderAutomationStatus.Text = Format(status.Defender, "waiting for agent");
+        CriticalAutomationStatus.Text = Format(status.Critical, "not automated yet");
+        GeneralAutomationStatus.Text = Format(status.General, "not automated yet");
+        AutomationStatusText.Text =
+            $"Windows automation: Defender={status.Defender.LastResult}" +
+            $"  |  Critical={status.Critical.LastResult}" +
+            $"  |  General={status.General.LastResult}";
+        AutomationStatusText.ToolTip =
+            $"Defender: {status.Defender.Detail}\nCritical: {status.Critical.Detail}\nGeneral: {status.General.Detail}";
     }
     private async void HistoryTab_Click(object sender, RoutedEventArgs e)
     {
@@ -386,15 +464,14 @@ public partial class MainWindow : Window
         if (_schedule.Language == "no") NorwegianOption.IsChecked = true; else EnglishOption.IsChecked = true;
         ApplyLanguage();
         RemindersEnabled.IsChecked = _schedule.Enabled;
-        AutoWindows.IsChecked = _policy.AutomaticWindows;
-        AutoDrivers.IsChecked = _policy.AutomaticDrivers;
-        AutoApplications.IsChecked = _policy.AutomaticApplications;
+        LoadAutomationPolicyIntoUi();
         RefreshScheduleStatus();
         _reminderTimer.Tick += (_, _) => CheckReminder();
         _reminderTimer.Start();
-        _monitorUiTimer.Tick += (_, _) => RefreshMonitorPanel();
+        _monitorUiTimer.Tick += (_, _) => { RefreshMonitorPanel(); RefreshAutomationStatusTexts(); };
         _monitorUiTimer.Start();
         RefreshMonitorPanel();
+        RefreshAutomationStatusTexts();
         Loaded += async (_, _) => { CheckReminder(); await RefreshDefenderAsync(); await RefreshFirewallAsync(); };
         _connectivity.Updated += UpdateConnectivity;
         Loaded += (_, _) => _connectivity.Start();
@@ -446,9 +523,20 @@ public partial class MainWindow : Window
         ["Time:"] = "Tid:", ["Time format:"] = "Klokkeformat:", ["Language:"] = "Språk:",
         ["Enable Reminders"] = "Aktiver påminnelser", ["Save Schedule"] = "Lagre tidsplan",
         ["Test Notification"] = "Test varsel", ["Notification History"] = "Varselhistorikk",
-        ["Update Policy (future automation)"] = "Oppdateringspolicy (fremtidig automatisering)",
-        ["Windows automatic"] = "Windows automatisk", ["Drivers automatic (optional)"] = "Drivere automatisk (valgfritt)",
-        ["Firmware and applications: manual only"] = "Fastvare og programmer: kun manuelt", ["Save Policy"] = "Lagre policy",
+        ["Windows automation (3 categories)"] = "Windows-automatisering (3 kategorier)",
+        ["Enable Windows automation"] = "Aktiver Windows-automatisering",
+        ["1. Defender signatures"] = "1. Defender-signaturer",
+        ["2. Critical updates"] = "2. Kritiske oppdateringer",
+        ["3. General Windows updates"] = "3. Generelle Windows-oppdateringer",
+        ["Drivers automatic (optional, not implemented)"] = "Drivere automatisk (valgfritt, ikke implementert)",
+        ["Application automatic (optional, not implemented)"] = "Programmer automatisk (valgfritt, ikke implementert)",
+        ["Firmware: manual only"] = "Fastvare: kun manuelt", ["Save Policy"] = "Lagre policy",
+        ["Interval (minutes)"] = "Intervall (minutter)", ["Preferred time"] = "Foretrukket tid",
+        ["Mode: Auto-install (K1)"] = "Modus: Auto-installasjon (K1)",
+        ["Mode: Download + ask (soon)"] = "Modus: Last ned + spør (kommer)",
+        ["Never auto-reboot. Firmware remains manual. Critical/general install prompts come in a later step."] =
+            "Aldri auto-omstart. Fastvare forblir manuell. Kritisk/generell-dialog kommer i neste steg.",
+        ["Enabled"] = "Aktivert",
         ["Every day"] = "Hver dag", ["Monday"] = "Mandag", ["Tuesday"] = "Tirsdag", ["Wednesday"] = "Onsdag",
         ["Thursday"] = "Torsdag", ["Friday"] = "Fredag", ["Saturday"] = "Lørdag", ["Sunday"] = "Søndag"
     };
@@ -471,7 +559,7 @@ public partial class MainWindow : Window
                 var match = Norwegian.Keys.FirstOrDefault(k => original == k || original.EndsWith("  " + k, StringComparison.Ordinal));
                 if (match != null) control.Content = norwegian ? original.Replace(match, Norwegian[match]) : original;
             }
-            if (element is System.Windows.Controls.TextBlock block && block.Name is not ("DefenderLabel" or "DefenderChecked" or "HealthSummary" or "StatusText" or "ScheduleStatus" or "AppsInfo" or "AppsSelectedCount" or "SelectedCountText") && !string.IsNullOrEmpty(block.Text))
+            if (element is System.Windows.Controls.TextBlock block && block.Name is not ("DefenderLabel" or "DefenderChecked" or "HealthSummary" or "StatusText" or "ScheduleStatus" or "AppsInfo" or "AppsSelectedCount" or "SelectedCountText" or "AutomationStatusText" or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus" or "FooterSafetyText") && !string.IsNullOrEmpty(block.Text))
             {
                 if (block.Tag is not string original) { original = block.Text; block.Tag = original; }
                 if (Norwegian.TryGetValue(original, out var translated)) block.Text = norwegian ? translated : original;

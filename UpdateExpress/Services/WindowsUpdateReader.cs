@@ -336,9 +336,19 @@ public static class WindowsUpdateReader
         }
         return entries;
     }
+    /// <summary>
+    /// Category 1 automation / manual install: update Defender security intelligence via Microsoft Update.
+    /// Does not reboot Windows.
+    /// </summary>
+    public static UpdateEntry EnsureDefenderSignatures(Action<string>? report = null) =>
+        InstallDefenderSignatures(new UpdateEntry
+        {
+            KB = "KB2267602",
+            Title = "Microsoft Defender Antivirus Security Intelligence"
+        }, report);
+
     // KB2267602 is a Defender intelligence/signature update. Use Defender's supported
     // update mechanism rather than WUA Downloader, which can fail immediately for definitions.
-    // Called only after the UI's explicit installation confirmation.
     private static UpdateEntry InstallDefenderSignatures(UpdateEntry selected, Action<string>? report)
     {
         report?.Invoke("Updating Microsoft Defender security intelligence via Microsoft Update…");
