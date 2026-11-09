@@ -46,11 +46,13 @@ internal sealed class TrayAgent : IDisposable
         menu.Items.Add("Proxy Settings...", null, (_, _) => Open("--proxy-settings"));
         menu.Items.Add("Vedlikehold", null, (_, _) => Open("--maintenance"));
         menu.Items.Add("Avslutt bakgrunnsagent", null, (_, _) => _dispatcher.BeginInvoke(new Action(() => System.Windows.Application.Current.Shutdown())));
-        var path = Environment.ProcessPath ?? "";
-        Icon icon;
-        try { icon = Icon.ExtractAssociatedIcon(path) ?? SystemIcons.Application; }
-        catch { icon = SystemIcons.Application; }
-        _tray = new NotifyIcon { Text = "Update Express – MicroSystems", Icon = icon, Visible = true, ContextMenuStrip = menu };
+        _tray = new NotifyIcon
+        {
+            Text = "Update Express – MicroSystems",
+            Icon = LoadTrayIcon(),
+            Visible = true,
+            ContextMenuStrip = menu
+        };
         _tray.MouseClick += (_, e) =>
         {
             if (e.Button == MouseButtons.Left) Open();
@@ -246,6 +248,23 @@ internal sealed class TrayAgent : IDisposable
                 }
             }
         });
+    }
+
+    private static Icon LoadTrayIcon()
+    {
+        // Prefer the embedded U icon so toast/tray notifications do not reuse a cached M icon.
+        try
+        {
+            using var stream = typeof(TrayAgent).Assembly.GetManifestResourceStream("UpdateExpress.Assets.UpdateExpress.ico");
+            if (stream is not null) return new Icon(stream);
+        }
+        catch (Exception ex) { AgentLog.Write("Embedded tray icon load failed: " + ex.Message); }
+        try
+        {
+            string path = Environment.ProcessPath ?? "";
+            return Icon.ExtractAssociatedIcon(path) ?? SystemIcons.Application;
+        }
+        catch { return SystemIcons.Application; }
     }
 
     private void ShowAppBalloon(string title, string text, ToolTipIcon icon)

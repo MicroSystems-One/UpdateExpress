@@ -8,11 +8,18 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>UpdateExpress</AssemblyName>
     <Version>0.7.2.6</Version>
-    <InformationalVersion>0.7.2.6.39</InformationalVersion>
+    <InformationalVersion>0.7.2.6.40</InformationalVersion>
     <FileVersion>0.7.2.6</FileVersion>
     <AssemblyVersion>0.7.2.6</AssemblyVersion>
     <Product>Update Express</Product>
-    <ApplicationIcon>Assets\UpdateExpress.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\UpdateExpress-U.ico</ApplicationIcon>
   </PropertyGroup>
-  <ItemGroup><Resource Include="Assets\MicroSystems.png" /><Resource Include="Assets\MicroSystems-M.png" /><EmbeddedResource Include="Assets\UpdateExpress.ico" LogicalName="UpdateExpress.Assets.UpdateExpress.ico" /><Resource Include="Assets\UpdateExpressWindow.ico" /></ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\MicroSystems.png" />
+    <Resource Include="Assets\MicroSystems-M.png" />
+    <Resource Include="Assets\UpdateExpress-U.png" />
+    <Resource Include="Assets\UpdateExpress-U.ico" />
+    <Resource Include="Assets\UpdateExpressWindow.ico" />
+    <EmbeddedResource Include="Assets\UpdateExpress-U.ico" LogicalName="UpdateExpress.Assets.UpdateExpress.ico" />
+  </ItemGroup>
 </Project>
