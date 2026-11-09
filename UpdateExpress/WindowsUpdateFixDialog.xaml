@@ -6,6 +6,43 @@
         ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
         Background="#F3F6FB" FontFamily="Segoe UI"
         ShowInTaskbar="False">
+  <Window.Resources>
+    <!-- Override App.xaml MinHeight=39 / Margin bottom so footer buttons share one row. -->
+    <Style x:Key="DialogActionButton" TargetType="Button">
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="MinHeight" Value="30"/>
+      <Setter Property="MaxHeight" Value="30"/>
+      <Setter Property="Padding" Value="12,0"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontFamily" Value="Segoe UI"/>
+      <Setter Property="Background" Value="#FFFFFF"/>
+      <Setter Property="Foreground" Value="#182335"/>
+      <Setter Property="BorderBrush" Value="#CED5DF"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Outer" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Outer" Property="Opacity" Value="0.92"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
   <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="14" Padding="18">
     <Grid>
       <Grid.RowDefinitions>
@@ -53,18 +90,18 @@
         <TextBlock x:Name="ProgressLabel" Text="Running…" FontSize="12" Foreground="#52617A" Margin="0,0,0,4"/>
         <ProgressBar Height="7" IsIndeterminate="True" Foreground="#F47700"/>
       </StackPanel>
-      <Grid Grid.Row="5" Margin="0,14,0,0" Height="30">
+      <Grid Grid.Row="5" Margin="0,14,0,0" Height="30" VerticalAlignment="Bottom">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <Button x:Name="ErrorReportButton" Grid.Column="0" Content="Error report" Height="30" MinHeight="30" MaxHeight="30"
-                Padding="12,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Click="ErrorReport_Click"/>
+        <Button x:Name="ErrorReportButton" Grid.Column="0" Content="Error report" Style="{StaticResource DialogActionButton}"
+                HorizontalAlignment="Left" IsEnabled="False" Click="ErrorReport_Click"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button x:Name="RunButton" Content="Run" Height="30" MinHeight="30" MaxHeight="30" Padding="16,0" Margin="0,0,8,0" Click="Run_Click"
-                  VerticalAlignment="Center" Background="#F47700" Foreground="White" BorderBrush="#F47700" FontWeight="SemiBold"/>
-          <Button x:Name="CloseButton" Content="Close" Height="30" MinHeight="30" MaxHeight="30" Padding="16,0"
-                  VerticalAlignment="Center" Click="Close_Click"/>
+          <Button x:Name="RunButton" Content="Run" Style="{StaticResource DialogActionButton}" Click="Run_Click"
+                  Background="#F47700" Foreground="White" BorderBrush="#F47700" FontWeight="SemiBold"/>
+          <Button x:Name="CloseButton" Content="Close" Style="{StaticResource DialogActionButton}" Margin="0"
+                  Click="Close_Click"/>
         </StackPanel>
       </Grid>
     </Grid>

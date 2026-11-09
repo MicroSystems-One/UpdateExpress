@@ -6,6 +6,43 @@
         WindowStartupLocation="CenterOwner"
         Background="#F3F6FB" FontFamily="Segoe UI"
         ShowInTaskbar="False">
+  <Window.Resources>
+    <!-- Override App.xaml MinHeight=39 / Margin bottom so footer buttons share one row. -->
+    <Style x:Key="DialogActionButton" TargetType="Button">
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="MinHeight" Value="30"/>
+      <Setter Property="MaxHeight" Value="30"/>
+      <Setter Property="Padding" Value="12,0"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="FontFamily" Value="Segoe UI"/>
+      <Setter Property="Background" Value="#FFFFFF"/>
+      <Setter Property="Foreground" Value="#182335"/>
+      <Setter Property="BorderBrush" Value="#CED5DF"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Outer" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Outer" Property="Background" Value="#EBF2FA"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
   <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="14" Padding="18">
     <Grid>
       <Grid.RowDefinitions>
@@ -21,10 +58,11 @@
                VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                FontFamily="Consolas" FontSize="11" BorderBrush="#DDE3EB" Padding="10"
                Background="#F8FAFC"/>
-      <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Height="30" Margin="0,14,0,0">
-        <Button Content="Copy to clipboard" Height="30" MinHeight="30" MaxHeight="30" Padding="12,0" Margin="0,0,8,0" VerticalAlignment="Center" Click="Copy_Click"/>
-        <Button Content="Open log folder" Height="30" MinHeight="30" MaxHeight="30" Padding="12,0" Margin="0,0,8,0" VerticalAlignment="Center" Click="OpenFolder_Click"/>
-        <Button Content="Close" Height="30" MinHeight="30" MaxHeight="30" Padding="16,0" VerticalAlignment="Center" Click="Close_Click"/>
+      <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
+                  Height="30" Margin="0,14,0,0">
+        <Button Content="Copy to clipboard" Style="{StaticResource DialogActionButton}" Click="Copy_Click"/>
+        <Button Content="Open log folder" Style="{StaticResource DialogActionButton}" Click="OpenFolder_Click"/>
+        <Button Content="Close" Style="{StaticResource DialogActionButton}" Margin="0" Click="Close_Click"/>
       </StackPanel>
     </Grid>
   </Border>
