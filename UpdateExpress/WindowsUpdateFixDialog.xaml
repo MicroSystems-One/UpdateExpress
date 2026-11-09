@@ -53,15 +53,20 @@
         <TextBlock x:Name="ProgressLabel" Text="Running…" FontSize="12" Foreground="#52617A" Margin="0,0,0,4"/>
         <ProgressBar Height="7" IsIndeterminate="True" Foreground="#F47700"/>
       </StackPanel>
-      <DockPanel Grid.Row="5" Margin="0,14,0,0" LastChildFill="False">
-        <Button x:Name="ErrorReportButton" DockPanel.Dock="Left" Content="Error report" Height="30" MinHeight="30"
-                Padding="12,3" Margin="0,0,8,0" IsEnabled="False" Click="ErrorReport_Click"/>
-        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-          <Button x:Name="RunButton" Content="Run" Height="30" MinHeight="30" Padding="16,3" Margin="0,0,8,0" Click="Run_Click"
-                  Background="#F47700" Foreground="White" BorderBrush="#F47700" FontWeight="SemiBold"/>
-          <Button x:Name="CloseButton" Content="Close" Height="30" MinHeight="30" Padding="16,3" Click="Close_Click"/>
+      <Grid Grid.Row="5" Margin="0,14,0,0" Height="30">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="ErrorReportButton" Grid.Column="0" Content="Error report" Height="30" MinHeight="30" MaxHeight="30"
+                Padding="12,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Click="ErrorReport_Click"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button x:Name="RunButton" Content="Run" Height="30" MinHeight="30" MaxHeight="30" Padding="16,0" Margin="0,0,8,0" Click="Run_Click"
+                  VerticalAlignment="Center" Background="#F47700" Foreground="White" BorderBrush="#F47700" FontWeight="SemiBold"/>
+          <Button x:Name="CloseButton" Content="Close" Height="30" MinHeight="30" MaxHeight="30" Padding="16,0"
+                  VerticalAlignment="Center" Click="Close_Click"/>
         </StackPanel>
-      </DockPanel>
+      </Grid>
     </Grid>
   </Border>
 </Window>
