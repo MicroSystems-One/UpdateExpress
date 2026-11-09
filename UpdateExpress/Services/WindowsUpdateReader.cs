@@ -8,9 +8,11 @@ namespace UpdateExpress.Services;
 public static class WindowsUpdateReader
 {
     // WUA COM objects are created and used on the same dedicated STA thread.
-    public static Task<List<UpdateEntry>> RunStaAsync(Func<List<UpdateEntry>> action)
+    public static Task<List<UpdateEntry>> RunStaAsync(Func<List<UpdateEntry>> action) => RunStaAsync<List<UpdateEntry>>(action);
+
+    public static Task<T> RunStaAsync<T>(Func<T> action)
     {
-        var completion = new TaskCompletionSource<List<UpdateEntry>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
             try { completion.SetResult(action()); }
@@ -405,6 +407,38 @@ public static class WindowsUpdateReader
         return entries;
     }
 
+    /// <summary>
+    /// Category 2/3: download selected software updates without installing.
+    /// Returns the number of updates marked IsDownloaded.
+    /// </summary>
+    public static int DownloadSelected(List<string> updateIds, Action<string>? report = null)
+    {
+        var collection = CollectSoftwareUpdates(updateIds, report, out _);
+        if ((int)collection.Count == 0)
+            throw new InvalidOperationException("No selected updates could be prepared for download.");
+        report?.Invoke($"Downloading 0/{collection.Count} updates — waiting for Windows Update Agent…");
+        dynamic session = Session();
+        dynamic downloader = session.CreateUpdateDownloader();
+        downloader.Updates = collection;
+        dynamic download = downloader.Download();
+        int downloadCode = (int)download.ResultCode;
+        int downloadedCount = 0;
+        for (int i = 0; i < (int)collection.Count; i++)
+        {
+            try
+            {
+                if ((bool)collection.Item(i).IsDownloaded) downloadedCount++;
+            }
+            catch { }
+        }
+        report?.Invoke($"Download phase completed: {downloadedCount}/{collection.Count} (result={downloadCode}).");
+        if (downloadCode != 2 && downloadCode != 3)
+            throw new InvalidOperationException($"Download failed: result code {downloadCode}.");
+        if (downloadedCount == 0)
+            throw new InvalidOperationException("No updates were downloaded.");
+        return downloadedCount;
+    }
+
     // Pilot: install one explicitly selected, non-firmware driver, with a fresh WUA identity
     // and hardware-ID check. Never automatically install or reboot.
     public static List<UpdateEntry> InstallSelectedDriver(UpdateEntry selected, Action<string>? report = null, bool allowInteractive = false)
@@ -535,7 +569,7 @@ public static class WindowsUpdateReader
         }
     }
 
-    private static List<UpdateEntry> InstallSelectedWua(List<string> updateIds, Action<string>? report = null)
+    private static dynamic CollectSoftwareUpdates(List<string> updateIds, Action<string>? report, out List<string> rejected)
     {
         if (updateIds.Count == 0) throw new InvalidOperationException("Ingen oppdateringer valgt.");
         report?.Invoke("Searching for selected Windows updates…");
@@ -547,7 +581,7 @@ public static class WindowsUpdateReader
         dynamic collection = Activator.CreateInstance(Type.GetTypeFromProgID("Microsoft.Update.UpdateColl")!)!;
         var selectedIds = new HashSet<string>(updateIds, StringComparer.OrdinalIgnoreCase);
         var foundIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var rejected = new List<string>();
+        rejected = new List<string>();
         for (int i = 0; i < total; i++)
         {
             dynamic update = search.Updates.Item(i);
@@ -558,7 +592,6 @@ public static class WindowsUpdateReader
             string revision = "?";
             try { revision = Convert.ToString(update.Identity.RevisionNumber) ?? "?"; } catch { }
             // Match by WUA UpdateID, never by translated category/title or KB alone.
-            // WUA search results are fresh COM objects on this same STA thread.
             bool installed = false, hidden = false, inputRequired = false;
             try { installed = (bool)update.IsInstalled; } catch { }
             try { hidden = (bool)update.IsHidden; } catch { }
@@ -591,6 +624,13 @@ public static class WindowsUpdateReader
         if ((int)collection.Count == 0)
             throw new InvalidOperationException($"Ingen valgte oppdateringer kan installeres. WUA returnerte {total} oppdatering(er); {foundIds.Count} valgte ID-er ble funnet. " +
                 (rejected.Count == 0 ? "Skann på nytt." : "Detaljer: " + string.Join(" | ", rejected.Take(5))));
+        return collection;
+    }
+
+    private static List<UpdateEntry> InstallSelectedWua(List<string> updateIds, Action<string>? report = null)
+    {
+        dynamic collection = CollectSoftwareUpdates(updateIds, report, out _);
+        dynamic session = Session();
         report?.Invoke($"Downloading 0/{collection.Count} updates — waiting for Windows Update Agent…");
         dynamic downloader = session.CreateUpdateDownloader();
         downloader.Updates = collection;

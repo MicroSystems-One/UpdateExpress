@@ -21,6 +21,14 @@ public partial class App : System.Windows.Application
             Shutdown();
             return;
         }
+        if (args.Contains("--apply-critical-install", StringComparer.OrdinalIgnoreCase))
+        {
+            // Elevated helper for Category 2: install queued Critical/Important updates only.
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            CriticalAutomation.ApplyQueuedInstall();
+            Shutdown();
+            return;
+        }
         if (args.Contains("--agent", StringComparer.OrdinalIgnoreCase))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;

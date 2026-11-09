@@ -210,10 +210,10 @@
           <CheckBox x:Name="CriticalAutoEnabled" Content="Enabled" Margin="0,0,0,4" IsChecked="True"/>
           <TextBlock Text="Interval (minutes)" FontSize="11" Foreground="#52617A"/>
           <TextBox x:Name="CriticalIntervalMinutes" Text="1440" Height="28" Margin="0,2,0,4" Padding="6,3"/>
-          <TextBlock Text="Mode: Download + ask (soon)" FontSize="11" Foreground="#B7791F"/>
+          <TextBlock Text="Mode: Download + ask (K2)" FontSize="11" Foreground="#0F766E"/>
           <TextBlock Text="Preferred time" FontSize="11" Foreground="#52617A" Margin="0,4,0,0"/>
           <TextBox x:Name="CriticalPreferredTime" Text="20:00" Height="28" Margin="0,2,0,0" Padding="6,3"/>
-          <TextBlock x:Name="CriticalAutomationStatus" Text="Status: not automated yet" FontSize="11" Foreground="#52617A" Margin="0,6,0,0" TextWrapping="Wrap"/>
+          <TextBlock x:Name="CriticalAutomationStatus" Text="Status: waiting for agent" FontSize="11" Foreground="#52617A" Margin="0,6,0,0" TextWrapping="Wrap"/>
         </StackPanel>
       </Border>
       <Border Grid.Column="4" Background="#F8FAFC" BorderBrush="#DDE3EB" BorderThickness="1" CornerRadius="8" Padding="8">
@@ -229,7 +229,7 @@
         </StackPanel>
       </Border>
     </Grid>
-    <TextBlock Text="Never auto-reboot. Firmware remains manual. Critical/general install prompts come in a later step." FontSize="11" Foreground="#52617A" Margin="0,0,0,8" TextWrapping="Wrap"/>
+    <TextBlock Text="Never auto-reboot. Firmware remains manual. Critical updates download in the background and ask before install. General prompts come next." FontSize="11" Foreground="#52617A" Margin="0,0,0,8" TextWrapping="Wrap"/>
     <WrapPanel Margin="0,0,0,4">
       <CheckBox x:Name="AutoDrivers" Content="Drivers automatic (optional, not implemented)" Margin="0,0,18,6"/>
       <CheckBox x:Name="AutoApplications" Content="Application automatic (optional, not implemented)" Margin="0,0,18,6" Click="AutoApplications_Click"/>
@@ -237,6 +237,6 @@
       <Button Content="Save Policy" Click="SavePolicy_Click" Padding="10,4" MinHeight="29"/>
     </WrapPanel>
   </StackPanel></ScrollViewer></Expander></Border>
-  <TextBlock Grid.Row="4" x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical/general Windows updates still require confirmation (coming next). Drivers/firmware are not installed automatically. Update Express never restarts Windows automatically." Foreground="#52617A" FontSize="12" Margin="4,10,0,0" TextWrapping="Wrap"/>
+  <TextBlock Grid.Row="4" x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical updates download automatically and require confirmation before install. General Windows updates still require confirmation (coming next). Drivers/firmware are not installed automatically. Update Express never restarts Windows automatically." Foreground="#52617A" FontSize="12" Margin="4,10,0,0" TextWrapping="Wrap"/>
  </Grid>
 </Window>

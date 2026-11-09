@@ -261,7 +261,8 @@ public partial class MainWindow : Window
         MessageBox.Show(this,
             "Windows automation policy saved.\n\n" +
             "Defender (K1) can auto-install via the background agent.\n" +
-            "Critical/general prompts are prepared in policy but not automated yet.\n" +
+            "Critical (K2) downloads in the background and asks before install.\n" +
+            "General (K3) prompts are not automated yet.\n" +
             "Driver/application checkboxes remain preferences only.",
             "Update Express");
     }
@@ -294,7 +295,7 @@ public partial class MainWindow : Window
             return $"Status: {item.LastResult} · last {item.LastRun:dd.MM HH:mm} · next {next}";
         }
         DefenderAutomationStatus.Text = Format(status.Defender, "waiting for agent");
-        CriticalAutomationStatus.Text = Format(status.Critical, "not automated yet");
+        CriticalAutomationStatus.Text = Format(status.Critical, "waiting for agent");
         GeneralAutomationStatus.Text = Format(status.General, "not automated yet");
         AutomationStatusText.Text =
             $"Windows automation: Defender={status.Defender.LastResult}" +
@@ -534,8 +535,9 @@ public partial class MainWindow : Window
         ["Interval (minutes)"] = "Intervall (minutter)", ["Preferred time"] = "Foretrukket tid",
         ["Mode: Auto-install (K1)"] = "Modus: Auto-installasjon (K1)",
         ["Mode: Download + ask (soon)"] = "Modus: Last ned + spør (kommer)",
-        ["Never auto-reboot. Firmware remains manual. Critical/general install prompts come in a later step."] =
-            "Aldri auto-omstart. Fastvare forblir manuell. Kritisk/generell-dialog kommer i neste steg.",
+        ["Mode: Download + ask (K2)"] = "Modus: Last ned + spør (K2)",
+        ["Never auto-reboot. Firmware remains manual. Critical updates download in the background and ask before install. General prompts come next."] =
+            "Aldri auto-omstart. Fastvare forblir manuell. Kritiske oppdateringer lastes ned i bakgrunnen og spør før installasjon. Generelle spørsmål kommer neste.",
         ["Enabled"] = "Aktivert",
         ["Every day"] = "Hver dag", ["Monday"] = "Mandag", ["Tuesday"] = "Tirsdag", ["Wednesday"] = "Onsdag",
         ["Thursday"] = "Torsdag", ["Friday"] = "Fredag", ["Saturday"] = "Lørdag", ["Sunday"] = "Søndag"
