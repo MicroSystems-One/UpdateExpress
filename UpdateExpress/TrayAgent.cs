@@ -10,12 +10,14 @@ using System.Windows.Forms;
 using UpdateExpress.Services;
 namespace UpdateExpress;
 
-// User-session tray agent. Monitoring is read-only: never downloads or installs updates.
+// User-session tray agent. Monitoring is read-only: never downloads or installs Windows updates.
+// Phase 1 app-update checks only open an HTTPS download page; they never replace installed files.
 internal sealed class TrayAgent : IDisposable
 {
     private readonly NotifyIcon _tray;
     private readonly ToolStripMenuItem _status;
     private readonly ToolStripMenuItem _scanNow;
+    private readonly ToolStripMenuItem _checkAppUpdate;
     private readonly System.Threading.Timer _timer;
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
     private readonly string _baselinePath = Path.Combine(InstallationManager.InstallDir, "monitor-initialized.flag");
@@ -25,14 +27,17 @@ internal sealed class TrayAgent : IDisposable
     private DateTime _nextScheduled = DateTime.Now.AddMinutes(5);
     private bool _disposed;
     private int _scanRunning;
+    private int _appUpdateCheckRunning;
 
     public TrayAgent()
     {
         _dispatcher = System.Windows.Application.Current.Dispatcher;
         var menu = new ContextMenuStrip();
         menu.Items.Add("Åpne Update Express", null, (_, _) => Open());
-        _scanNow = new ToolStripMenuItem("Sjekk etter oppdateringer nå", null, (_, _) => StartScan());
+        _scanNow = new ToolStripMenuItem("Sjekk Windows-oppdateringer", null, (_, _) => StartScan());
         menu.Items.Add(_scanNow);
+        _checkAppUpdate = new ToolStripMenuItem("Sjekk Update Express-oppdatering", null, (_, _) => StartAppUpdateCheck());
+        menu.Items.Add(_checkAppUpdate);
         _status = new ToolStripMenuItem("Overvåking: venter på første kontroll") { Enabled = false };
         menu.Items.Add(_status);
         menu.Items.Add(new ToolStripSeparator());
@@ -59,7 +64,6 @@ internal sealed class TrayAgent : IDisposable
     private void StartScan()
     {
         if (_disposed || Interlocked.CompareExchange(ref _scanRunning, 1, 0) != 0) return;
-        var scanStarted = DateTime.Now;
         SetStatus("Overvåking: søker …", false);
         WriteMonitorStatus("scanning", 0, 0, null, null);
         _ = Task.Run(async () =>
@@ -92,6 +96,121 @@ internal sealed class TrayAgent : IDisposable
             }
             finally { Interlocked.Exchange(ref _scanRunning, 0); }
         });
+    }
+
+    private void StartAppUpdateCheck()
+    {
+        if (_disposed || Interlocked.CompareExchange(ref _appUpdateCheckRunning, 1, 0) != 0) return;
+        SetAppUpdateMenuEnabled(false);
+        ShowAppBalloon("Update Express", "Checking for application updates…", ToolTipIcon.Info);
+        _ = Task.Run(async () =>
+        {
+            AppUpdateCheckResult result;
+            try
+            {
+                result = await AppUpdateChecker.CheckAsync().ConfigureAwait(false);
+                AgentLog.Write($"App update check: status={result.Status}; installed={result.InstalledVersion}; available={result.AvailableVersion}; error={result.Error}");
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Write("App update check failed: " + ex);
+                result = new AppUpdateCheckResult
+                {
+                    Status = AppUpdateStatus.CheckFailed,
+                    InstalledVersion = ProductVersion.Display,
+                    Error = ex.Message
+                };
+            }
+
+            try
+            {
+                await _dispatcher.InvokeAsync(() =>
+                {
+                    if (_disposed) return;
+                    PresentAppUpdateResult(result);
+                });
+            }
+            catch (Exception ex) { AgentLog.Write("Cannot present app update result: " + ex.Message); }
+            finally
+            {
+                Interlocked.Exchange(ref _appUpdateCheckRunning, 0);
+                SetAppUpdateMenuEnabled(true);
+            }
+        });
+    }
+
+    private void PresentAppUpdateResult(AppUpdateCheckResult result)
+    {
+        switch (result.Status)
+        {
+            case AppUpdateStatus.UpToDate:
+                ShowAppBalloon("Update Express", $"You are up to date (v{result.InstalledVersion}).", ToolTipIcon.Info);
+                System.Windows.Forms.MessageBox.Show(
+                    $"Update Express is up to date.\n\nInstalled version: {result.InstalledVersion}",
+                    "Update Express",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                break;
+
+            case AppUpdateStatus.UpdateAvailable:
+            {
+                string notes = string.IsNullOrWhiteSpace(result.ReleaseNotes) ? "No release notes provided." : result.ReleaseNotes!;
+                ShowAppBalloon("Update Express", $"Version {result.AvailableVersion} is available.", ToolTipIcon.Info);
+                bool hasDownload = !string.IsNullOrWhiteSpace(result.DownloadUrl);
+                var choice = System.Windows.Forms.MessageBox.Show(
+                    $"A newer Update Express version is available.\n\n" +
+                    $"Installed: {result.InstalledVersion}\n" +
+                    $"Available: {result.AvailableVersion}\n\n" +
+                    $"{notes}\n\n" +
+                    (hasDownload
+                        ? "Phase 1 does not install automatically.\nChoose Yes to open the HTTPS download page, or No to dismiss."
+                        : "No HTTPS download URL is published yet."),
+                    "Update Express update available",
+                    hasDownload ? MessageBoxButtons.YesNo : MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                if (hasDownload && choice == DialogResult.Yes)
+                {
+                    if (!AppUpdateChecker.TryOpenDownload(result.DownloadUrl, out string? error))
+                        System.Windows.Forms.MessageBox.Show("Could not open download page: " + error, "Update Express", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                break;
+            }
+
+            default:
+                ShowAppBalloon("Update Express", "Application update check failed.", ToolTipIcon.Warning);
+                System.Windows.Forms.MessageBox.Show(
+                    "Could not check for Update Express updates.\n\n" + (result.Error ?? "Unknown error"),
+                    "Update Express",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                break;
+        }
+    }
+
+    private void ShowAppBalloon(string title, string text, ToolTipIcon icon)
+    {
+        try
+        {
+            if (_disposed) return;
+            _tray.BalloonTipTitle = title;
+            _tray.BalloonTipText = text;
+            _tray.BalloonTipIcon = icon;
+            _tray.ShowBalloonTip(8000);
+        }
+        catch (Exception ex) { AgentLog.Write("Cannot show app-update balloon: " + ex.Message); }
+    }
+
+    private void SetAppUpdateMenuEnabled(bool enabled)
+    {
+        try
+        {
+            _dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_disposed) return;
+                _checkAppUpdate.Enabled = enabled;
+            }));
+        }
+        catch (Exception ex) { AgentLog.Write("Cannot update app-update menu state: " + ex.Message); }
     }
 
     private void WriteMonitorStatus(string state, int pending, int fresh, DateTime? completed, string? error, string[]? updates = null)
