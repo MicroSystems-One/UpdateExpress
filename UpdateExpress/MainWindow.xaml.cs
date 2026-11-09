@@ -233,6 +233,17 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "Preferred times must be HH:mm, for example 12:00.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
+        if (!int.TryParse(ActiveHoursStart.Text.Trim(), out int activeStart) || activeStart < 0 || activeStart > 23 ||
+            !int.TryParse(ActiveHoursEnd.Text.Trim(), out int activeEnd) || activeEnd < 0 || activeEnd > 23)
+        {
+            MessageBox.Show(this, "Active hours must be integers from 0 to 23.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (!int.TryParse(RebootCountdownSeconds.Text.Trim(), out int countdown) || countdown < 60 || countdown > 3600)
+        {
+            MessageBox.Show(this, "Reboot countdown must be between 60 and 3600 seconds.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
 
         _policy.WindowsAutomation.Enabled = WindowsAutomationEnabled.IsChecked == true;
         _policy.WindowsAutomation.Defender.Enabled = DefenderAutoEnabled.IsChecked == true;
@@ -246,7 +257,12 @@ public partial class MainWindow : Window
         _policy.WindowsAutomation.General.IntervalMinutes = generalMinutes;
         _policy.WindowsAutomation.General.PreferredInstallTime = GeneralPreferredTime.Text.Trim();
         _policy.WindowsAutomation.General.Mode = "downloadAndPrompt";
-        _policy.WindowsAutomation.NeverAutoReboot = true;
+        _policy.WindowsAutomation.AutoReboot.Enabled = AutoRebootEnabled.IsChecked == true;
+        _policy.WindowsAutomation.AutoReboot.Mode = AutoRebootOutsideOption.IsChecked == true ? "outsideActiveHours" : "confirm";
+        _policy.WindowsAutomation.AutoReboot.ActiveHoursStart = activeStart;
+        _policy.WindowsAutomation.AutoReboot.ActiveHoursEnd = activeEnd;
+        _policy.WindowsAutomation.AutoReboot.CountdownSeconds = countdown;
+        _policy.WindowsAutomation.NeverAutoReboot = !_policy.WindowsAutomation.AutoReboot.Enabled;
 
         _policy.AutomaticDrivers = AutoDrivers.IsChecked == true;
         _policy.AutomaticApplications = AutoApplications.IsChecked == true;
@@ -262,7 +278,11 @@ public partial class MainWindow : Window
             "Windows automation policy saved.\n\n" +
             "Defender (K1) can auto-install via the background agent.\n" +
             "Critical (K2) and General (K3) download in the background and ask before install.\n" +
-            "Default preferred time is 12:00. Update Express never reboots Windows.\n" +
+            "Optional auto-reboot: " + (_policy.WindowsAutomation.AutoReboot.Enabled
+                ? (_policy.WindowsAutomation.AutoReboot.Mode == "outsideActiveHours"
+                    ? "outside active hours"
+                    : "ask for confirmation")
+                : "off") + ".\n" +
             "Driver/application checkboxes remain preferences only.",
             "Update Express");
     }
@@ -280,6 +300,14 @@ public partial class MainWindow : Window
         GeneralAutoEnabled.IsChecked = wa.General.Enabled;
         GeneralIntervalMinutes.Text = wa.General.IntervalMinutes.ToString();
         GeneralPreferredTime.Text = string.IsNullOrWhiteSpace(wa.General.PreferredInstallTime) ? AutomationSchedule.DefaultPreferredTime : wa.General.PreferredInstallTime;
+        AutoRebootEnabled.IsChecked = wa.AutoReboot.Enabled;
+        if (string.Equals(wa.AutoReboot.Mode, "outsideActiveHours", StringComparison.OrdinalIgnoreCase))
+            AutoRebootOutsideOption.IsChecked = true;
+        else
+            AutoRebootConfirmOption.IsChecked = true;
+        ActiveHoursStart.Text = wa.AutoReboot.ActiveHoursStart.ToString();
+        ActiveHoursEnd.Text = wa.AutoReboot.ActiveHoursEnd.ToString();
+        RebootCountdownSeconds.Text = wa.AutoReboot.CountdownSeconds.ToString();
         AutoDrivers.IsChecked = _policy.AutomaticDrivers;
         AutoApplications.IsChecked = _policy.AutomaticApplications;
         RefreshAutomationStatusTexts();
@@ -473,10 +501,51 @@ public partial class MainWindow : Window
         _monitorUiTimer.Start();
         RefreshMonitorPanel();
         RefreshAutomationStatusTexts();
-        Loaded += async (_, _) => { CheckReminder(); await RefreshDefenderAsync(); await RefreshFirewallAsync(); };
+        Loaded += async (_, _) =>
+        {
+            CheckReminder();
+            await RefreshDefenderAsync();
+            await RefreshFirewallAsync();
+            // Quiet self-update check when the main window opens (prompt only if newer).
+            AppUpdatePrompt.StartCheck(
+                automatic: true,
+                onUpdateInstallRequested: StartAppSelfUpdateInstall,
+                balloon: null);
+        };
         _connectivity.Updated += UpdateConnectivity;
         Loaded += (_, _) => _connectivity.Start();
         Closed += (_, _) => _connectivity.Dispose();
+    }
+
+    private void StartAppSelfUpdateInstall(AppUpdateCheckResult offer)
+    {
+        _ = Dispatcher.InvokeAsync(async () =>
+        {
+            try
+            {
+                StatusText.Visibility = Visibility.Visible;
+                StatusText.Text = "Downloading Update Express update…";
+                await AppUpdateInstaller.PrepareAndLaunchAsync(offer, stage =>
+                {
+                    AgentLog.Write("App update (UI): " + stage);
+                    try { Dispatcher.BeginInvoke(new Action(() => StatusText.Text = stage)); }
+                    catch { }
+                }).ConfigureAwait(true);
+                // LaunchSelfUpdate shuts down this process on success.
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Write("App update install from main window failed: " + ex);
+                AppUpdatePrompt.ReleaseCheckLock();
+                StatusText.Text = "Update Express update failed.";
+                MessageBox.Show(this,
+                    "Could not install the Update Express update.\n\n" + ex.Message +
+                    "\n\nThe installed version was not changed.",
+                    "Update Express",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        });
     }
     private string _osSupportDetails = "";
     private void RefreshOsSupportStatus()
@@ -537,8 +606,15 @@ public partial class MainWindow : Window
         ["Mode: Download + ask (soon)"] = "Modus: Last ned + spør (kommer)",
         ["Mode: Download + ask (K2)"] = "Modus: Last ned + spør (K2)",
         ["Mode: Download + ask (K3)"] = "Modus: Last ned + spør (K3)",
-        ["Never auto-reboot. Firmware remains manual. Critical and general updates download in the background and ask before install. Default preferred time is 12:00."] =
-            "Aldri auto-omstart. Fastvare forblir manuell. Kritiske og generelle oppdateringer lastes ned i bakgrunnen og spør før installasjon. Standard foretrukket tid er 12:00.",
+        ["Optional auto-reboot (K2/K3 only)"] = "Valgfri auto-omstart (kun K2/K3)",
+        ["Allow optional auto-reboot after Critical/General installs (default off)"] =
+            "Tillat valgfri auto-omstart etter kritisk/generell installasjon (standard av)",
+        ["Ask for confirmation"] = "Spør om bekreftelse",
+        ["Only outside active hours"] = "Kun utenfor arbeidstid",
+        ["Active hours"] = "Arbeidstid",
+        ["Countdown (sec)"] = "Nedtelling (sek)",
+        ["Critical and general updates download in the background and ask before install. Default preferred time is 12:00. Auto-reboot is optional and off by default."] =
+            "Kritiske og generelle oppdateringer lastes ned i bakgrunnen og spør før installasjon. Standard foretrukket tid er 12:00. Auto-omstart er valgfri og av som standard.",
         ["Enabled"] = "Aktivert",
         ["Every day"] = "Hver dag", ["Monday"] = "Mandag", ["Tuesday"] = "Tirsdag", ["Wednesday"] = "Onsdag",
         ["Thursday"] = "Torsdag", ["Friday"] = "Fredag", ["Saturday"] = "Lørdag", ["Sunday"] = "Søndag"

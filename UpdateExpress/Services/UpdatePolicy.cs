@@ -18,7 +18,9 @@ public sealed class CategoryAutomationPolicy
 public sealed class WindowsAutomationPolicy
 {
     public bool Enabled { get; set; } = true;
+    /// <summary>Legacy mirror of !AutoReboot.Enabled (kept for older readers).</summary>
     public bool NeverAutoReboot { get; set; } = true;
+    public AutoRebootPolicy AutoReboot { get; set; } = new();
     public CategoryAutomationPolicy Defender { get; set; } = new()
     {
         Enabled = true,
@@ -102,7 +104,15 @@ public sealed class UpdatePolicy
             PreferredInstallTime = AutomationSchedule.DefaultPreferredTime,
             Weekday = 2
         };
-        WindowsAutomation.NeverAutoReboot = true;
+        WindowsAutomation.AutoReboot ??= new AutoRebootPolicy();
+        if (!string.Equals(WindowsAutomation.AutoReboot.Mode, "confirm", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(WindowsAutomation.AutoReboot.Mode, "outsideActiveHours", StringComparison.OrdinalIgnoreCase))
+            WindowsAutomation.AutoReboot.Mode = "confirm";
+        WindowsAutomation.AutoReboot.ActiveHoursStart = Math.Clamp(WindowsAutomation.AutoReboot.ActiveHoursStart, 0, 23);
+        WindowsAutomation.AutoReboot.ActiveHoursEnd = Math.Clamp(WindowsAutomation.AutoReboot.ActiveHoursEnd, 0, 23);
+        WindowsAutomation.AutoReboot.CountdownSeconds = Math.Clamp(WindowsAutomation.AutoReboot.CountdownSeconds, 60, 3600);
+        // Keep legacy flag in sync (true when optional auto-reboot is off).
+        WindowsAutomation.NeverAutoReboot = !WindowsAutomation.AutoReboot.Enabled;
 
         if (string.IsNullOrWhiteSpace(WindowsAutomation.Critical.PreferredInstallTime) ||
             WindowsAutomation.Critical.PreferredInstallTime.Trim() == "20:00")

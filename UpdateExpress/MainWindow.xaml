@@ -229,7 +229,26 @@
         </StackPanel>
       </Border>
     </Grid>
-    <TextBlock Text="Never auto-reboot. Firmware remains manual. Critical and general updates download in the background and ask before install. Default preferred time is 12:00." FontSize="11" Foreground="#52617A" Margin="0,0,0,8" TextWrapping="Wrap"/>
+    <Border Background="#F8FAFC" BorderBrush="#DDE3EB" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,8">
+      <StackPanel>
+        <TextBlock Text="Optional auto-reboot (K2/K3 only)" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <CheckBox x:Name="AutoRebootEnabled" Content="Allow optional auto-reboot after Critical/General installs (default off)" Margin="0,0,0,6"/>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+          <RadioButton x:Name="AutoRebootConfirmOption" Content="Ask for confirmation" GroupName="AutoRebootMode" IsChecked="True" Margin="0,0,16,0" VerticalAlignment="Center"/>
+          <RadioButton x:Name="AutoRebootOutsideOption" Content="Only outside active hours" GroupName="AutoRebootMode" VerticalAlignment="Center"/>
+        </StackPanel>
+        <WrapPanel Margin="0,2,0,0">
+          <TextBlock Text="Active hours" FontSize="11" Foreground="#52617A" VerticalAlignment="Center" Margin="0,0,6,0"/>
+          <TextBox x:Name="ActiveHoursStart" Text="7" Width="40" Height="26" Padding="4,2" Margin="0,0,4,0"/>
+          <TextBlock Text="–" VerticalAlignment="Center" Margin="0,0,4,0"/>
+          <TextBox x:Name="ActiveHoursEnd" Text="18" Width="40" Height="26" Padding="4,2" Margin="0,0,14,0"/>
+          <TextBlock Text="Countdown (sec)" FontSize="11" Foreground="#52617A" VerticalAlignment="Center" Margin="0,0,6,0"/>
+          <TextBox x:Name="RebootCountdownSeconds" Text="300" Width="56" Height="26" Padding="4,2"/>
+        </WrapPanel>
+        <TextBlock Text="When enabled and a restart is required: confirm now, or defer until outside active hours (tray asks again). Firmware remains manual." FontSize="11" Foreground="#52617A" Margin="0,6,0,0" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+    <TextBlock Text="Critical and general updates download in the background and ask before install. Default preferred time is 12:00. Auto-reboot is optional and off by default." FontSize="11" Foreground="#52617A" Margin="0,0,0,8" TextWrapping="Wrap"/>
     <WrapPanel Margin="0,0,0,4">
       <CheckBox x:Name="AutoDrivers" Content="Drivers automatic (optional, not implemented)" Margin="0,0,18,6"/>
       <CheckBox x:Name="AutoApplications" Content="Application automatic (optional, not implemented)" Margin="0,0,18,6" Click="AutoApplications_Click"/>
@@ -237,6 +256,6 @@
       <Button Content="Save Policy" Click="SavePolicy_Click" Padding="10,4" MinHeight="29"/>
     </WrapPanel>
   </StackPanel></ScrollViewer></Expander></Border>
-  <TextBlock Grid.Row="4" x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical and general Windows updates download automatically and require confirmation before install. Drivers/firmware are not installed automatically. Update Express never restarts Windows automatically." Foreground="#52617A" FontSize="12" Margin="4,10,0,0" TextWrapping="Wrap"/>
+  <TextBlock Grid.Row="4" x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical and general Windows updates download automatically and require confirmation before install. Optional auto-reboot after K2/K3 is off by default (confirm or outside active hours). Drivers/firmware are not installed automatically." Foreground="#52617A" FontSize="12" Margin="4,10,0,0" TextWrapping="Wrap"/>
  </Grid>
 </Window>

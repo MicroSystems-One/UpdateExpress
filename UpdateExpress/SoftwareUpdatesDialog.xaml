@@ -57,7 +57,7 @@
       <ListBox x:Name="UpdatesList" Grid.Row="2" BorderBrush="#DDE3EB" BorderThickness="1"
                ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
       <TextBlock Grid.Row="3" Margin="0,12,0,8" TextWrapping="Wrap" Foreground="#9B5A00"
-                 Text="Update Express never restarts Windows automatically. Save your work before installing; a restart may still be required afterwards."/>
+                 Text="Save your work before installing. A restart may be required afterwards. Optional auto-reboot (if enabled in policy) asks for confirmation or waits until outside active hours."/>
       <StackPanel x:Name="ProgressPanel" Grid.Row="4" Visibility="Collapsed" Margin="0,0,0,10">
         <TextBlock x:Name="ProgressLabel" Text="Preparing…" FontSize="12" Foreground="#52617A" Margin="0,0,0,4"/>
         <ProgressBar x:Name="ProgressBar" Height="7" IsIndeterminate="True" Foreground="#F47700"/>

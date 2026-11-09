@@ -20,7 +20,7 @@ internal static class InstallationManager
     internal static string UserExe => Path.Combine(UserInstallDir, "UpdateExpress.exe");
     private static readonly string StartMenuDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "MicroSystems");
     private static readonly string Shortcut = Path.Combine(StartMenuDir, "Update Express.lnk");
-    private const string DesktopIconName = "UpdateExpress-U-v0.7.2.6.45.ico";
+    private const string DesktopIconName = "UpdateExpress-U-v0.7.2.6.46.ico";
     private const string DesktopIconResource = "UpdateExpress.Assets.UpdateExpress.ico";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\MicroSystems.UpdateExpress";
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";

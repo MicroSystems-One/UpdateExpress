@@ -440,14 +440,20 @@ internal static class DownloadPromptAutomation
                 WindowsAutomationStatus.WriteCategory(
                     category,
                     rebootHint ? "Installed (restart needed)" : "Installed",
-                    $"{ok}/{results.Count} completed. Update Express did not restart Windows.",
+                    rebootHint
+                        ? $"{ok}/{results.Count} completed. Restart may be required."
+                        : $"{ok}/{results.Count} completed.",
                     NextDue(DateTime.Now, cat, preferred, weekly, minInterval));
                 ActivityLog.TryWrite(displayName + "Automation", "Installed", new { ok, Total = results.Count, rebootHint }, mode: "Automatic", source: "ElevatedHelper");
 
                 manager.Finish();
                 if (rebootHint)
                 {
-                    manager.SetStage("Finished — a restart may be required. Update Express never restarts Windows automatically.");
+                    bool autoReboot = policy.WindowsAutomation.AutoReboot.Enabled;
+                    manager.SetStage(autoReboot
+                        ? "Finished — restart required. Optional auto-reboot policy will run next…"
+                        : "Finished — a restart may be required. Auto-reboot is disabled in policy.");
+                    RebootCoordinator.HandleAfterInstall(displayName, rebootRequired: true, owner: manager);
                 }
             }
             catch (Exception ex)
