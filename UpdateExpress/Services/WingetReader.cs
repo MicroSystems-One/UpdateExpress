@@ -13,7 +13,7 @@ public sealed class AppUpdate(string name, string id, string installed, string a
  public string Date => "";
  public string ErrorCode => "";
  public string DisplayName => Id.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase) && !Name.StartsWith("Microsoft ", StringComparison.OrdinalIgnoreCase) ? "Microsoft " + Name : Name;
- // WinGet upgrade does not provide a reliable security severity level → display as Regular (K4).
+ // WinGet upgrade does not provide a reliable security severity level → display as Unrated.
  public string Priority => "Unrated";
  public string PriorityDisplay
  {
@@ -24,7 +24,7 @@ public sealed class AppUpdate(string name, string id, string installed, string a
   get { var g = PriorityGrade.ForApplication(); return g.ColorHex; }
  }
  public string PriorityExplanation =>
-  "WinGet reports an available application version but does not provide verified security severity. Shown as Regular (K4), not a recommendation to skip the update.";
+  "WinGet reports an available application version but does not provide verified security severity. Shown as Unrated, not a recommendation to skip the update.";
  public bool AutoUpdate { get; set; }
 }
 public sealed record WingetScanResult(List<AppUpdate> Updates, string Raw, string Message);

@@ -1,18 +1,33 @@
 using System;
 using System.IO;
 using System.Windows;
+using UpdateExpress.Models;
 using UpdateExpress.Services;
 
 namespace UpdateExpress;
 
 public partial class WindowsUpdateFixDialog : Window
 {
+    private readonly UpdateEntry? _fixTarget;
+    private readonly bool _includeOptional;
+    private readonly bool _allDrivers;
     private bool _running;
     private WindowsUpdateFixReport? _lastReport;
 
-    public WindowsUpdateFixDialog(WindowsUpdateFixLevel? preferredLevel = null)
+    internal bool FixCompleted { get; private set; }
+    internal bool ReplacedUpdateCache { get; private set; }
+    internal bool ScanCompleted { get; private set; }
+
+    public WindowsUpdateFixDialog(
+        WindowsUpdateFixLevel? preferredLevel = null,
+        UpdateEntry? fixTarget = null,
+        bool includeOptional = false,
+        bool allDrivers = false)
     {
         InitializeComponent();
+        _fixTarget = fixTarget;
+        _includeOptional = includeOptional;
+        _allDrivers = allDrivers;
         if (preferredLevel == WindowsUpdateFixLevel.Deep) DeepOption.IsChecked = true;
         else if (preferredLevel == WindowsUpdateFixLevel.Medium) MediumOption.IsChecked = true;
         else if (preferredLevel == WindowsUpdateFixLevel.Quick) QuickOption.IsChecked = true;
@@ -78,14 +93,16 @@ public partial class WindowsUpdateFixDialog : Window
         }
 
         var level = SelectedLevel;
+        const string historyNote =
+            "Windows Update history is saved in Update Express first. SoftwareDistribution is renamed, not restored, so Windows' own history list is empty afterwards. Update Express still shows the saved events.";
         string warn = level switch
         {
             WindowsUpdateFixLevel.Deep =>
-                "Deep fix will run Quick + SFC + DISM RestoreHealth.\n\nThis can take over an hour. Keep the PC online and plugged in.\n\nContinue?",
+                "Deep fix will run Quick (disk space check and SFC /scannow) plus DISM RestoreHealth.\n\nThis can take over an hour. Keep the PC online and plugged in.\n\n" + historyNote + "\n\nContinue?",
             WindowsUpdateFixLevel.Medium =>
-                "Medium fix will run Quick + SFC /scannow.\n\nThis can take 15–45 minutes.\n\nContinue?",
+                "Medium fix runs the same steps as Quick, including a disk space check and SFC /scannow.\n\nThis can take 15–45 minutes.\n\n" + historyNote + "\n\nContinue?",
             _ =>
-                "Quick fix will stop Windows Update services and rename SoftwareDistribution + catroot2 (backup names).\n\nContinue?"
+                "Quick fix will check free space on the Windows drive and run SFC /scannow before it changes Windows Update.\n\nIt then stops Windows Update services and renames SoftwareDistribution + catroot2 (backup names).\n\nThis can take 15–45 minutes.\n\n" + historyNote + "\n\nContinue?"
         };
         if (MessageBox.Show(this, warn, "Confirm Windows Update fix", MessageBoxButton.YesNo, MessageBoxImage.Warning)
             != MessageBoxResult.Yes) return;
@@ -105,16 +122,18 @@ public partial class WindowsUpdateFixDialog : Window
 
         try
         {
-            _lastReport = await WindowsUpdateFixService.RunAsync(level, progress).ConfigureAwait(true);
+            _lastReport = await WindowsUpdateFixService.RunAsync(level, progress, default, _fixTarget, _includeOptional, _allDrivers).ConfigureAwait(true);
+            ReplacedUpdateCache = _lastReport.Steps.Any(step => step.Name == "Rename SoftwareDistribution" && step.Success);
+            ScanCompleted = _lastReport.Steps.Any(step => step.Name == "Check for updates" && step.Success);
             AppendLine("");
             AppendLine(_lastReport.HasFailures
                 ? "Finished with one or more failures. Open Error report for an AI troubleshooting prompt."
-                : "Finished successfully. You can still open Error report for a full log.");
+                : "Finished successfully. Saved history stays in Update Express.");
             RefreshErrorReportEnabled();
             MessageBox.Show(this,
                 _lastReport.HasFailures
-                    ? "Windows Update fix finished with errors.\n\nUse Error report to copy a prompt for further troubleshooting."
-                    : "Windows Update fix finished.\n\nTry Check for Updates next.",
+                    ? "Windows Update fix finished with errors.\n\nSaved history stays in Update Express. Use Error report if a step failed."
+                    : "Windows Update fix finished.\n\nWindows' own history starts empty. Update Express keeps the saved events. A row is marked Fixed only when a later success exists, or when the update you fixed is no longer offered.",
                 "Windows Update fix",
                 MessageBoxButton.OK,
                 _lastReport.HasFailures ? MessageBoxImage.Warning : MessageBoxImage.Information);
@@ -131,6 +150,7 @@ public partial class WindowsUpdateFixDialog : Window
         finally
         {
             _running = false;
+            FixCompleted = _lastReport != null;
             ProgressPanel.Visibility = Visibility.Collapsed;
             RunButton.IsEnabled = true;
             QuickOption.IsEnabled = MediumOption.IsEnabled = DeepOption.IsEnabled = true;

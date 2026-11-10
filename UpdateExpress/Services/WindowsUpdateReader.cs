@@ -48,7 +48,19 @@ public static class WindowsUpdateReader
         if (title.Contains("feature update") || title.Contains("funksjonsoppdatering") || title.Contains("enablement package")) return "Versjonsoppgradering";
         return "Programvare / sikkerhet";
     }
-    private static (string Label, string Explanation) AssessPriority(object updateObject, string category, bool driver)
+    private static bool IsFirmwareUpdate(dynamic update)
+    {
+        string title = Convert.ToString(update.Title) ?? "";
+        if (title.Contains("Firmware", StringComparison.OrdinalIgnoreCase) ||
+            title.Contains("Fastvare", StringComparison.OrdinalIgnoreCase))
+            return true;
+        try
+        {
+            return string.Equals(Convert.ToString(update.DriverClass), "Firmware", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+    private static (string Label, string Explanation) AssessPriority(object updateObject, string category, bool driver, bool firmware = false)
     {
         // Keep tuple member access statically typed; dynamic COM values otherwise
         // cause the returned ValueTuple to be accessed via runtime binder (.Label fails).
@@ -74,12 +86,20 @@ public static class WindowsUpdateReader
             if (severity.Equals("Low", StringComparison.OrdinalIgnoreCase)) return ("Low", "Official MSRC severity: Low (displayed as Moderate / K3). " + metadata);
             if (category == "Preview / valgfri") return ("Optional", "Preview/optional update classification; NOT an official MSRC severity. " + metadata);
         }
-        if (driver) return ("Unknown", "No verified WUA/MSRC priority for this driver; WUA IsAssigned is shown separately. " + metadata);
-        // KB2267602 is the Microsoft Defender Security Intelligence definitions update.
-        // Moderate (K3) here is an operational grade, NOT an official MSRC severity rating.
+        if (driver)
+        {
+            if (severity.Equals("Critical", StringComparison.OrdinalIgnoreCase)) return ("Critical", "Official MSRC severity: Critical. " + metadata);
+            if (severity.Equals("Important", StringComparison.OrdinalIgnoreCase)) return ("Important", "Official MSRC severity: Important. " + metadata);
+            if (severity.Equals("Moderate", StringComparison.OrdinalIgnoreCase)) return ("Moderate", "Official MSRC severity: Moderate. " + metadata);
+            if (severity.Equals("Low", StringComparison.OrdinalIgnoreCase)) return ("Low", "Official MSRC severity: Low (displayed as Moderate / K3). " + metadata);
+            if (firmware)
+                return ("Moderate", "Firmware offered by Windows Update. Operational Moderate (K3): recommended to review. Not an official MSRC severity, and never selected automatically. " + metadata);
+            return ("Unknown", "No verified WUA/MSRC priority for this driver; WUA IsAssigned is shown separately. " + metadata);
+        }
+        // KB2267602 has no MSRC severity. Moderate (K3) is an operational grade, not Critical (K1).
         string kb = KBs(update);
-        if (kb.Split(',', StringSplitOptions.TrimEntries).Any(id => id.Equals("KB2267602", StringComparison.OrdinalIgnoreCase)))
-            return ("Moderate", "Microsoft Defender Security Intelligence (KB2267602). Operational Moderate (K3) based on update identity, not an official MSRC severity. " + metadata);
+        if (OperationalPriority.IsDefenderKb(kb))
+            return (OperationalPriority.DefenderLabel, OperationalPriority.DefenderExplanation + " " + metadata);
         return ("Unrated", "No verified MSRC severity or applicable operational classification. " + metadata);
     }
     public static List<UpdateEntry> AdvancedPending(bool includeOptional = false, bool allDrivers = false)
@@ -125,9 +145,9 @@ public static class WindowsUpdateReader
         {
             // BrowseOnly is an additional WUA search criterion; it does not guarantee
             // parity with the Windows Settings optional-update offering.
-            var criteria = new List<string> { kind == "Driver" && !allDrivers
-                ? "IsInstalled=0 and IsHidden=0 and Type='Driver' and IsAssigned=1"
-                : $"IsInstalled=0 and IsHidden=0 and Type='{kind}'" };
+            // Firmware is not a separate WUA type. Always search every pending driver,
+            // then keep unassigned non-firmware offers only when All WUA drivers is on.
+            var criteria = new List<string> { $"IsInstalled=0 and IsHidden=0 and Type='{kind}'" };
             if (includeOptional && kind == "Software")
                 criteria.Add("IsInstalled=0 and IsHidden=0 and Type='Software' and BrowseOnly=1");
             foreach (var criterion in criteria)
@@ -140,11 +160,13 @@ public static class WindowsUpdateReader
                 string revision = Convert.ToString(u.Identity.RevisionNumber) ?? "";
                 if (!seen.Add(identity + ":" + revision)) continue;
                 var category = Category(u, kind == "Driver");
-                bool firmware = kind == "Driver" && (Convert.ToString(u.Title) ?? "").Contains("Firmware", StringComparison.OrdinalIgnoreCase);
+                bool firmware = kind == "Driver" && IsFirmwareUpdate(u);
                 bool assignedDriver = kind == "Driver" && !firmware && assignedDriverIds.Contains(identity + ":" + revision);
+                if (kind == "Driver" && !allDrivers && !firmware && !assignedDriverIds.Contains(identity + ":" + revision))
+                    continue;
                 if (kind == "Software" && criterion.Contains("BrowseOnly=1") && category == "Programvare / sikkerhet")
                     category = "Optional / valgfri";
-                (string Label, string Explanation) assessment = AssessPriority((object)u, category, kind == "Driver");
+                (string Label, string Explanation) assessment = AssessPriority((object)u, category, kind == "Driver", firmware);
                 entries.Add(new UpdateEntry
                 {
                     KB = KBs(u), Title = Convert.ToString(u.Title) ?? "", Category = category, Priority = assessment.Label, PriorityExplanation = assessment.Explanation,
@@ -174,7 +196,16 @@ public static class WindowsUpdateReader
                 : "Installed driver version not verified for this hardware ID.";
         }
         InstalledDriverReader.Classify(entries);
-        return entries.OrderBy(e => e.Category).ThenBy(e => e.Title).ToList();
+        var featureOffer = FeatureUpdateOfferReader.Read();
+        if (featureOffer is not null && !entries.Any(entry =>
+                entry.Title.Contains(featureOffer.Title, StringComparison.OrdinalIgnoreCase) ||
+                entry.Title.Contains(FeatureRelease(featureOffer.Title), StringComparison.OrdinalIgnoreCase)))
+            entries.Add(featureOffer);
+        return entries
+            .OrderBy(entry => entry.Category == "Versjonsoppgradering" ? 0 : 1)
+            .ThenBy(entry => entry.Category)
+            .ThenBy(entry => entry.Title)
+            .ToList();
     }
     private static string ValueOrUnknown(string value) => string.IsNullOrWhiteSpace(value) ? "Unknown" : value;
     public static string Diagnostics()
@@ -193,7 +224,7 @@ public static class WindowsUpdateReader
         {
             var pme = PmeServiceControl.ReadState("PME.Agent.PmeService");
             lines.Add($"N-able PME: {(pme.Exists ? pme.State + " / " + pme.StartMode : "Not detected")}");
-            lines.Add("Driver default query: IsInstalled=0 and IsHidden=0 and Type='Driver' and IsAssigned=1");
+            lines.Add("Driver default query: assigned drivers plus every pending firmware update");
             lines.Add("Driver raw query: IsInstalled=0 and IsHidden=0 and Type='Driver'");
         }
         catch (Exception ex) { lines.Add("PME status check: " + ex.Message); }
@@ -284,12 +315,15 @@ public static class WindowsUpdateReader
         }
         catch (Exception ex) { lines.Add("Driver classification diagnostic error: " + ex.Message); }
         lines.Add("\n=== FEATURE UPDATES ===");
-        lines.Add("Feature updates offered only in Windows Settings may not be returned by WUA COM. A zero WUA result does not prove that no feature update is offered.");
-        lines.Add("Windows Settings offer: Not verified by this diagnostic. Open ms-settings:windowsupdate to check manually. No installation performed.");
-        lines.Add("Feature-update status: WUA search is authoritative only for WUA-visible offers; do not infer 26H2 from OS build or a cached Settings banner.");
+        lines.AddRange(FeatureUpdateOfferReader.DiagnosticLines());
         lines.Add("\nInterpretation: WUA search results can differ from cached Windows Settings offers and may depend on policy/service. No installation performed.");
         lines.Add("\nMerk: WUA-søk følger PC-ens konfigurerte kilde og policy. Ikke alle valgfrie oppdateringer er nødvendigvis tilgjengelige via COM API.");
         return string.Join(Environment.NewLine, lines);
+    }
+    private static string FeatureRelease(string title)
+    {
+        var match = Regex.Match(title ?? "", @"\d{2}H[12]", RegexOptions.IgnoreCase);
+        return match.Success ? match.Value : title ?? "";
     }
     private static string WuaProperty(Func<object?> get)
     {
@@ -328,16 +362,25 @@ public static class WindowsUpdateReader
             var matches = System.Text.RegularExpressions.Regex.Matches(title, @"KB\d{5,9}", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             var kbs = matches.Select(m => m.Value.ToUpperInvariant()).Distinct();
             int hr = (int)item.HResult;
-            entries.Add(new UpdateEntry
+            var entry = new UpdateEntry
             {
                 KB = string.Join(", ", kbs), Title = title,
                 Status = code switch { 2 => "Vellykket", 3 => "Vellykket med feil", 4 => "Mislykket", 5 => "Avbrutt", _ => "Ukjent" },
                 Date = ((DateTime)item.Date).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 Source = "WUA-historikk", ErrorCode = hr == 0 ? "" : $"0x{unchecked((uint)hr):X8}"
-            });
+            };
+            OperationalPriority.Apply(entry);
+            entries.Add(entry);
         }
         return entries;
     }
+
+    /// <summary>
+    /// History for the grid: live WUA events plus events saved before a Windows Update fix.
+    /// Failures with a later success for the same KB are shown as Fixed.
+    /// </summary>
+    public static List<UpdateEntry> HistoryForDisplay() =>
+        HistoryArchive.MergeForDisplay(History());
     /// <summary>
     /// Category 1 automation / manual install: update Defender security intelligence via Microsoft Update.
     /// Does not reboot Windows.
@@ -439,12 +482,12 @@ public static class WindowsUpdateReader
         return downloadedCount;
     }
 
-    // Pilot: install one explicitly selected, non-firmware driver, with a fresh WUA identity
+    // Install one explicitly selected driver or firmware update, with a fresh WUA identity
     // and hardware-ID check. Never automatically install or reboot.
     public static List<UpdateEntry> InstallSelectedDriver(UpdateEntry selected, Action<string>? report = null, bool allowInteractive = false)
     {
-        if (selected.Category != "Driver / firmware" || selected.DriverStatus == "Firmware")
-            throw new InvalidOperationException("Firmware and non-driver updates are not allowed in driver mode.");
+        if (selected.Category != "Driver / firmware")
+            throw new InvalidOperationException("Only driver and firmware updates can be installed in driver mode.");
         if (string.IsNullOrWhiteSpace(selected.DriverHardwareId))
             throw new InvalidOperationException("Driver hardware ID was not verified.");
         report?.Invoke("Rechecking driver identity through Windows Update…");
@@ -485,12 +528,6 @@ public static class WindowsUpdateReader
         if (matchingHardware.Count != 1)
             throw new InvalidOperationException($"Driver identity recheck failed: {sameId.Count} UpdateID match(es), {matchingHardware.Count} exact hardware-ID match(es). No installation was attempted.");
         dynamic update = search.Updates.Item(matchingHardware[0].Index);
-        string title = Convert.ToString(update.Title) ?? "";
-        string driverClass = "";
-        try { driverClass = Convert.ToString(update.DriverClass) ?? ""; } catch { }
-        if (title.Contains("firmware", StringComparison.OrdinalIgnoreCase) ||
-            driverClass.Equals("Firmware", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Firmware installation is blocked in the pilot.");
         string canRequestInput = WuaProperty(() => update.InstallationBehavior.CanRequestUserInput);
         string rebootBehavior = WuaProperty(() => update.InstallationBehavior.RebootBehavior);
         string impact = WuaProperty(() => update.InstallationBehavior.Impact);

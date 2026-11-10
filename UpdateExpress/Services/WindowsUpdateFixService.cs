@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using UpdateExpress.Models;
 
 namespace UpdateExpress.Services;
 
@@ -117,18 +118,21 @@ internal static class WindowsUpdateFixService
     internal static string Describe(WindowsUpdateFixLevel level) => level switch
     {
         WindowsUpdateFixLevel.Quick =>
-            "Stop Windows Update services, rename SoftwareDistribution + catroot2 (backup), restart services, trigger detection.",
+            "Check free space on the Windows drive, run SFC /scannow, then save Windows Update history, reset the update cache, and scan for updates (can take 15–45 minutes).",
         WindowsUpdateFixLevel.Medium =>
-            "Quick fix, then SFC /scannow (can take 15–45 minutes).",
+            "Same steps as Quick: disk space check, SFC /scannow, then the Windows Update cache reset (can take 15–45 minutes).",
         WindowsUpdateFixLevel.Deep =>
-            "Medium fix, then DISM /RestoreHealth (can take 30–90+ minutes, needs network).",
+            "Quick fix, then DISM /RestoreHealth. If the first SFC could not repair every file, SFC runs once more after DISM (can take 30–90+ minutes, needs network).",
         _ => ""
     };
 
     internal static async Task<WindowsUpdateFixReport> RunAsync(
         WindowsUpdateFixLevel level,
         IProgress<string>? progress,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        UpdateEntry? fixTarget = null,
+        bool includeOptional = false,
+        bool allDrivers = false)
     {
         var report = new WindowsUpdateFixReport
         {
@@ -167,12 +171,55 @@ internal static class WindowsUpdateFixService
             }
         }
 
+        await Add("Check disk space", async () =>
+        {
+            await Task.Yield();
+            string drive = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+            var info = new DriveInfo(drive);
+            long freeGb = info.AvailableFreeSpace / (1024 * 1024 * 1024);
+            long totalGb = info.TotalSize / (1024 * 1024 * 1024);
+            string detail = $"{drive} free ≈ {freeGb} GB of {totalGb} GB. Windows Update needs about 10–20 GB free on this drive.";
+            bool ok = freeGb >= 10;
+            return (ok, ok ? 0 : 1, detail, ok ? null : "Low free space can block cumulative and feature updates. Free at least 10–20 GB on the Windows drive.");
+        }).ConfigureAwait(false);
+
+        // SFC before the cache reset, so broken system files are visible before Windows Update is changed.
+        // A failed scan does not stop the later steps.
+        int sfcCode = 0;
+        string sfcOutput = "";
+        await Add("SFC /scannow", async () =>
+        {
+            var sfc = Path.Combine(Environment.SystemDirectory, "sfc.exe");
+            var (code, output) = await RunProcessAsync(sfc, "/scannow", cancellationToken, progress).ConfigureAwait(false);
+            sfcCode = code;
+            sfcOutput = output;
+            bool ok = code == 0;
+            return (ok, code, output, ok ? null : "SFC reported a non-zero exit code.");
+        }).ConfigureAwait(false);
+
         string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
         string windir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         string softDist = Path.Combine(windir, "SoftwareDistribution");
         string softDistBak = Path.Combine(windir, "SoftwareDistribution.bak-" + stamp);
         string catroot2 = Path.Combine(windir, "System32", "catroot2");
         string catroot2Bak = Path.Combine(windir, "System32", "catroot2.bak-" + stamp);
+
+        await Add("Save Windows Update history", async () =>
+        {
+            List<UpdateEntry> live;
+            try
+            {
+                live = await WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.History).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                if (fixTarget != null)
+                    HistoryArchive.Remember(Array.Empty<UpdateEntry>(), fixTarget);
+                return (false, -1, "", ex.Message);
+            }
+            int count = HistoryArchive.Remember(live, fixTarget);
+            return (true, 0, count + " history events saved in Update Express.", (string?)null);
+        }).ConfigureAwait(false);
 
         await Add("Stop Windows Update services", async () =>
         {
@@ -191,8 +238,12 @@ internal static class WindowsUpdateFixService
         {
             await Task.Yield();
             if (!Directory.Exists(softDist))
+            {
+                HistoryArchive.BeginFix();
                 return (true, 0, "Folder not present (skipped).", null);
+            }
             Directory.Move(softDist, softDistBak);
+            HistoryArchive.BeginFix();
             return (true, 0, $"Renamed to {softDistBak}", null);
         }).ConfigureAwait(false);
 
@@ -238,17 +289,6 @@ internal static class WindowsUpdateFixService
             return (true, code2, log.ToString(), null);
         }).ConfigureAwait(false);
 
-        if (level >= WindowsUpdateFixLevel.Medium)
-        {
-            await Add("SFC /scannow", async () =>
-            {
-                var sfc = Path.Combine(Environment.SystemDirectory, "sfc.exe");
-                var (code, output) = await RunProcessAsync(sfc, "/scannow", cancellationToken, progress).ConfigureAwait(false);
-                bool ok = code == 0;
-                return (ok, code, output, ok ? null : "SFC reported a non-zero exit code.");
-            }).ConfigureAwait(false);
-        }
-
         if (level >= WindowsUpdateFixLevel.Deep)
         {
             await Add("DISM /RestoreHealth", async () =>
@@ -262,7 +302,35 @@ internal static class WindowsUpdateFixService
                 bool ok = code == 0;
                 return (ok, code, output, ok ? null : "DISM reported a non-zero exit code.");
             }).ConfigureAwait(false);
+
+            // DISM repairs the source SFC reads. Run SFC again only when the first pass could not repair everything.
+            if (SfcNeedsAnotherPass(sfcCode, sfcOutput))
+            {
+                await Add("SFC /scannow after DISM", async () =>
+                {
+                    var sfc = Path.Combine(Environment.SystemDirectory, "sfc.exe");
+                    var (code, output) = await RunProcessAsync(sfc, "/scannow", cancellationToken, progress).ConfigureAwait(false);
+                    bool ok = code == 0;
+                    return (ok, code, output, ok ? null : "SFC reported a non-zero exit code.");
+                }).ConfigureAwait(false);
+            }
         }
+
+        await Add("Check for updates", async () =>
+        {
+            try
+            {
+                var pending = await WindowsUpdateReader.RunStaAsync(
+                    () => WindowsUpdateReader.AdvancedPending(includeOptional, allDrivers)).ConfigureAwait(false);
+                HistoryArchive.RecordScan(pending, true, null);
+                return (true, 0, pending.Count + " updates offered after the fix.", (string?)null);
+            }
+            catch (Exception ex)
+            {
+                HistoryArchive.RecordScan(Array.Empty<UpdateEntry>(), false, ex.Message);
+                return (false, -1, "", ex.Message);
+            }
+        }).ConfigureAwait(false);
 
         report.Finished = DateTimeOffset.Now;
         report.Completed = true;
@@ -270,6 +338,14 @@ internal static class WindowsUpdateFixService
         ActivityLog.TryWrite("WindowsUpdateFix", report.HasFailures ? "CompletedWithErrors" : "Completed",
             new { report.Level, Failures = report.Steps.Count(s => !s.Success) });
         return report;
+    }
+
+    private static bool SfcNeedsAnotherPass(int code, string? output)
+    {
+        if (code != 0) return true;
+        if (string.IsNullOrWhiteSpace(output)) return false;
+        return output.Contains("unable to fix", StringComparison.OrdinalIgnoreCase)
+            || output.Contains("kunne ikke", StringComparison.OrdinalIgnoreCase);
     }
 
     private static Task<(int ExitCode, string Output)> RunCmdAsync(string command, CancellationToken ct)

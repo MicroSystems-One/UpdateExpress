@@ -55,27 +55,27 @@
       </Grid.RowDefinitions>
       <TextBlock Text="Windows Update fix" FontSize="18" FontWeight="SemiBold" Foreground="#152137"/>
       <TextBlock Grid.Row="1" Margin="0,8,0,12" TextWrapping="Wrap" Foreground="#52617A"
-                 Text="Use when Windows Update shows nothing, is stuck, or returns error codes. Requires administrator. Folders are renamed (backup), not deleted."/>
+                 Text="Use when Windows Update shows nothing, is stuck, or returns error codes. Requires administrator. History is saved in Update Express first. Folders are renamed (backup), not deleted."/>
       <StackPanel Grid.Row="2" Margin="0,0,0,10">
         <RadioButton x:Name="QuickOption" GroupName="FixLevel" IsChecked="True" Margin="0,0,0,8"
                      Checked="Level_Changed">
           <StackPanel>
             <TextBlock Text="Quick fix" FontWeight="SemiBold" Foreground="#152137"/>
-            <TextBlock Text="Stop services → rename SoftwareDistribution + catroot2 → start services → detect updates"
+            <TextBlock Text="Disk check → SFC /scannow → reset update cache (15–45 min)"
                        TextWrapping="Wrap" Foreground="#52617A" FontSize="11" Margin="0,2,0,0"/>
           </StackPanel>
         </RadioButton>
         <RadioButton x:Name="MediumOption" GroupName="FixLevel" Margin="0,0,0,8" Checked="Level_Changed">
           <StackPanel>
             <TextBlock Text="Medium fix" FontWeight="SemiBold" Foreground="#152137"/>
-            <TextBlock Text="Quick fix + SFC /scannow (15–45 min)"
+            <TextBlock Text="Same steps as Quick, including disk check and SFC /scannow (15–45 min)"
                        TextWrapping="Wrap" Foreground="#52617A" FontSize="11" Margin="0,2,0,0"/>
           </StackPanel>
         </RadioButton>
         <RadioButton x:Name="DeepOption" GroupName="FixLevel" Margin="0,0,0,0" Checked="Level_Changed">
           <StackPanel>
             <TextBlock Text="Deep fix" FontWeight="SemiBold" Foreground="#152137"/>
-            <TextBlock Text="Medium fix + DISM /RestoreHealth (30–90+ min, needs network)"
+            <TextBlock Text="Quick fix + DISM /RestoreHealth (30–90+ min, needs network)"
                        TextWrapping="Wrap" Foreground="#52617A" FontSize="11" Margin="0,2,0,0"/>
           </StackPanel>
         </RadioButton>

@@ -3,10 +3,10 @@ namespace UpdateExpress;
 public partial class ReminderDialog : Window
 {
     public string Decision { get; private set; } = "dismissed";
-    public ReminderDialog(bool isTest, DateTime occurrence, bool norwegian = false, bool clock24 = true)
+    public ReminderDialog(bool isTest, DateTime occurrence, bool norwegian = false)
     {
         InitializeComponent();
-        var time = occurrence.ToString(clock24 ? "dddd dd.MM.yyyy HH:mm" : "dddd dd.MM.yyyy h:mm tt", norwegian ? System.Globalization.CultureInfo.GetCultureInfo("nb-NO") : System.Globalization.CultureInfo.GetCultureInfo("en-US"));
+        var time = Services.ReminderSchedule.Load().Format(occurrence);
         WhenText.Text = isTest ? (norwegian ? "Testvarsel – ingen handling utført" : "Notification test – no action performed") : (norwegian ? $"Planlagt tidspunkt: {time}" : $"Scheduled time: {time}");
         if (norwegian)
         {

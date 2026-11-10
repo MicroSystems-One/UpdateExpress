@@ -65,7 +65,32 @@ internal sealed class WuaDeepCheckReport
         sb.AppendLine("1) What are the most likely blockers for Windows Update on this PC?");
         sb.AppendLine("2) What should a technician try next (ordered, safe)?");
         sb.AppendLine("3) Is this more likely network/proxy, service, policy, or component-store related?");
+        sb.AppendLine();
+        AppendAssistantClose(sb);
         return sb.ToString();
+    }
+
+    private static void AppendAssistantClose(StringBuilder sb)
+    {
+        bool norwegian = string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase);
+        if (norwegian)
+        {
+            sb.AppendLine("=== Til assistenten ===");
+            sb.AppendLine("Personen som limer inn denne rapporten er sluttbrukeren. Svar på norsk. Ikke finn på feil som ikke står i funnene.");
+            sb.AppendLine("Forklar først det sannsynlige problemet i vanlig språk.");
+            sb.AppendLine("Spør deretter sluttbrukeren hva du skal gjøre, før du lager et skript eller anbefaler reparasjon. Tilby bare disse valgene:");
+            sb.AppendLine("1) Et PowerShell-skript basert på rapporten, rettet mot linjene merket FAIL og WARN, som kanskje kan løse problemet. Vis hele skriptet, forklar hva hver del endrer, og vent på et tydelig ja før du regner det som noe de skal kjøre. Hold deg til reverserbare Windows Update-reparasjoner. Ikke slå av sikkerhetsprodukter, ikke last ned uoffisielle verktøy, og ikke endre kontoer eller brannmur med mindre et funn krever det og brukeren sier ja.");
+            sb.AppendLine("2) Alternativt, hvis funnene peker på et ødelagt komponentlager eller gjentatte servicing-feil som et skript ikke dekker: anbefal reparasjon av Windows der maskinen står. Anbefal reinstallasjon av Windows bare som siste utvei, og si hva som bør sikkerhetskopieres først. Ikke start med reinstallasjon når et smalere tiltak passer funnene.");
+            sb.AppendLine("Hvis rapporten ikke har FAIL eller WARN: si det, og ikke foreslå skript, OS-reparasjon eller reinstallasjon.");
+            return;
+        }
+        sb.AppendLine("=== For the assistant ===");
+        sb.AppendLine("The person pasting this report is the end user. Reply in English. Do not invent faults that are not in the findings.");
+        sb.AppendLine("First explain the likely problem in plain language.");
+        sb.AppendLine("Then ask the end user what you should do before you write a script or recommend a repair. Offer only these choices:");
+        sb.AppendLine("1) A PowerShell script based on this report, aimed at the FAIL and WARN lines, that might fix the problem. Show the full script, explain what each part changes, and wait for a clear yes before treating it as something they should run. Stay with reversible Windows Update repairs. Do not disable security products, do not download unofficial tools, and do not change accounts or firewall policy unless a finding requires it and the user agrees.");
+        sb.AppendLine("2) Alternatively, when the findings show a damaged component store or repeated servicing failures that a script cannot address: recommend an in-place Windows repair. Recommend reinstalling Windows only as a last resort, and say what to back up first. Do not lead with reinstall when a narrower step matches the findings.");
+        sb.AppendLine("If the report has no FAIL or WARN, say so and do not propose a script, an OS repair, or a reinstall.");
     }
 
     internal void Save()

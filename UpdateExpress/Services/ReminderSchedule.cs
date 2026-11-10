@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Globalization;
+using System.IO;
 using System.Text.Json;
 
 namespace UpdateExpress.Services;
@@ -7,6 +8,8 @@ public sealed class ReminderSchedule
 {
     public bool Use24HourClock { get; set; } = true;
     public string Language { get; set; } = "en";
+    /// <summary>text (ddd dd MMM yyyy), dmy (dd.MM.yyyy), iso (yyyy-MM-dd), or mdy (MM/dd/yyyy).</summary>
+    public string DateFormat { get; set; } = "text";
     public bool Enabled { get; set; }
     // Monday = 0, Sunday = 6, Every day = 7
     public int Weekday { get; set; } = 2;
@@ -33,6 +36,23 @@ public sealed class ReminderSchedule
     {
         Directory.CreateDirectory(DirectoryPath);
         File.AppendAllText(EventsPath, JsonSerializer.Serialize(new { Timestamp = DateTimeOffset.Now, Action = action, Description = description }) + Environment.NewLine);
+    }
+    public string Format(DateTime time)
+    {
+        var culture = string.Equals(Language, "no", StringComparison.OrdinalIgnoreCase)
+            ? CultureInfo.GetCultureInfo("nb-NO")
+            : CultureInfo.GetCultureInfo("en-US");
+        string date = (DateFormat ?? "text").Trim().ToLowerInvariant() switch
+        {
+            "dmy" => time.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture),
+            "iso" => time.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            "mdy" => time.ToString("MM/dd/yyyy", CultureInfo.InvariantCulture),
+            _ => time.ToString("ddd dd MMM yyyy", culture)
+        };
+        string clock = Use24HourClock
+            ? time.ToString("HH:mm", CultureInfo.InvariantCulture)
+            : time.ToString("h:mm tt", CultureInfo.GetCultureInfo("en-US"));
+        return date + " " + clock;
     }
     public DateTime NextOccurrence(DateTime now)
     {

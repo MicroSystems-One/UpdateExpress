@@ -9,12 +9,18 @@ namespace UpdateExpress;
 
 public partial class ErrorCodeFixDialog : Window
 {
+    private readonly UpdateEntry _entry;
+    private readonly bool _includeOptional;
+    private readonly bool _allDrivers;
     private readonly WindowsUpdateErrorInfo _info;
     private readonly WindowsUpdateFixLevel? _preferred;
 
-    public ErrorCodeFixDialog(UpdateEntry entry)
+    public ErrorCodeFixDialog(UpdateEntry entry, bool includeOptional = false, bool allDrivers = false)
     {
         InitializeComponent();
+        _entry = entry;
+        _includeOptional = includeOptional;
+        _allDrivers = allDrivers;
         _info = WindowsUpdateErrorCatalog.Lookup(entry.ErrorCode);
         _preferred = _info.RecommendedFix;
 
@@ -58,16 +64,19 @@ public partial class ErrorCodeFixDialog : Window
     private void RunFix_Click(object sender, RoutedEventArgs e)
     {
         if (_preferred is null) return;
-        var dlg = new WindowsUpdateFixDialog(_preferred) { Owner = Owner ?? this };
-        Close();
-        dlg.ShowDialog();
+        ShowFix(_preferred);
     }
 
-    private void ChooseFix_Click(object sender, RoutedEventArgs e)
+    private void ChooseFix_Click(object sender, RoutedEventArgs e) => ShowFix(_preferred);
+
+    private void ShowFix(WindowsUpdateFixLevel? preferred)
     {
-        var dlg = new WindowsUpdateFixDialog(_preferred) { Owner = Owner ?? this };
+        var owner = Owner;
+        var dlg = new WindowsUpdateFixDialog(preferred, _entry, _includeOptional, _allDrivers) { Owner = owner ?? this };
         Close();
         dlg.ShowDialog();
+        if (dlg.FixCompleted && owner is MainWindow main)
+            _ = main.ReloadAfterWindowsUpdateFixAsync(dlg.ReplacedUpdateCache, dlg.ScanCompleted);
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();

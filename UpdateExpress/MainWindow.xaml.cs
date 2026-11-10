@@ -25,6 +25,10 @@ public partial class MainWindow : Window
     private DateTime? _lastSuccessfulScan;
     private readonly ObservableCollection<UpdateEntry> _pendingSnapshot = new();
     private List<UpdateEntry> _historySnapshot = new();
+    private DateTime? _pendingSnapshotAt;
+    private readonly DispatcherTimer _pendingReconcileTimer = new() { Interval = TimeSpan.FromSeconds(20) };
+    private int _reconcileRunning;
+    private DateTime _lastReconcileAttempt = DateTime.MinValue;
     private bool VisibleInTab(object item)
     {
         if (item is not UpdateEntry e) return false;
@@ -40,7 +44,7 @@ public partial class MainWindow : Window
     private bool _busy;
     private static bool IsManuallyInstallableDriver(UpdateEntry e) =>
         e.Category == "Driver / firmware" &&
-        !e.DriverStatus.Equals("Firmware", StringComparison.OrdinalIgnoreCase) &&
+        !string.IsNullOrWhiteSpace(e.UpdateId) &&
         !string.IsNullOrWhiteSpace(e.DriverHardwareId);
 
     private void UpdateSelectionControls()
@@ -87,8 +91,13 @@ public partial class MainWindow : Window
         UpdatesGrid.Items.Refresh();
         UpdateSelectionControls();
         if (_languageReady) ApplyLanguage();
+        RefreshFeatureUpdateButton();
     }
-    private void SoftwareTab_Click(object sender, RoutedEventArgs e) { SetTab("software"); }
+    private void SoftwareTab_Click(object sender, RoutedEventArgs e)
+    {
+        SetTab("software");
+        HidePendingAlreadyInHistory(_historySnapshot);
+    }
     private void DriverMode_Changed(object sender, RoutedEventArgs e)
     {
         // The mode changes the WUA query, not just the UI. A fresh scan is required.
@@ -125,7 +134,11 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "PME Control error", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
-    private void DriversTab_Click(object sender, RoutedEventArgs e) { SetTab("drivers"); }
+    private void DriversTab_Click(object sender, RoutedEventArgs e)
+    {
+        SetTab("drivers");
+        HidePendingAlreadyInHistory(_historySnapshot);
+    }
     private void AppsTab_Click(object sender, RoutedEventArgs e) { SetTab("apps"); ListHeading.Text = _schedule.Language == "no" ? "Programoppdateringer (WinGet)" : "Application Updates (WinGet)"; UpdateAppSelection(); }
     private void UpdateAppSelection()
     {
@@ -334,7 +347,7 @@ public partial class MainWindow : Window
     }
     private async void HistoryTab_Click(object sender, RoutedEventArgs e)
     {
-        await LoadAsync(WindowsUpdateReader.History, "Windows Update History (last 500)");
+        await LoadAsync(WindowsUpdateReader.HistoryForDisplay, "Windows Update History (last 500)");
         if (_showingHistory) RefreshHealthSummary();
     }
     private async void Health_Click(object sender, RoutedEventArgs e)
@@ -344,19 +357,21 @@ public partial class MainWindow : Window
         try
         {
             // Separate STA calls: no COM objects cross thread boundaries.
-            var history = await WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.History);
+            var history = await WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
             var pending = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(true, true));
             _historySnapshot = history;
-            _pendingSnapshot.Clear(); foreach (var item in pending) _pendingSnapshot.Add(item);
+            ReplacePendingSnapshot(pending);
             RefreshHealthSummary();
             StatusText.Text = "Status check complete. No installation performed.";
+            HidePendingAlreadyInHistory(history);
         }
         catch (Exception ex) { HealthSummary.Text = "Status check failed: " + ex.Message; }
         finally { HealthButton.IsEnabled = true; }
     }
     private string CategorySummary()
     {
-        int windows = _pendingSnapshot.Count(x => x.Category != "Driver / firmware" && !string.IsNullOrEmpty(x.UpdateId));
+        int windows = _pendingSnapshot.Count(x => x.Category != "Driver / firmware" &&
+            (!string.IsNullOrEmpty(x.UpdateId) || x.Source == FeatureUpdateOfferReader.Source));
         int drivers = _pendingSnapshot.Count(x => x.Category == "Driver / firmware" && !string.IsNullOrEmpty(x.UpdateId));
         return $"Windows: {windows} available  |  Drivers: {drivers} available  |  Applications: {_appEntries.Count} available";
     }
@@ -372,6 +387,7 @@ public partial class MainWindow : Window
         var success = _historySnapshot.Where(x => x.Status == "Vellykket").ToList();
         var latestSuccess = success.Select(x => DateTime.TryParse(x.Date, out var d) ? d : DateTime.MinValue).DefaultIfEmpty().Max();
         var pendingKbs = _pendingSnapshot.SelectMany(x => SplitKbs(x.KB)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        int fixedCount = _historySnapshot.Count(x => x.IsHistoryFixed);
         int laterSuccess = 0, stillPending = 0, unresolved = 0;
         foreach (var failure in failures)
         {
@@ -382,9 +398,87 @@ public partial class MainWindow : Window
             if (success.Any(x => DateTime.TryParse(x.Date, out var sd) && sd > failureDate && SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any())) laterSuccess++;
             else unresolved++;
         }
-        HealthSummary.Text = CategorySummary() + $"\nHistory: {_historySnapshot.Count}  |  Failures: {failures.Count}  |  Resolved KB: {laterSuccess}  |  Unresolved: {unresolved}";
-        HealthSummary.ToolTip = "History is limited to 500 events. Matching KB numbers do not prove repair.";
+        HealthSummary.Text = CategorySummary() + $"\nHistory: {_historySnapshot.Count}  |  Failures: {failures.Count}  |  Fixed: {fixedCount}  |  Resolved KB: {laterSuccess}  |  Unresolved: {unresolved}";
+        HealthSummary.ToolTip = "History keeps events saved before a Windows Update fix. Fixed means a later success for the same KB, or the update you fixed is no longer offered. Matching KB numbers do not prove the original error was repaired.";
     }
+
+    private void ReplacePendingSnapshot(IEnumerable<UpdateEntry> items)
+    {
+        _pendingSnapshot.Clear();
+        foreach (var item in items) _pendingSnapshot.Add(item);
+        _pendingSnapshotAt = _pendingSnapshot.Count == 0 ? null : DateTime.Now;
+        RefreshFeatureUpdateButton();
+    }
+
+    private void RefreshFeatureUpdateButton()
+    {
+        if (OpenWindowsUpdateButton is null) return;
+        bool show = _activeTab == "software" && _pendingSnapshot.Any(entry => entry.Source == FeatureUpdateOfferReader.Source);
+        OpenWindowsUpdateButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OpenWindowsUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        try { FeatureUpdateOfferReader.OpenWindowsUpdate(); }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
+    /// <summary>
+    /// Read History and drop pending rows it already records as successful.
+    /// Skips while a scan or install owns the pending list.
+    /// </summary>
+    private async Task ReconcilePendingFromHistoryAsync()
+    {
+        if (_busy || _pendingSnapshot.Count == 0 || _pendingSnapshotAt is null) return;
+        if (DateTime.Now - _lastReconcileAttempt < TimeSpan.FromSeconds(15)) return;
+        if (HealthButton is { IsEnabled: false }) return;
+        if (Interlocked.CompareExchange(ref _reconcileRunning, 1, 0) != 0) return;
+        _lastReconcileAttempt = DateTime.Now;
+        try
+        {
+            var history = await WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
+            if (_busy || _pendingSnapshotAt is null) return;
+            _historySnapshot = history;
+            HidePendingAlreadyInHistory(history);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Pending history reconcile failed: " + ex.Message);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _reconcileRunning, 0);
+        }
+    }
+
+    private int HidePendingAlreadyInHistory(IReadOnlyList<UpdateEntry> history)
+    {
+        if (_pendingSnapshotAt is not DateTime taken || history.Count == 0) return 0;
+        var hide = _pendingSnapshot.Where(item => PendingHistoryReconcile.ShouldHide(item, history, taken)).ToList();
+        if (hide.Count == 0) return 0;
+        foreach (var item in hide) _pendingSnapshot.Remove(item);
+        // Entries can hold an older copy of the pending rows. Rebuild it from the snapshot
+        // unless History is on screen, so the Windows Updates grid drops the installed item.
+        if (!_showingHistory)
+        {
+            Entries.Clear();
+            foreach (var entry in _pendingSnapshot) Entries.Add(entry);
+            _entriesView.Refresh();
+        }
+        RefreshHealthSummary();
+        UpdateSelectionControls();
+        if (StatusText is null) return hide.Count;
+        bool norwegian = _schedule.Language == "no";
+        StatusText.Text = hide.Count == 1
+            ? (norwegian
+                ? "1 oppdatering er fjernet fra Windows-oppdateringer fordi den allerede er vellykket i Historikk."
+                : "1 update was removed from Windows Updates because History already shows it as successful.")
+            : (norwegian
+                ? $"{hide.Count} oppdateringer er fjernet fra Windows-oppdateringer fordi de allerede er vellykket i Historikk."
+                : $"{hide.Count} updates were removed from Windows Updates because History already shows them as successful.");
+        return hide.Count;
+    }
+
     private static IEnumerable<string> SplitKbs(string? value) =>
         System.Text.RegularExpressions.Regex.Matches(value ?? "", @"KB\d{5,9}", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
             .Select(m => m.Value.ToUpperInvariant()).Distinct();
@@ -422,22 +516,40 @@ public partial class MainWindow : Window
     }
     private readonly DispatcherTimer _reminderTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly DispatcherTimer _monitorUiTimer = new() { Interval = TimeSpan.FromSeconds(2) };
-    private readonly DispatcherTimer _rebootBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(700) };
-    private bool _rebootBlinkOn = true;
+    private readonly DispatcherTimer _rebootBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(1600) };
+    private bool _rebootPrompt;
+
+    private string RebootBannerText()
+    {
+        bool norwegian = _schedule.Language == "no";
+        if (_rebootPrompt)
+            return norwegian ? "⚠  Klikk her for å starte på nytt" : "⚠  Click here to reboot";
+        return norwegian ? "⚠  Omstart nødvendig" : "⚠  Reboot needed";
+    }
 
     private void RefreshRebootNeededBanner()
     {
         if (RebootNeededBanner is null) return;
         bool needed = RebootPendingReader.IsRebootPending();
         RebootNeededBanner.Visibility = needed ? Visibility.Visible : Visibility.Collapsed;
+        bool norwegian = _schedule.Language == "no";
         RebootNeededBanner.ToolTip = needed
-            ? "Windows reports a pending restart (" + RebootPendingReader.Detail() + "). Save your work and restart this PC."
+            ? (norwegian
+                ? "Windows melder at omstart venter (" + RebootPendingReader.Detail() + "). Klikk for å starte på nytt."
+                : "Windows reports a pending restart (" + RebootPendingReader.Detail() + "). Click to restart this PC.")
             : null;
-        if (needed && !_rebootBlinkTimer.IsEnabled) _rebootBlinkTimer.Start();
-        if (!needed)
+        if (needed)
+        {
+            RebootNeededBanner.Text = RebootBannerText();
+            RebootNeededBanner.Opacity = 1;
+            if (!_rebootBlinkTimer.IsEnabled) _rebootBlinkTimer.Start();
+        }
+        else
         {
             _rebootBlinkTimer.Stop();
+            _rebootPrompt = false;
             RebootNeededBanner.Opacity = 1;
+            RebootNeededBanner.Text = RebootBannerText();
         }
     }
 
@@ -448,8 +560,38 @@ public partial class MainWindow : Window
             _rebootBlinkTimer.Stop();
             return;
         }
-        _rebootBlinkOn = !_rebootBlinkOn;
-        RebootNeededBanner.Opacity = _rebootBlinkOn ? 1.0 : 0.25;
+        _rebootPrompt = !_rebootPrompt;
+        RebootNeededBanner.Text = RebootBannerText();
+        RebootNeededBanner.Opacity = 1;
+    }
+
+    private void RebootNeededBanner_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (RebootNeededBanner.Visibility != Visibility.Visible) return;
+        bool norwegian = _schedule.Language == "no";
+        var answer = MessageBox.Show(this,
+            norwegian
+                ? "Vil du starte denne datamaskinen på nytt nå?\n\nLagre arbeidet ditt først. Det du ikke har lagret, går tapt."
+                : "Restart this computer now?\n\nSave your work first. Anything you have not saved will be lost.",
+            norwegian ? "Omstart" : "Restart computer",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (answer != MessageBoxResult.Yes) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "shutdown.exe",
+                Arguments = "/r /t 0",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, norwegian ? "Omstart" : "Restart computer",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void RefreshMonitorPanel()
@@ -506,9 +648,109 @@ public partial class MainWindow : Window
         UpdateServerStatusText.ToolTip = update.Detail;
         ProxyStatusText.ToolTip = "Proxy configuration from .NET. DNS/TCP/ICMP probes use direct connections and do not test the proxy. Windows Update may use WinHTTP or other proxy settings.";
     }
+    private MachineIdentityReader.Identity _machineIdentity = new("—", "—", "—", "—", "—");
+    private void ShowMachineIdentity(MachineIdentityReader.Identity identity)
+    {
+        _machineIdentity = identity;
+        MachineManufacturerValue.Text = identity.Manufacturer;
+        MachineModelValue.Text = identity.Model;
+        MachineProductValue.Text = identity.Product;
+        MachineSerialValue.Text = identity.Serial;
+        MachineDeviceValue.Text = identity.DeviceName;
+        foreach (var box in new System.Windows.Controls.TextBox[] { MachineManufacturerValue, MachineModelValue, MachineProductValue, MachineSerialValue, MachineDeviceValue })
+        {
+            box.ToolTip = box.Text;
+            FitIdentityBox(box);
+        }
+    }
+    private static void FitIdentityBox(System.Windows.Controls.TextBox box)
+    {
+        string text = string.IsNullOrEmpty(box.Text) ? "—" : box.Text;
+        double dpi = 1;
+        try { dpi = System.Windows.Media.VisualTreeHelper.GetDpi(box).PixelsPerDip; } catch { }
+        var formatted = new System.Windows.Media.FormattedText(
+            text,
+            System.Globalization.CultureInfo.CurrentCulture,
+            System.Windows.FlowDirection.LeftToRight,
+            new System.Windows.Media.Typeface(box.FontFamily, box.FontStyle, FontWeights.SemiBold, FontStretches.Normal),
+            box.FontSize,
+            System.Windows.Media.Brushes.Black,
+            dpi);
+        box.Width = Math.Clamp(formatted.WidthIncludingTrailingWhitespace + 14, 28, 260);
+    }
+    private async Task LoadMachineIdentityAsync()
+    {
+        try
+        {
+            var identity = await Task.Run(MachineIdentityReader.Read);
+            ShowMachineIdentity(identity);
+        }
+        catch { }
+    }
+    private void CopyMachineField_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button) return;
+        string value = button.Name switch
+        {
+            "MachineManufacturerCopy" => _machineIdentity.Manufacturer,
+            "MachineModelCopy" => _machineIdentity.Model,
+            "MachineProductCopy" => _machineIdentity.Product,
+            "MachineSerialCopy" => _machineIdentity.Serial,
+            "MachineDeviceCopy" => _machineIdentity.DeviceName,
+            _ => ""
+        };
+        if (CopyIdentityText(value)) FlashCopied(button, all: false);
+    }
+    private void CopyMachineIdentity_Click(object sender, RoutedEventArgs e)
+    {
+        string text = string.Join(Environment.NewLine, new[]
+        {
+            $"{MachineManufacturerLabel.Text}: {_machineIdentity.Manufacturer}",
+            $"{MachineModelLabel.Text}: {_machineIdentity.Model}",
+            $"{MachineProductLabel.Text}: {_machineIdentity.Product}",
+            $"{MachineSerialLabel.Text}: {_machineIdentity.Serial}",
+            $"{MachineDeviceLabel.Text}: {_machineIdentity.DeviceName}"
+        });
+        if (sender is Button button && CopyIdentityText(text)) FlashCopied(button, all: true);
+    }
+    private static bool CopyIdentityText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text is "…" or "—") return false;
+        try
+        {
+            System.Windows.Clipboard.SetDataObject(text, true);
+            return true;
+        }
+        catch { return false; }
+    }
+    private void FlashCopied(Button button, bool all)
+    {
+        bool norwegian = _schedule.Language == "no";
+        if (!all)
+        {
+            button.ToolTip = norwegian ? "Kopiert" : "Copied";
+            var iconTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            iconTimer.Tick += (_, _) =>
+            {
+                iconTimer.Stop();
+                button.ToolTip = _schedule.Language == "no" ? "Kopier verdien" : "Copy this value";
+            };
+            iconTimer.Start();
+            return;
+        }
+        button.Content = norwegian ? "Kopiert" : "Copied";
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            button.Content = _schedule.Language == "no" ? "Kopier alt" : "Copy all";
+        };
+        timer.Start();
+    }
     public MainWindow()
     {
         InitializeComponent();
+        ShowMachineIdentity(MachineIdentityReader.ReadFast());
         AppSubtitle.Text = $"Windows Update Management · Background Monitoring v{ProductVersion.Display}";
         RefreshOsSupportStatus();
         _appEntries = AppEntries; DataContext = this;
@@ -519,8 +761,6 @@ public partial class MainWindow : Window
         _schedule = ReminderSchedule.Load();
         DayChoice.SelectedIndex = _schedule.Weekday == 7 ? 0 : Math.Clamp(_schedule.Weekday, 0, 6) + 1;
         TimeChoice.Text = _schedule.Time;
-        if (_schedule.Use24HourClock) Clock24Option.IsChecked = true; else Clock12Option.IsChecked = true;
-        if (_schedule.Language == "no") NorwegianOption.IsChecked = true; else EnglishOption.IsChecked = true;
         ApplyLanguage();
         RemindersEnabled.IsChecked = _schedule.Enabled;
         LoadAutomationPolicyIntoUi();
@@ -529,6 +769,9 @@ public partial class MainWindow : Window
         _reminderTimer.Start();
         _monitorUiTimer.Tick += (_, _) => { RefreshMonitorPanel(); RefreshAutomationStatusTexts(); RefreshRebootNeededBanner(); };
         _monitorUiTimer.Start();
+        _pendingReconcileTimer.Tick += (_, _) => { _ = ReconcilePendingFromHistoryAsync(); };
+        _pendingReconcileTimer.Start();
+        Activated += (_, _) => { ReloadDisplaySettings(); _ = ReconcilePendingFromHistoryAsync(); };
         _rebootBlinkTimer.Tick += RebootBlinkTimer_Tick;
         RefreshMonitorPanel();
         RefreshAutomationStatusTexts();
@@ -536,6 +779,7 @@ public partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             CheckReminder();
+            _ = LoadMachineIdentityAsync();
             await RefreshDefenderAsync();
             await RefreshFirewallAsync();
             RefreshRebootNeededBanner();
@@ -611,17 +855,27 @@ public partial class MainWindow : Window
             "\n\nReference: https://learn.microsoft.com/windows/release-health/supported-versions-windows-client",
             "Windows Security Support", MessageBoxButton.OK, MessageBoxImage.Information);
     }
-    private string FormatTime(DateTime time) => Clock24Option.IsChecked == true ? time.ToString("ddd dd MMM yyyy HH:mm", System.Globalization.CultureInfo.GetCultureInfo("en-US")) : time.ToString("ddd dd MMM yyyy h:mm tt", System.Globalization.CultureInfo.GetCultureInfo("en-US"));
-    private void ClockFormat_Changed(object sender, RoutedEventArgs e)
+    private string FormatTime(DateTime time) => _schedule.Format(time);
+    private void ReloadDisplaySettings()
     {
-        if (_schedule == null || Clock24Option == null) return;
-        _schedule.Use24HourClock = Clock24Option.IsChecked == true;
-        _schedule.Save(); RefreshScheduleStatus();
+        var fresh = ReminderSchedule.Load();
+        string dateFormat = string.IsNullOrWhiteSpace(fresh.DateFormat) ? "text" : fresh.DateFormat;
+        bool changed = !string.Equals(fresh.Language, _schedule.Language, StringComparison.OrdinalIgnoreCase)
+            || fresh.Use24HourClock != _schedule.Use24HourClock
+            || !string.Equals(dateFormat, _schedule.DateFormat ?? "text", StringComparison.OrdinalIgnoreCase);
+        if (!changed) return;
+        _schedule.Language = fresh.Language;
+        _schedule.Use24HourClock = fresh.Use24HourClock;
+        _schedule.DateFormat = dateFormat;
+        ApplyLanguage();
+        RefreshScheduleStatus();
     }
     private bool _languageReady;
     private static readonly Dictionary<string, string> Norwegian = new(StringComparer.Ordinal)
     {
-        ["Windows Update Control"] = "Windows Update-kontroll", ["Check for Updates"] = "Søk etter oppdateringer",
+        ["Windows Update Control"] = "Windows Update-kontroll", ["Check for Updates"] = "Søk etter oppdateringer", ["Open Windows Update"] = "Åpne Windows Update", ["Open Windows Update to install"] = "Åpne Windows Update for å installere",
+        ["Manufacturer"] = "Produsent", ["Model"] = "Modell/nr", ["Product no."] = "Produktnr.", ["Serial no."] = "Serienr.", ["Device name"] = "Enhetsnavn",
+        ["Copy"] = "Kopier", ["Copy all"] = "Kopier alt",
         ["Install Selected Updates"] = "Installer valgte oppdateringer", ["Installation History"] = "Installasjonshistorikk",
         ["Windows Update fix"] = "Windows Update-fiks", ["WUA deep check"] = "WUA dybdesjekk",
         ["WUA status report"] = "WUA statusrapport", ["Error report"] = "Feilrapport",
@@ -666,17 +920,10 @@ public partial class MainWindow : Window
         ["Every day"] = "Hver dag", ["Monday"] = "Mandag", ["Tuesday"] = "Tirsdag", ["Wednesday"] = "Onsdag",
         ["Thursday"] = "Torsdag", ["Friday"] = "Fredag", ["Saturday"] = "Lørdag", ["Sunday"] = "Søndag"
     };
-    private void Language_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!_languageReady || EnglishOption == null || NorwegianOption == null) return;
-        _schedule.Language = NorwegianOption.IsChecked == true ? "no" : "en";
-        _schedule.Save(); ApplyLanguage();
-    }
     private void ApplyLanguage()
     {
-        if (EnglishOption == null) return;
         _languageReady = true;
-        bool norwegian = NorwegianOption.IsChecked == true;
+        bool norwegian = _schedule.Language == "no";
         void Translate(object? element)
         {
             if (element is System.Windows.Controls.ContentControl control && control.Content is string content)
@@ -685,7 +932,7 @@ public partial class MainWindow : Window
                 var match = Norwegian.Keys.FirstOrDefault(k => original == k || original.EndsWith("  " + k, StringComparison.Ordinal));
                 if (match != null) control.Content = norwegian ? original.Replace(match, Norwegian[match]) : original;
             }
-            if (element is System.Windows.Controls.TextBlock block && block.Name is not ("DefenderLabel" or "DefenderChecked" or "HealthSummary" or "StatusText" or "ScheduleStatus" or "AppsInfo" or "AppsSelectedCount" or "SelectedCountText" or "AutomationStatusText" or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus" or "FooterSafetyText") && !string.IsNullOrEmpty(block.Text))
+            if (element is System.Windows.Controls.TextBlock block && block.Name is not ("DefenderLabel" or "DefenderChecked" or "HealthSummary" or "StatusText" or "ScheduleStatus" or "AppsInfo" or "AppsSelectedCount" or "SelectedCountText" or "AutomationStatusText" or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus" or "FooterSafetyText" or "RebootNeededBanner") && !string.IsNullOrEmpty(block.Text))
             {
                 if (block.Tag is not string original) { original = block.Text; block.Tag = original; }
                 if (Norwegian.TryGetValue(original, out var translated)) block.Text = norwegian ? translated : original;
@@ -703,6 +950,14 @@ public partial class MainWindow : Window
                 for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(obj); i++) Translate(System.Windows.Media.VisualTreeHelper.GetChild(obj, i));
         }
         Translate(this);
+        string copyTip = norwegian ? "Kopier verdien" : "Copy this value";
+        MachineManufacturerCopy.ToolTip = copyTip;
+        MachineModelCopy.ToolTip = copyTip;
+        MachineProductCopy.ToolTip = copyTip;
+        MachineSerialCopy.ToolTip = copyTip;
+        MachineDeviceCopy.ToolTip = copyTip;
+        MachineIdentityCopyAll.ToolTip = norwegian ? "Kopier alle verdiene" : "Copy all values";
+        if (RebootNeededBanner is not null) RebootNeededBanner.Text = RebootBannerText();
         ListHeading.Text = norwegian ? (_activeTab == "apps" ? "Programoppdateringer (WinGet)" : "Resultater") : (_activeTab == "apps" ? "Application Updates (WinGet)" : "Results");
         RefreshScheduleStatus();
     }
@@ -761,7 +1016,7 @@ public partial class MainWindow : Window
             _schedule.SnoozedUntil = null;
             _schedule.Save();
         }
-        var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no", _schedule.Use24HourClock) { Owner = this };
+        var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no") { Owner = this };
         dialog.ShowDialog();
         ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision);
         if (!isTest)
@@ -788,6 +1043,7 @@ public partial class MainWindow : Window
             ListHeading.Text = heading;
             SetTab("history");
             StatusText.Text = $"History loaded: {result.Count} entries. Pending updates remain separate.";
+            HidePendingAlreadyInHistory(result);
         }
         catch (Exception ex)
         {
@@ -811,7 +1067,7 @@ public partial class MainWindow : Window
             bool includeOptional = IncludeOptionalUpdates.IsChecked == true;
             bool allDrivers = ShowAllDrivers.IsChecked == true;
             var windows = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(includeOptional, allDrivers));
-            _pendingSnapshot.Clear(); foreach (var entry in windows) _pendingSnapshot.Add(entry);
+            ReplacePendingSnapshot(windows);
             _lastSuccessfulScan = DateTime.Now;
             SetTab("software");
             int driverCount = windows.Count(e => e.Category == "Driver / firmware");
@@ -847,11 +1103,57 @@ public partial class MainWindow : Window
             UpdateSelectionControls(); UpdateAppSelection();
         }
     }
-    private void WindowsUpdateFix_Click(object sender, RoutedEventArgs e)
+    private async void WindowsUpdateFix_Click(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
-        var dlg = new WindowsUpdateFixDialog { Owner = this };
+        var dlg = new WindowsUpdateFixDialog(null, null, IncludeOptionalUpdates.IsChecked == true, ShowAllDrivers.IsChecked == true) { Owner = this };
         dlg.ShowDialog();
+        if (dlg.FixCompleted)
+            await ReloadAfterWindowsUpdateFixAsync(dlg.ReplacedUpdateCache, dlg.ScanCompleted);
+    }
+
+    internal async Task ReloadAfterWindowsUpdateFixAsync(bool replacedUpdateCache, bool scanCompleted)
+    {
+        if (_busy) return;
+        _busy = true;
+        ScanButton.IsEnabled = HistoryButton.IsEnabled = false;
+        try
+        {
+            StatusText.Text = "Reloading history after Windows Update fix…";
+            if (scanCompleted)
+            {
+                var pending = HistoryArchive.CopyPendingEntries() ?? new List<UpdateEntry>();
+                ReplacePendingSnapshot(pending);
+                _lastSuccessfulScan = DateTime.Now;
+            }
+            else if (replacedUpdateCache)
+            {
+                _pendingSnapshot.Clear();
+                _pendingSnapshotAt = null;
+                RefreshFeatureUpdateButton();
+            }
+            var history = await WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
+            _historySnapshot = history;
+            RefreshHealthSummary();
+            SetTab(_activeTab);
+            int fixedCount = history.Count(entry => entry.IsHistoryFixed);
+            StatusText.Text = scanCompleted
+                ? $"History kept: {history.Count} events ({fixedCount} marked Fixed). Pending updates were scanned again."
+                : replacedUpdateCache
+                    ? $"History kept: {history.Count} events ({fixedCount} marked Fixed). The new scan did not finish. Click Check for Updates."
+                    : $"History kept: {history.Count} events ({fixedCount} marked Fixed).";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Reload after Windows Update fix failed.";
+            MessageBox.Show(this, ex.Message, "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _busy = false;
+            ScanButton.IsEnabled = HistoryButton.IsEnabled = true;
+            UpdateSelectionControls();
+        }
     }
 
     private void WuaDeepCheck_Click(object sender, RoutedEventArgs e)
@@ -894,7 +1196,7 @@ public partial class MainWindow : Window
             DiagnosticsButton.IsEnabled = true;
         }
     }
-    private async void History_Click(object sender, RoutedEventArgs e) => await LoadAsync(WindowsUpdateReader.History, "Windows Update History (last 500)");
+    private async void History_Click(object sender, RoutedEventArgs e) => await LoadAsync(WindowsUpdateReader.HistoryForDisplay, "Windows Update History (last 500)");
     private void HistoryPdf_Click(object sender, RoutedEventArgs e)
     {
         if (_activeTab != "history") return;
@@ -919,16 +1221,21 @@ public partial class MainWindow : Window
         else if (UpdatesGrid.SelectedItem is UpdateEntry selected)
             entry = selected;
         if (entry is null || !entry.HasFixableErrorCode) return;
-        var dlg = new ErrorCodeFixDialog(entry) { Owner = this };
+        var dlg = new ErrorCodeFixDialog(entry, IncludeOptionalUpdates.IsChecked == true, ShowAllDrivers.IsChecked == true) { Owner = this };
         dlg.ShowDialog();
     }
 
     private void UpdateDetails_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (UpdatesGrid.SelectedItem is not UpdateEntry entry) return;
+        if (entry.OpensWindowsUpdate)
+        {
+            OpenWindowsUpdate_Click(sender, e);
+            return;
+        }
         if (entry.HasFixableErrorCode)
         {
-            var dlg = new ErrorCodeFixDialog(entry) { Owner = this };
+            var dlg = new ErrorCodeFixDialog(entry, IncludeOptionalUpdates.IsChecked == true, ShowAllDrivers.IsChecked == true) { Owner = this };
             dlg.ShowDialog();
             return;
         }
@@ -947,7 +1254,8 @@ public partial class MainWindow : Window
                 "Driver details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        MessageBox.Show(this, $"Update: {entry.Title}\nKB: {entry.KB}\nCategory: {entry.Category}\nStatus: {entry.Status}\nDate: {entry.Date}\nError: {entry.ErrorCode}\n\n{assessment}\n\nUninstall is not implemented.", "Update Details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
+        string note = string.IsNullOrWhiteSpace(entry.StatusNote) ? "" : entry.StatusNote + "\n\n";
+        MessageBox.Show(this, $"Update: {entry.Title}\nKB: {entry.KB}\nCategory: {entry.Category}\nPriority: {entry.PriorityDisplay}\nStatus: {entry.Status}\nDate: {entry.Date}\nError: {entry.ErrorCode}\n\n{note}{assessment}\n\nUninstall is not implemented.", "Update Details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
     }
     private void Export_Click(object sender, RoutedEventArgs e)
     {
@@ -1027,14 +1335,14 @@ public partial class MainWindow : Window
         }
         if (drivers.Any(x => !IsManuallyInstallableDriver(x)))
         {
-            MessageBox.Show(this, "Only individually verified non-firmware drivers can be installed. Firmware installation remains blocked.", "Driver safety", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "A selected driver or firmware update has no verified hardware ID, so it was not installed.", "Driver safety", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         if (drivers.Count > 0)
         {
             var summary = string.Join("\n", drivers.Select(d => $"• {d.Title} [{d.DriverHardwareId}]"));
             if (MessageBox.Show(this,
-                $"Install {drivers.Count} manually selected driver(s), sequentially?\n\n{summary}\n\nEach driver is rechecked against WUA and its hardware ID. A failure will not stop subsequent drivers. Firmware is blocked. No automatic restart.",
+                $"Install {drivers.Count} manually selected driver or firmware update(s), sequentially?\n\n{summary}\n\nEach one is rechecked against WUA and its hardware ID. A failure will not stop the next one. Nothing is installed automatically, and there is no automatic restart.",
                 "Confirm driver installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         }
         var queue = new List<InstallationQueueItem>();
@@ -1124,8 +1432,9 @@ public partial class MainWindow : Window
             try
             {
                 var pending = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(true, true));
-                _pendingSnapshot.Clear(); foreach (var entry in pending) _pendingSnapshot.Add(entry);
-                _historySnapshot = await WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.History);
+                ReplacePendingSnapshot(pending);
+                _historySnapshot = await WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
+                HidePendingAlreadyInHistory(_historySnapshot);
                 foreach (var item in software.Select((update, i) => new { update, i }))
                 {
                     if (queue[item.i].State.StartsWith("Failed", StringComparison.Ordinal)) continue;

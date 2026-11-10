@@ -17,6 +17,8 @@ internal sealed class TrayAgent : IDisposable
     private readonly ToolStripMenuItem _status;
     private readonly ToolStripMenuItem _scanNow;
     private readonly ToolStripMenuItem _checkAppUpdate;
+    private readonly ToolStripMenuItem _settingsItem;
+    private SettingsWindow? _settings;
     private readonly System.Threading.Timer _timer;
     private readonly System.Threading.Timer _defenderTimer;
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
@@ -40,7 +42,8 @@ internal sealed class TrayAgent : IDisposable
         _status = new ToolStripMenuItem("Overvåking: venter på første kontroll") { Enabled = false };
         menu.Items.Add(_status);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Innstillinger (kommer senere)", null, (_, _) => Open());
+        _settingsItem = new ToolStripMenuItem(ReminderSchedule.Load().Language == "no" ? "Innstillinger" : "Settings", null, (_, _) => ShowSettings());
+        menu.Items.Add(_settingsItem);
         menu.Items.Add("Proxy Settings...", null, (_, _) => Open("--proxy-settings"));
         menu.Items.Add("Vedlikehold", null, (_, _) => Open("--maintenance"));
         menu.Items.Add("Avslutt bakgrunnsagent", null, (_, _) => _dispatcher.BeginInvoke(new Action(() => System.Windows.Application.Current.Shutdown())));
@@ -288,6 +291,27 @@ internal sealed class TrayAgent : IDisposable
             _tray.ShowBalloonTip(8000);
         })); }
         catch (Exception ex) { AgentLog.Write("Cannot show update notification: " + ex.Message); }
+    }
+    private void ShowSettings()
+    {
+        _dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_disposed) return;
+            if (_settings is { IsVisible: true })
+            {
+                _settings.Activate();
+                return;
+            }
+            _settings = new SettingsWindow();
+            _settings.Closed += (_, _) =>
+            {
+                _settings = null;
+                if (_disposed) return;
+                _settingsItem.Text = ReminderSchedule.Load().Language == "no" ? "Innstillinger" : "Settings";
+            };
+            _settings.Show();
+            _settings.Activate();
+        }));
     }
     private void Open(string args = "--installed")
     {

@@ -12,7 +12,7 @@ public sealed class UpdateEntry
     /// <summary>Raw severity/classification (Critical, Important, Moderate, Low, Unrated, Unknown, …).</summary>
     public string Priority { get; set; } = "Unknown";
     public string PriorityExplanation { get; set; } = "No severity information was recorded for this entry.";
-    /// <summary>Colored Priority column: Critical (K1) … Unknown (K5).</summary>
+    /// <summary>Colored Priority column: Critical / Important / Moderate / Optional / Unrated / Unknown.</summary>
     public string PriorityDisplay
     {
         get { var g = PriorityGrade.ForUpdate(this); return g.Display; }
@@ -66,19 +66,60 @@ public sealed class UpdateEntry
     public bool IsHistoryFailed => Status is "Mislykket" or "Avbrutt" or "Failed" or "Cancelled" or "Feilet / avbrutt";
     public bool IsHistorySuccessful => Status is "Vellykket" or "Successful" or "Installert";
     public bool IsHistoryPartial => Status is "Vellykket med feil" or "Delvis fullført" or "Partial";
+    /// <summary>Historical failure kept for display after a later success or a completed fix scan.</summary>
+    public bool IsHistoryFixed => Status == "Fixed";
+    /// <summary>Why a history row was marked Fixed. Empty for ordinary rows.</summary>
+    public string StatusNote { get; set; } = "";
     /// <summary>Failed entry with an HRESULT — Status cell pulses ErrorCode / Fix it.</summary>
     public bool HasFixableErrorCode => IsHistoryFailed && !string.IsNullOrWhiteSpace(ErrorCode);
     // Keep the original HRESULT in ErrorCode for logging and export. In the grid,
     // display the HRESULT instead of a failure label, never beside a success label.
-    public string DisplayStatus => HasFixableErrorCode
+    public string DisplayStatus => IsHistoryFixed
+        ? "Fixed"
+        : HasFixableErrorCode
         ? ErrorCode
         : Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(DriverStatus) && string.IsNullOrWhiteSpace(Date)
             ? DriverStatus : Status;
-    public string StatusDetails => string.IsNullOrWhiteSpace(ErrorCode)
-        ? Status
-        : $"{Status}\nError code: {ErrorCode}";
+    public string StatusDetails
+    {
+        get
+        {
+            string core = string.IsNullOrWhiteSpace(ErrorCode) ? Status : $"{Status}\nError code: {ErrorCode}";
+            return string.IsNullOrWhiteSpace(StatusNote) ? core : StatusNote + "\n" + core;
+        }
+    }
     public string Status { get; set; } = "";
     public string Date { get; set; } = "";
     public string Source { get; set; } = "";
     public string ErrorCode { get; set; } = "";
+    /// <summary>Settings feature update. The row opens Windows Update instead of installing through WUA.</summary>
+    public bool OpensWindowsUpdate { get; set; }
+
+    internal UpdateEntry Clone() => new()
+    {
+        IsSelected = IsSelected,
+        UpdateId = UpdateId,
+        Category = Category,
+        SafeDefault = SafeDefault,
+        DriverAssigned = DriverAssigned,
+        DriverClassification = DriverClassification,
+        KB = KB,
+        Title = Title,
+        Priority = Priority,
+        PriorityExplanation = PriorityExplanation,
+        DriverVersionFromWua = DriverVersionFromWua,
+        DriverHardwareId = DriverHardwareId,
+        DriverModel = DriverModel,
+        DriverManufacturer = DriverManufacturer,
+        DriverClass = DriverClass,
+        DriverReason = DriverReason,
+        DriverStatus = DriverStatus,
+        InstalledDriverVersion = InstalledDriverVersion,
+        Status = Status,
+        StatusNote = StatusNote,
+        Date = Date,
+        Source = Source,
+        ErrorCode = ErrorCode,
+        OpensWindowsUpdate = OpensWindowsUpdate
+    };
 }

@@ -71,7 +71,15 @@ public sealed class InstallationManagerWindow : Window
         var view = new GridView();
         view.Columns.Add(new GridViewColumn { Header = "Source", Width = 125, DisplayMemberBinding = new System.Windows.Data.Binding("Source") });
         view.Columns.Add(new GridViewColumn { Header = "Update", Width = 410, DisplayMemberBinding = new System.Windows.Data.Binding("Name") });
-        view.Columns.Add(new GridViewColumn { Header = "Status", Width = 140, DisplayMemberBinding = new System.Windows.Data.Binding("State") });
+        // Status ~30% wider than previous 140; centered Installing/Pending/Completed text.
+        var statusColumn = new GridViewColumn { Header = "Status", Width = 182 };
+        var statusFactory = new FrameworkElementFactory(typeof(TextBlock));
+        statusFactory.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding("State"));
+        statusFactory.SetValue(TextBlock.TextAlignmentProperty, TextAlignment.Center);
+        statusFactory.SetValue(FrameworkElement.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Stretch);
+        statusFactory.SetValue(FrameworkElement.VerticalAlignmentProperty, System.Windows.VerticalAlignment.Center);
+        statusColumn.CellTemplate = new DataTemplate { VisualTree = statusFactory };
+        view.Columns.Add(statusColumn);
         list.View = view;
         var frame = new Border { CornerRadius = new CornerRadius(10), BorderBrush = new SolidColorBrush(Color.FromRgb(211, 221, 234)), BorderThickness = new Thickness(1), Background = Brushes.White, SnapsToDevicePixels = true, Child = list };
         root.Children.Add(frame);

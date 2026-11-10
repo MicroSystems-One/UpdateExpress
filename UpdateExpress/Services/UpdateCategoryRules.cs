@@ -10,11 +10,8 @@ namespace UpdateExpress.Services;
 /// </summary>
 internal static class UpdateCategoryRules
 {
-    internal static bool IsDefenderSignature(UpdateEntry entry)
-    {
-        return entry.KB.Split(',', StringSplitOptions.TrimEntries)
-            .Any(kb => kb.Equals("KB2267602", StringComparison.OrdinalIgnoreCase));
-    }
+    internal static bool IsDefenderSignature(UpdateEntry entry) =>
+        OperationalPriority.IsDefenderKb(entry.KB);
 
     /// <summary>
     /// K2: software with MSRC Critical/Important. Excludes Defender, drivers,
