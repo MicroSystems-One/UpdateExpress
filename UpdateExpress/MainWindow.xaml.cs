@@ -42,6 +42,7 @@ public partial class MainWindow : Window
     }
     public bool CanSelectDisplayedEntry => _activeTab == "history" || _activeTab == "drivers" || _activeTab == "software";
     private bool _busy;
+    private bool _scanButtonSearching;
     private static bool IsManuallyInstallableDriver(UpdateEntry e) =>
         e.Category == "Driver / firmware" &&
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
@@ -1025,6 +1026,9 @@ public partial class MainWindow : Window
         ListHeading.Text = norwegian ? "Søk etter oppdateringer og resultater" : "Check for Updates & Results";
         RefreshScheduleStatus();
         RefreshUpdateUntilCurrentUi();
+        // Translate() restores ScanButton from Tag; keep the busy label while a scan is running.
+        if (_scanButtonSearching)
+            ScanButton.Content = norwegian ? "Søker...." : "Searching....";
     }
     private void RefreshScheduleStatus()
     {
@@ -1106,6 +1110,7 @@ public partial class MainWindow : Window
 
     private void ResetScanButtonLabel()
     {
+        _scanButtonSearching = false;
         const string english = "⌕  Check for Updates";
         // ApplyLanguage stores the first text it sees in Tag. A busy "Searching...." /
         // "Søker...." label captured there would be restored on the next language pass.
@@ -1120,6 +1125,7 @@ public partial class MainWindow : Window
 
     private void SetScanButtonSearching()
     {
+        _scanButtonSearching = true;
         ScanButton.Content = _schedule.Language == "no" ? "Søker...." : "Searching....";
     }
 
