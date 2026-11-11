@@ -8,14 +8,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>UpdateExpress</AssemblyName>
     <Version>0.7.2.6</Version>
-    <InformationalVersion>0.7.2.6.60</InformationalVersion>
+    <InformationalVersion>0.7.2.6.66</InformationalVersion>
     <FileVersion>0.7.2.6</FileVersion>
     <AssemblyVersion>0.7.2.6</AssemblyVersion>
     <Product>Update Express</Product>
     <ApplicationIcon>Assets\UpdateExpress-U.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
-    <Resource Include="Assets\MicroSystems.png" />
+    <Resource Include="Assets\MadeInSarp.png" />
     <Resource Include="Assets\MicroSystems-M.png" />
     <Resource Include="Assets\UpdateExpress-U.png" />
     <Resource Include="Assets\UpdateExpress-U.ico" />
