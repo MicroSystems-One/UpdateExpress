@@ -338,7 +338,8 @@ internal static class AppUpdatePrompt
 
         void AddButton(string label, DialogResult dialogResult, bool isAccept = false, bool isCancel = false)
         {
-            var button = new Button
+            // Global WpfTypeAliases maps Button → WPF; this dialog is WinForms.
+            var button = new System.Windows.Forms.Button
             {
                 Text = label,
                 AutoSize = true,
