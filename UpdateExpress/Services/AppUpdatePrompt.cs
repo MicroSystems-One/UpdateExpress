@@ -8,7 +8,8 @@ namespace UpdateExpress.Services;
 
 /// <summary>
 /// Shared Update Express self-update prompt. Automatic checks stay quiet when up to date.
-/// Dialog text and buttons follow ReminderSchedule.Language (en/no), not the OS MessageBox locale.
+/// Dialog text and buttons follow ReminderSchedule.Language via AppLanguage string tables,
+/// not the OS MessageBox locale and not hardcoded Yes/No/Cancel captions.
 /// </summary>
 internal static class AppUpdatePrompt
 {
@@ -16,7 +17,7 @@ internal static class AppUpdatePrompt
 
     /// <summary>
     /// Starts a background channel check. When <paramref name="automatic"/> is true,
-    /// UpToDate / CheckFailed only log (no MessageBox). UpdateAvailable always prompts.
+    /// UpToDate / CheckFailed only log (no dialog). UpdateAvailable always prompts.
     /// </summary>
     internal static void StartCheck(
         bool automatic,
@@ -29,9 +30,8 @@ internal static class AppUpdatePrompt
             return;
         }
 
-        bool norwegian = IsNorwegian();
         if (!automatic)
-            balloon?.Invoke(norwegian ? "Ser etter programoppdateringer…" : "Checking for application updates…", ToolTipIcon.Info);
+            balloon?.Invoke(AppLanguage.T("Checking for application updates…"), ToolTipIcon.Info);
 
         _ = Task.Run(async () =>
         {
@@ -82,9 +82,6 @@ internal static class AppUpdatePrompt
 
     internal static void ReleaseCheckLock() => Interlocked.Exchange(ref _checkRunning, 0);
 
-    private static bool IsNorwegian() =>
-        string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase);
-
     private static bool Present(
         AppUpdateCheckResult result,
         bool automatic,
@@ -93,7 +90,6 @@ internal static class AppUpdatePrompt
     {
         using var promptGate = new Mutex(false, @"Local\MicroSystems.UpdateExpress.AppUpdatePrompt");
         bool owned = false;
-        bool norwegian = IsNorwegian();
         try
         {
             try { owned = promptGate.WaitOne(0); }
@@ -114,103 +110,71 @@ internal static class AppUpdatePrompt
                         return false;
                     }
                     balloon?.Invoke(
-                        norwegian
-                            ? $"Du er oppdatert (v{result.InstalledVersion})."
-                            : $"You are up to date (v{result.InstalledVersion}).",
+                        AppLanguage.Tf("You are up to date (v{0}).", result.InstalledVersion),
                         ToolTipIcon.Info);
                     ShowAppLanguageDialog(
-                        norwegian
-                            ? $"Update Express er oppdatert.\n\nInstallert versjon: {result.InstalledVersion}"
-                            : $"Update Express is up to date.\n\nInstalled version: {result.InstalledVersion}",
+                        AppLanguage.Tf(
+                            "Update Express is up to date.\n\nInstalled version: {0}",
+                            result.InstalledVersion),
                         "Update Express",
                         MessageBoxButtons.OK,
-                        MessageBoxIcon.Information,
-                        norwegian);
+                        MessageBoxIcon.Information);
                     return false;
 
                 case AppUpdateStatus.UpdateAvailable:
                 {
                     string notes = string.IsNullOrWhiteSpace(result.ReleaseNotes)
-                        ? (norwegian ? "Ingen versjonsmerknader." : "No release notes provided.")
+                        ? AppLanguage.T("No release notes provided.")
                         : result.ReleaseNotes!;
                     balloon?.Invoke(
-                        norwegian
-                            ? $"Versjon {result.AvailableVersion} er tilgjengelig."
-                            : $"Version {result.AvailableVersion} is available.",
+                        AppLanguage.Tf("Version {0} is available.", result.AvailableVersion),
                         ToolTipIcon.Info);
                     bool canInstall = !string.IsNullOrWhiteSpace(result.DownloadUrl) && !string.IsNullOrWhiteSpace(result.Sha256);
                     bool hasDownload = !string.IsNullOrWhiteSpace(result.DownloadUrl);
                     string body;
                     MessageBoxButtons buttons;
+                    string header =
+                        AppLanguage.T("A newer Update Express version is available.") + "\n\n" +
+                        AppLanguage.Tf("Installed: {0}", result.InstalledVersion) + "\n" +
+                        AppLanguage.Tf("Available: {0}", result.AvailableVersion) + "\n\n" +
+                        notes;
                     if (canInstall)
                     {
-                        body = norwegian
-                            ? $"En nyere versjon av Update Express er tilgjengelig.\n\n" +
-                              $"Installert: {result.InstalledVersion}\n" +
-                              $"Tilgjengelig: {result.AvailableVersion}\n\n" +
-                              $"{notes}\n\n" +
-                              "Ja = Installer nå (lukker åpen Update Express, deretter last ned + verifiser SHA-256 + erstatt)\n" +
-                              "Nei = Åpne nedlastingssiden\n" +
-                              "Avbryt = Senere"
-                            : $"A newer Update Express version is available.\n\n" +
-                              $"Installed: {result.InstalledVersion}\n" +
-                              $"Available: {result.AvailableVersion}\n\n" +
-                              $"{notes}\n\n" +
-                              "Yes = Install now (closes open Update Express, then download + verify SHA-256 + replace)\n" +
-                              "No = Open download page\n" +
-                              "Cancel = Later";
+                        body = header + "\n\n" +
+                            AppLanguage.ButtonLegend(
+                                "Yes",
+                                "Install now (closes open Update Express, then download + verify SHA-256 + replace)") + "\n" +
+                            AppLanguage.ButtonLegend("No", "Open download page") + "\n" +
+                            AppLanguage.ButtonLegend("Cancel", "Later");
                         buttons = MessageBoxButtons.YesNoCancel;
                     }
                     else if (hasDownload)
                     {
-                        body = norwegian
-                            ? $"En nyere versjon av Update Express er tilgjengelig.\n\n" +
-                              $"Installert: {result.InstalledVersion}\n" +
-                              $"Tilgjengelig: {result.AvailableVersion}\n\n" +
-                              $"{notes}\n\n" +
-                              "SHA-256 mangler i oppdateringskanalen, så Installer er utilgjengelig.\n" +
-                              "Ja = Åpne nedlastingssiden\n" +
-                              "Nei = Senere"
-                            : $"A newer Update Express version is available.\n\n" +
-                              $"Installed: {result.InstalledVersion}\n" +
-                              $"Available: {result.AvailableVersion}\n\n" +
-                              $"{notes}\n\n" +
-                              "SHA-256 is missing from the update channel, so Install is unavailable.\n" +
-                              "Yes = Open download page\n" +
-                              "No = Later";
+                        body = header + "\n\n" +
+                            AppLanguage.T("SHA-256 is missing from the update channel, so Install is unavailable.") + "\n" +
+                            AppLanguage.ButtonLegend("Yes", "Open download page") + "\n" +
+                            AppLanguage.ButtonLegend("No", "Later");
                         buttons = MessageBoxButtons.YesNo;
                     }
                     else
                     {
-                        body = norwegian
-                            ? $"En nyere versjon av Update Express er tilgjengelig.\n\n" +
-                              $"Installert: {result.InstalledVersion}\n" +
-                              $"Tilgjengelig: {result.AvailableVersion}\n\n" +
-                              $"{notes}\n\n" +
-                              "Ingen HTTPS-nedlastingsadresse er publisert ennå."
-                            : $"A newer Update Express version is available.\n\n" +
-                              $"Installed: {result.InstalledVersion}\n" +
-                              $"Available: {result.AvailableVersion}\n\n" +
-                              $"{notes}\n\n" +
-                              "No HTTPS download URL is published yet.";
+                        body = header + "\n\n" +
+                            AppLanguage.T("No HTTPS download URL is published yet.");
                         buttons = MessageBoxButtons.OK;
                     }
 
                     var choice = ShowAppLanguageDialog(
                         body,
-                        norwegian ? "Update Express – oppdatering tilgjengelig" : "Update Express update available",
+                        AppLanguage.T("Update Express update available"),
                         buttons,
-                        MessageBoxIcon.Information,
-                        norwegian);
+                        MessageBoxIcon.Information);
 
                     if (canInstall && choice == DialogResult.Yes)
                     {
                         if (!UpgradeShutdown.EnsureUiClosedForUpgrade())
                         {
                             balloon?.Invoke(
-                                norwegian
-                                    ? "Oppgradering avbrutt — lukk Update Express og prøv igjen."
-                                    : "Upgrade cancelled — close Update Express and try again.",
+                                AppLanguage.T("Upgrade cancelled — close Update Express and try again."),
                                 ToolTipIcon.Warning);
                             return false;
                         }
@@ -222,13 +186,10 @@ internal static class AppUpdatePrompt
                         if (!AppUpdateChecker.TryOpenDownload(result.DownloadUrl, out string? error))
                         {
                             ShowAppLanguageDialog(
-                                norwegian
-                                    ? "Kunne ikke åpne nedlastingssiden: " + error
-                                    : "Could not open download page: " + error,
+                                AppLanguage.Tf("Could not open download page: {0}", error ?? ""),
                                 "Update Express",
                                 MessageBoxButtons.OK,
-                                MessageBoxIcon.Warning,
-                                norwegian);
+                                MessageBoxIcon.Warning);
                         }
                     }
                     return false;
@@ -240,17 +201,14 @@ internal static class AppUpdatePrompt
                         AgentLog.Write("App update automatic check failed: " + (result.Error ?? "Unknown error"));
                         return false;
                     }
-                    balloon?.Invoke(
-                        norwegian ? "Sjekk av programoppdatering feilet." : "Application update check failed.",
-                        ToolTipIcon.Warning);
+                    balloon?.Invoke(AppLanguage.T("Application update check failed."), ToolTipIcon.Warning);
                     ShowAppLanguageDialog(
-                        norwegian
-                            ? "Kunne ikke sjekke etter Update Express-oppdateringer.\n\n" + (result.Error ?? "Ukjent feil")
-                            : "Could not check for Update Express updates.\n\n" + (result.Error ?? "Unknown error"),
+                        AppLanguage.Tf(
+                            "Could not check for Update Express updates.\n\n{0}",
+                            result.Error ?? AppLanguage.T("Unknown error")),
                         "Update Express",
                         MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning,
-                        norwegian);
+                        MessageBoxIcon.Warning);
                     return false;
             }
         }
@@ -265,14 +223,13 @@ internal static class AppUpdatePrompt
 
     /// <summary>
     /// WinForms MessageBox localizes Yes/No/Cancel from the OS UI language, which can disagree
-    /// with ReminderSchedule.Language. This dialog paints button captions from the app language.
+    /// with ReminderSchedule.Language. This dialog paints button captions from AppLanguage.
     /// </summary>
     private static DialogResult ShowAppLanguageDialog(
         string text,
         string caption,
         MessageBoxButtons buttons,
-        MessageBoxIcon icon,
-        bool norwegian)
+        MessageBoxIcon icon)
     {
         using var form = new Form
         {
@@ -362,16 +319,16 @@ internal static class AppUpdatePrompt
         {
             case MessageBoxButtons.YesNoCancel:
                 // RightToLeft flow: add Cancel, No, Yes so Yes ends leftmost visually like MessageBox.
-                AddButton(norwegian ? "Avbryt" : "Cancel", DialogResult.Cancel, isCancel: true);
-                AddButton(norwegian ? "Nei" : "No", DialogResult.No);
-                AddButton(norwegian ? "Ja" : "Yes", DialogResult.Yes, isAccept: true);
+                AddButton(AppLanguage.Cancel, DialogResult.Cancel, isCancel: true);
+                AddButton(AppLanguage.No, DialogResult.No);
+                AddButton(AppLanguage.Yes, DialogResult.Yes, isAccept: true);
                 break;
             case MessageBoxButtons.YesNo:
-                AddButton(norwegian ? "Nei" : "No", DialogResult.No, isCancel: true);
-                AddButton(norwegian ? "Ja" : "Yes", DialogResult.Yes, isAccept: true);
+                AddButton(AppLanguage.No, DialogResult.No, isCancel: true);
+                AddButton(AppLanguage.Yes, DialogResult.Yes, isAccept: true);
                 break;
             default:
-                AddButton("OK", DialogResult.OK, isAccept: true, isCancel: true);
+                AddButton(AppLanguage.Ok, DialogResult.OK, isAccept: true, isCancel: true);
                 break;
         }
 
