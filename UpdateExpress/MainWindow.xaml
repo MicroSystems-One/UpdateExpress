@@ -173,13 +173,13 @@
   </Style>
  </Window.Resources>
  <Grid x:Name="MainLayout" Margin="12,0,12,7"><Grid.RowDefinitions><RowDefinition Height="118"/><RowDefinition Height="Auto"/><RowDefinition x:Name="ResultsRow" Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <!-- Header: transparent MicroSystems.one logo sits on the light chrome opposite the Update Express title. -->
+  <!-- Header: transparent MicroSystems banner sits on the light chrome opposite the Update Express title. -->
   <Grid Grid.Row="0" Margin="0,6,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
     <Border Width="55" Height="55" CornerRadius="13" Background="#FFF4E5" Margin="0,0,18,0"><Image Source="Assets/MicroSystems-M.png" Stretch="Uniform" Margin="3"/></Border>
     <StackPanel VerticalAlignment="Center"><TextBlock FontSize="20" FontWeight="Bold"><Run Text="Update " Foreground="#142035"/><Run Text="Express" Foreground="#F46D00"/></TextBlock><TextBlock x:Name="AppSubtitle" Text="Windows Update Management · Background Monitoring" Foreground="#52617A" FontSize="12" Margin="0,5,0,0"/></StackPanel>
    </StackPanel>
-   <Image Grid.Column="1" Source="Assets/MicroSystemsOne.png" Height="100" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="16,0,0,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+   <Image Grid.Column="1" Source="Assets/MicroSystemsBanner.png" Height="100" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="16,0,0,0" RenderOptions.BitmapScalingMode="HighQuality"/>
   </Grid>
   <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="WindowsUpdateControlExpander" IsExpanded="True" Background="Transparent" BorderThickness="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"><Expander.Header><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="↻" Foreground="#F47700" FontSize="20" FontWeight="Bold" Margin="0,-3,12,0"/><TextBlock Text="Windows Update Status – Health Check" FontSize="14" FontWeight="SemiBold" Foreground="#152137" VerticalAlignment="Center" Margin="0,0,16,0"/><TextBlock x:Name="OsSupportIcon" Text="?" FontSize="14" FontWeight="Bold" Foreground="#B7791F" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock x:Name="OsVersionLabel" Text="Checking Windows…" FontSize="12" FontWeight="SemiBold" Foreground="#152137" VerticalAlignment="Center"/><Button x:Name="OsSupportInfo" Content="ⓘ" Click="OsSupportInfo_Click" ToolTip="Windows lifecycle and security support" FontSize="12" Padding="3,0" Margin="3,0,0,0" Height="20" MinHeight="20" MinWidth="20" VerticalAlignment="Center"/></StackPanel></Expander.Header><StackPanel Margin="0,8,0,0">
    <Grid Margin="0,0,0,6">
