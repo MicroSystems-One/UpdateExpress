@@ -123,10 +123,83 @@ internal static class HistoryArchive
         }
 
         var rows = combined.Values.ToList();
+        // A failed row for an update that already succeeded is the same event twice
+        // (often a blocked retry such as 0x80240016). Keep a failure that is a new
+        // attempt more than a day after the latest success.
+        rows.RemoveAll(entry => CoveredBySuccess(entry, rows));
         ApplyFixed(rows, state);
+        var hidden = new HashSet<string>(state.HiddenEventKeys, StringComparer.OrdinalIgnoreCase);
+        if (hidden.Count > 0)
+            rows.RemoveAll(entry => hidden.Contains(EventKey(entry)));
         foreach (var entry in rows)
             OperationalPriority.Apply(entry);
         return rows.OrderByDescending(entry => ParseDate(entry.Date) ?? DateTime.MinValue).ToList();
+    }
+
+    /// <summary>Remember a history row the user chose to hide. Windows Update history itself is left unchanged.</summary>
+    internal static void HideFromDisplay(UpdateEntry entry)
+    {
+        lock (Gate)
+        {
+            var state = LoadUnlocked();
+            string key = EventKey(entry);
+            if (!state.HiddenEventKeys.Contains(key, StringComparer.OrdinalIgnoreCase))
+                state.HiddenEventKeys.Add(key);
+            SaveUnlocked(state);
+        }
+    }
+
+    internal static bool IsStillOffered(UpdateEntry history, IReadOnlyList<UpdateEntry> pending) =>
+        pending.Any(item => SameIdentity(history, item));
+
+    internal static UpdateEntry? FindOffered(UpdateEntry history, IReadOnlyList<UpdateEntry> pending) =>
+        pending.FirstOrDefault(item => SameIdentity(history, item));
+
+    private static bool CoveredBySuccess(UpdateEntry failure, IReadOnlyList<UpdateEntry> rows)
+    {
+        if (!failure.IsHistoryFailed) return false;
+        var failureDate = ParseDate(failure.Date);
+        DateTime? latestSuccess = null;
+        bool any = false;
+        foreach (var row in rows)
+        {
+            if (!row.IsHistorySuccessful || !SameIdentity(failure, row)) continue;
+            any = true;
+            var successDate = ParseDate(row.Date);
+            if (failureDate is null || successDate is null) return true;
+            if (successDate >= failureDate) return true;
+            if (latestSuccess is null || successDate > latestSuccess) latestSuccess = successDate;
+        }
+        return any && latestSuccess is not null && failureDate is not null
+            && failureDate.Value - latestSuccess.Value <= TimeSpan.FromHours(24);
+    }
+
+    internal static bool SameIdentity(UpdateEntry left, UpdateEntry right)
+    {
+        bool defender = OperationalPriority.IsDefenderKb(left.KB) || OperationalPriority.IsDefenderKb(right.KB);
+        var leftKbs = KbsOf(left);
+        var rightKbs = KbsOf(right);
+        if (defender)
+        {
+            if (!leftKbs.Contains("KB2267602") || !rightKbs.Contains("KB2267602")) return false;
+            var leftVersion = ReadSignatureVersion(left.Title);
+            var rightVersion = ReadSignatureVersion(right.Title);
+            if (leftVersion is null || rightVersion is null) return TitlesEqual(left.Title, right.Title);
+            return leftVersion == rightVersion;
+        }
+        if (leftKbs.Count > 0 && rightKbs.Count > 0)
+            return leftKbs.Any(kb => rightKbs.Contains(kb, StringComparer.OrdinalIgnoreCase));
+        if (leftKbs.Count == 0 && rightKbs.Count == 0)
+            return TitlesEqual(left.Title, right.Title);
+        return false;
+    }
+
+    private static bool TitlesEqual(string? left, string? right)
+    {
+        static string Norm(string? value) => Regex.Replace(value ?? "", @"\s+", " ").Trim();
+        var a = Norm(left);
+        var b = Norm(right);
+        return a.Length > 0 && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ApplyFixed(List<UpdateEntry> rows, HistoryArchiveState state)
@@ -267,5 +340,6 @@ internal static class HistoryArchive
         public List<string> PendingKbs { get; set; } = new();
         public List<UpdateEntry> PendingEntries { get; set; } = new();
         public string? LastScanError { get; set; }
+        public List<string> HiddenEventKeys { get; set; } = new();
     }
 }

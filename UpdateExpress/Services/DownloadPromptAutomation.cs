@@ -397,19 +397,22 @@ internal static class DownloadPromptAutomation
         manager.Loaded += async (_, _) =>
         {
             manager.PrepareRunning();
-            manager.BeginItem(0, $"Downloading / installing {displayName.ToLowerInvariant()} updates…");
+            bool norwegian = string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase);
+            manager.SetNotice(WuaProgressText.PleaseWait(norwegian));
+            manager.SetStage(norwegian ? "Forbereder nedlasting…" : "Preparing download…");
             try
             {
                 var selected = ids.Select(id => new UpdateEntry { UpdateId = id }).ToList();
-                IProgress<string> progress = new Progress<string>(stage =>
+                IProgress<WuaActivity> activity = new Progress<WuaActivity>(update =>
                 {
-                    try { manager.Dispatcher.BeginInvoke(new Action(() => manager.SetStage(stage))); }
+                    try { manager.ApplyActivity(update, norwegian); }
                     catch { }
-                    AgentLog.Write($"{displayName} install: " + stage);
+                    AgentLog.Write($"{displayName} install: " + WuaProgressText.Stage(norwegian, update.Phase, update.Kb, update.Number, update.Total, update.Percent));
                 });
+                IProgress<string> progress = new Progress<string>(stage => AgentLog.Write($"{displayName} install: " + stage));
 
                 var results = await WindowsUpdateReader.RunStaAsync(() =>
-                        WindowsUpdateReader.InstallSelected(selected, stage => ((IProgress<string>)progress).Report(stage)))
+                        WindowsUpdateReader.InstallSelected(selected, progress.Report, activity.Report))
                     .ConfigureAwait(true);
 
                 for (int i = 0; i < ids.Count; i++)

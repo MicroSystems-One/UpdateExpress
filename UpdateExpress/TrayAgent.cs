@@ -73,6 +73,28 @@ internal sealed class TrayAgent : IDisposable
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
         WriteMonitorStatus("waiting", 0, 0, null, null);
         AgentLog.Write("Tray agent started; WUA monitor every 6h; Defender+Critical+General+reboot poll every 5m.");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(45));
+                if (_disposed) return;
+                _ = _dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (_disposed) return;
+                        if (UpdateUntilCurrent.TryLaunchResume())
+                            ShowAppBalloon(
+                                "Update until current",
+                                "The cycle continues after the restart. Approve the administrator prompt.",
+                                ToolTipIcon.Info);
+                    }
+                    catch (Exception ex) { AgentLog.Write("Update until current resume failed: " + ex.Message); }
+                }));
+            }
+            catch (Exception ex) { AgentLog.Write("Update until current resume failed: " + ex.Message); }
+        });
         // After sign-in / agent start: quiet Update Express self-update check (prompt only if newer).
         _ = Task.Run(async () =>
         {
@@ -146,7 +168,8 @@ internal sealed class TrayAgent : IDisposable
     private void StartAppUpdateInstall(AppUpdateCheckResult offer)
     {
         SetAppUpdateMenuEnabled(false);
-        ShowAppBalloon("Update Express", "Downloading update…", ToolTipIcon.Info);
+        // Stages are logged only. A balloon per stage is queued by Windows and keeps
+        // appearing after the replacement has already started the new version.
         _ = Task.Run(async () =>
         {
             try
@@ -154,8 +177,6 @@ internal sealed class TrayAgent : IDisposable
                 await AppUpdateInstaller.PrepareAndLaunchAsync(offer, stage =>
                 {
                     AgentLog.Write("App update: " + stage);
-                    try { _dispatcher.BeginInvoke(new Action(() => ShowAppBalloon("Update Express", stage, ToolTipIcon.Info))); }
-                    catch { }
                 }).ConfigureAwait(false);
                 // LaunchSelfUpdate shuts down this process on success.
             }
