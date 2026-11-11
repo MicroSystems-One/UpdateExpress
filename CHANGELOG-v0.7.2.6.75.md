@@ -5,3 +5,5 @@
 - Removed “(optional, not implemented)” labels; EN/NO strings updated.
 - Elevated helpers: `--apply-drivers-install`, `--apply-applications-install`.
 - Status line includes Drivers / Apps results; settings persist via existing `update-policy.json`.
+- Elevation handoff: `--automation-state-dir` keeps prompt/queue under the tray user’s `MicroSystems\Update Express` folder when UAC uses another admin.
+- Abandoned `installing` prompt state auto-recovers to `awaitingPrompt` after 90 minutes (Critical/General/Drivers/Apps).

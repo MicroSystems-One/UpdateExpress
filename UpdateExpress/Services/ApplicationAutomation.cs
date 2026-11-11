@@ -39,7 +39,7 @@ internal static class ApplicationAutomation
 
             var schedule = policy.WindowsAutomation.Critical;
             string preferred = AutomationSchedule.PreferredOrDefault(schedule.PreferredInstallTime);
-            var prompt = CategoryPromptState.Load(Category);
+            var prompt = CategoryPromptState.LoadAndReconcile(Category);
 
             if (prompt.State == "installing")
                 return;
@@ -245,7 +245,7 @@ internal static class ApplicationAutomation
             return Task.CompletedTask;
         }
 
-        prompt.State = "installing";
+        prompt.MarkInstalling();
         prompt.Save();
         prompt.WriteInstallQueue(ids);
         ActivityLog.TryWrite("ApplicationsAutomation", "InstallRequested", new { Count = ids.Count }, mode: "Automatic", source: "TrayAgent");
@@ -253,7 +253,7 @@ internal static class ApplicationAutomation
 
         try
         {
-            ElevationHelper.RestartElevated(ElevateArg);
+            ElevationHelper.RestartElevated(AutomationStatePaths.ElevateArguments(ElevateArg));
             WindowsAutomationStatus.WriteCategory(
                 Category, "Installing",
                 "Elevated WinGet installer started. Update Express will not reboot Windows.",
@@ -262,6 +262,7 @@ internal static class ApplicationAutomation
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
             prompt.State = "awaitingPrompt";
+            prompt.InstallingStartedAt = null;
             prompt.Save();
             WindowsAutomationStatus.WriteCategory(Category, "UAC cancelled", "Administrator approval was cancelled.", DateTime.Now.AddHours(1));
             AgentLog.Write("Applications automation: UAC cancelled for install.");
@@ -269,6 +270,7 @@ internal static class ApplicationAutomation
         catch (Exception ex)
         {
             prompt.State = "awaitingPrompt";
+            prompt.InstallingStartedAt = null;
             prompt.Save();
             WindowsAutomationStatus.WriteCategory(Category, "Failed", "Could not start elevated install: " + ex.Message, DateTime.Now.AddHours(1));
             AgentLog.Write("Applications automation elevated launch failed: " + ex);

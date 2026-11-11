@@ -21,7 +21,7 @@ internal sealed class WindowsAutomationStatus
     public CategoryAutomationStatus Drivers { get; set; } = new();
     public CategoryAutomationStatus Applications { get; set; } = new();
 
-    private static string PathName => Path.Combine(InstallationManager.InstallDir, "windows-automation-status.json");
+    private static string PathName => Path.Combine(AutomationStatePaths.Directory, "windows-automation-status.json");
 
     internal static WindowsAutomationStatus Load()
     {
@@ -40,7 +40,7 @@ internal sealed class WindowsAutomationStatus
     {
         try
         {
-            Directory.CreateDirectory(InstallationManager.InstallDir);
+            Directory.CreateDirectory(AutomationStatePaths.Directory);
             Drivers ??= new();
             Applications ??= new();
             string temp = PathName + "." + Environment.ProcessId + ".tmp";
