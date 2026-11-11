@@ -128,13 +128,13 @@
   </Style>
  </Window.Resources>
  <Grid Margin="12,0,12,7"><Grid.RowDefinitions><RowDefinition Height="118"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <!-- Header: MADE IN SARP logo (own artwork background) sits opposite the Update Express title. -->
+  <!-- Header: MicroSystems.one logo (own artwork background) sits opposite the Update Express title. -->
   <Grid Grid.Row="0" Margin="0,6,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
     <Border Width="55" Height="55" CornerRadius="13" Background="#FFF4E5" Margin="0,0,18,0"><Image Source="Assets/MicroSystems-M.png" Stretch="Uniform" Margin="3"/></Border>
     <StackPanel VerticalAlignment="Center"><TextBlock FontSize="20" FontWeight="Bold"><Run Text="Update " Foreground="#142035"/><Run Text="Express" Foreground="#F46D00"/></TextBlock><TextBlock x:Name="AppSubtitle" Text="Windows Update Management · Background Monitoring" Foreground="#52617A" FontSize="12" Margin="0,5,0,0"/></StackPanel>
    </StackPanel>
-   <Image Grid.Column="1" Source="Assets/MadeInSarp.png" Height="100" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="16,0,0,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+   <Image Grid.Column="1" Source="Assets/MicroSystemsOne.png" Height="100" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="16,0,0,0" RenderOptions.BitmapScalingMode="HighQuality"/>
   </Grid>
   <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,8"><StackPanel>
    <!-- Compact title and Defender status share a single header row. -->
