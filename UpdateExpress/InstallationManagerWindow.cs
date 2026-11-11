@@ -95,9 +95,31 @@ public sealed class InstallationManagerWindow : Window
         var frame = new Border { CornerRadius = new CornerRadius(10), BorderBrush = new SolidColorBrush(Color.FromRgb(211, 221, 234)), BorderThickness = new Thickness(1), Background = Brushes.White, SnapsToDevicePixels = true, Child = list };
         root.Children.Add(frame);
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _clock.Tick += (_, _) => { var elapsed = DateTime.Now - _started; _elapsed.Text = "Elapsed: " + elapsed.ToString(@"hh\:mm\:ss"); };
+        _clock.Tick += (_, _) => PulseElapsed();
         Closing += (_, e) => { if (_running) e.Cancel = true; };
     }
+
+    /// <summary>Keep the elapsed label current even when the dispatcher is busy between ticks.</summary>
+    public void PulseElapsed()
+    {
+        if (!_running && !_clock.IsEnabled) return;
+        _elapsed.Text = "Elapsed: " + (DateTime.Now - _started).ToString(@"hh\:mm\:ss");
+    }
+
+    public static string StatusCompleted(bool norwegian) => norwegian ? "Fullført" : "Completed";
+    public static string StatusVerifying(bool norwegian) => norwegian ? "Verifiserer" : "Verifying";
+    public static string StatusNotVerified(bool norwegian) => norwegian ? "Ikke verifisert" : "Not verified";
+    public static string StatusVerifyTimedOut(bool norwegian) => norwegian ? "Verifisering tidsavbrutt" : "Verify timed out";
+
+    public static bool IsCompletedState(string state) =>
+        state is "Completed" or "Fullført";
+
+    public static bool IsVerifyingState(string state) =>
+        state is "Verifying" or "Verifiserer";
+
+    public static bool IsUnverifiedState(string state) =>
+        state is "Not verified" or "Ikke verifisert" or "Check results"
+            or "Verify timed out" or "Verifisering tidsavbrutt";
     private static Style CreateFooterButtonStyle()
     {
         var style = new Style(typeof(Button));
@@ -138,7 +160,6 @@ public sealed class InstallationManagerWindow : Window
         if (index >= 0 && index < _items.Count) _items[index].State = "Installing...";
         SetStage(stage);
     }
-    public void SetStage(string stage) => _stage.Text = stage;
     public void SetNotice(string text) => _notice.Text = text;
     public void SetItemState(int index, string state)
     {
@@ -174,6 +195,7 @@ public sealed class InstallationManagerWindow : Window
             else state += "…";
             SetItemState(row, state);
         }
+        PulseElapsed();
         string label = string.IsNullOrWhiteSpace(activity.Kb) ? "…" : activity.Kb;
         _stage.Text = WuaProgressText.Stage(norwegian, activity.Phase, label, number, total, activity.Percent);
         _counter.Text = activity.Phase switch
@@ -201,7 +223,7 @@ public sealed class InstallationManagerWindow : Window
         state.StartsWith("Downloading", StringComparison.Ordinal) || state.StartsWith("Laster ned", StringComparison.Ordinal);
 
     private static bool IsStillRunning(string state) =>
-        state is "Pending" or "Installing..." or "Verifying" or "Downloaded" or "Lastet ned"
+        state is "Pending" or "Installing..." or "Verifying" or "Verifiserer" or "Downloaded" or "Lastet ned"
         || state.StartsWith("Downloading", StringComparison.Ordinal)
         || state.StartsWith("Installing", StringComparison.Ordinal)
         || state.StartsWith("Laster ned", StringComparison.Ordinal)
@@ -210,25 +232,43 @@ public sealed class InstallationManagerWindow : Window
     public void CompleteItem(int index, string state, bool failed)
     {
         if (index >= 0 && index < _items.Count) _items[index].State = state;
+        PulseElapsed();
         _bar.IsIndeterminate = false;
         _bar.Value = _items.Count(x => !IsStillRunning(x.State));
         _counter.Text = $"{_bar.Value:0} of {_items.Count} processed";
     }
-    public void Finish()
+
+    public void SetStage(string stage)
+    {
+        _stage.Text = stage;
+        PulseElapsed();
+    }
+
+    public void Finish(bool norwegian = false, string? guidance = null, string unresolvedLabel = "Not verified")
     {
         _running = false;
         _clock.Stop();
         _elapsed.Text = "Elapsed: " + (DateTime.Now - _started).ToString(@"hh\:mm\:ss");
         for (int i = 0; i < _items.Count; i++)
             if (IsStillRunning(_items[i].State))
-                _items[i].State = "Not verified";
+                _items[i].State = unresolvedLabel;
         _bar.IsIndeterminate = false;
         _bar.Value = _items.Count;
         _counter.Text = $"{_items.Count} of {_items.Count} processed";
-        int failed = _items.Count(x => x.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase));
-        int unverified = _items.Count(x => x.State is "Not verified" or "Check results");
-        int completed = _items.Count(x => x.State == "Completed");
-        _stage.Text = $"Finished: {completed} completed, {failed} failed, {unverified} unverified";
-        _cancel.Content = "Close"; _cancel.IsEnabled = true;
+        int failed = _items.Count(x =>
+            x.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase) ||
+            x.State.StartsWith("Feilet", StringComparison.OrdinalIgnoreCase));
+        int unverified = _items.Count(x => IsUnverifiedState(x.State));
+        int completed = _items.Count(x => IsCompletedState(x.State));
+        string summary = norwegian
+            ? $"Ferdig: {completed} fullført, {failed} feilet, {unverified} ikke verifisert"
+            : $"Finished: {completed} completed, {failed} failed, {unverified} unverified";
+        if (!string.IsNullOrWhiteSpace(guidance) && unverified > 0)
+            summary += norwegian ? " — " + guidance : " — " + guidance;
+        _stage.Text = summary;
+        if (!string.IsNullOrWhiteSpace(guidance) && unverified > 0)
+            _notice.Text = guidance;
+        _cancel.Content = norwegian ? "Lukk" : "Close";
+        _cancel.IsEnabled = true;
     }
 }

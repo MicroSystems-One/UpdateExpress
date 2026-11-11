@@ -1507,13 +1507,20 @@ public partial class MainWindow : Window
             ActivityLog.TryWrite("InstallationManager", status, detail, source: source, runId: runId);
         }
         int cursor = 0;
+        bool norwegian = _schedule.Language == "no";
+        string completedLabel = InstallationManagerWindow.StatusCompleted(norwegian);
+        string verifyingLabel = InstallationManagerWindow.StatusVerifying(norwegian);
+        string notVerifiedLabel = InstallationManagerWindow.StatusNotVerified(norwegian);
+        string timedOutLabel = InstallationManagerWindow.StatusVerifyTimedOut(norwegian);
+        string retryGuidance = norwegian
+            ? "Lukk, skann på nytt, og prøv installasjon igjen om oppdateringen fortsatt tilbys."
+            : "Close, rescan, and retry install if the update is still offered.";
         try
         {
             Log("InstallationManager", "Started", queue.Select(q => new { q.Source, q.Name }).ToArray());
             if (software.Count > 0)
             {
                 int start = cursor;
-                bool norwegian = _schedule.Language == "no";
                 manager.SetNotice(WuaProgressText.PleaseWait(norwegian));
                 manager.SetStage(norwegian ? "Forbereder nedlasting…" : "Preparing download…");
                 try
@@ -1524,19 +1531,30 @@ public partial class MainWindow : Window
                         Log("WUA", "Progress", WuaProgressText.Stage(norwegian, update.Phase, update.Kb, update.Number, update.Total, update.Percent));
                     });
                     IProgress<string> progress = new Progress<string>(stage => Log("WUA", "Progress", stage));
-                    var results = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.InstallSelected(software, progress.Report, activity.Report));
-                    foreach (var entry in results) Log("WUA", entry.Status, new { entry.Title, entry.KB, entry.ErrorCode });
+                    var results = await AwaitInstallationTaskAsync(
+                        WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.InstallSelected(software, progress.Report, activity.Report)),
+                        manager,
+                        TimeSpan.FromMinutes(90),
+                        norwegian ? "WUA-installasjon tidsavbrutt." : "WUA installation timed out.");
+                    foreach (var entry in results) Log("WUA", entry.Status, new { entry.Title, entry.KB, entry.UpdateId, entry.ErrorCode });
                     for (int i = 0; i < software.Count; i++)
                     {
                         var requested = software[i];
-                        var result = results.FirstOrDefault(x => x.UpdateId.Equals(requested.UpdateId, StringComparison.OrdinalIgnoreCase))
-                            ?? results.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.KB) && x.KB.Equals(requested.KB, StringComparison.OrdinalIgnoreCase));
-                        var state = result == null ? "Not verified" :
-                            result.Status is "Installert" or "Already up to date" ? "Verifying" :
-                            result.Status is "Delvis fullført" ? "Not verified" :
+                        var result = WindowsUpdateReader.MatchInstallResult(results, requested, i);
+                        var state = result == null ? notVerifiedLabel :
+                            result.Status is "Installert" or "Already up to date" ? verifyingLabel :
+                            result.Status is "Delvis fullført" ? notVerifiedLabel :
                             "Failed" + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " " + result.ErrorCode);
                         manager.CompleteItem(start + i, state, state.StartsWith("Failed", StringComparison.Ordinal));
                     }
+                }
+                catch (TimeoutException tex)
+                {
+                    for (int i = 0; i < software.Count; i++)
+                        if (InstallationManagerWindow.IsVerifyingState(queue[start + i].State) || queue[start + i].State == "Installing..." || queue[start + i].State == "Pending")
+                            manager.CompleteItem(start + i, timedOutLabel, true);
+                    Log("WUA", "Timed out", tex.Message);
+                    manager.SetStage(tex.Message);
                 }
                 catch (Exception ex) { for (int i = 0; i < software.Count; i++) manager.CompleteItem(start + i, "Failed", true); Log("WUA", "Failed", ex.ToString()); }
                 cursor += software.Count;
@@ -1547,21 +1565,30 @@ public partial class MainWindow : Window
                 manager.SetStage("Rechecking driver identity: " + d.Title + "…");
                 try
                 {
-                    bool norwegian = _schedule.Language == "no";
                     IProgress<WuaActivity> activity = new Progress<WuaActivity>(update =>
                     {
                         manager.ApplyActivity(update, norwegian);
                         Log("Driver", "Progress", new { d.Title, update.Phase, update.Kb, update.Percent });
                     });
                     IProgress<string> progress = new Progress<string>(stage => Log("Driver", "Progress", new { d.Title, Stage = stage }));
-                    var results = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.InstallSelectedDriver(d, progress.Report, true, activity.Report));
-                    foreach (var entry in results) Log("Driver", entry.Status, new { entry.Title, entry.ErrorCode });
+                    var results = await AwaitInstallationTaskAsync(
+                        WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.InstallSelectedDriver(d, progress.Report, true, activity.Report)),
+                        manager,
+                        TimeSpan.FromMinutes(45),
+                        norwegian ? "Driverinstallasjon tidsavbrutt." : "Driver installation timed out.");
+                    foreach (var entry in results) Log("Driver", entry.Status, new { entry.Title, entry.UpdateId, entry.ErrorCode });
                     var driverResult = results.FirstOrDefault();
-                    string driverState = driverResult == null ? "Not verified" :
-                        driverResult.Status == "Installert" ? "Verifying" :
-                        driverResult.Status == "Delvis fullført" ? "Not verified" :
+                    string driverState = driverResult == null ? notVerifiedLabel :
+                        driverResult.Status == "Installert" ? verifyingLabel :
+                        driverResult.Status == "Delvis fullført" ? notVerifiedLabel :
                         "Failed" + (string.IsNullOrWhiteSpace(driverResult.ErrorCode) ? "" : " " + driverResult.ErrorCode);
                     manager.CompleteItem(idx, driverState, driverState.StartsWith("Failed", StringComparison.Ordinal));
+                }
+                catch (TimeoutException tex)
+                {
+                    manager.CompleteItem(idx, timedOutLabel, true);
+                    Log("Driver", "Timed out", new { d.Title, tex.Message });
+                    manager.SetStage(tex.Message);
                 }
                 catch (Exception ex)
                 {
@@ -1579,60 +1606,106 @@ public partial class MainWindow : Window
                 try { using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(20)); (code, output) = await WingetReader.UpgradeAsync(app.Id, timeout.Token); }
                 catch (Exception ex) { code = -1; output = ex.ToString(); }
                 Log("WinGet", code == 0 ? "Verification pending" : "Failed", new { app.Name, app.Id, app.Installed, app.Available, ExitCode = code, Output = output });
-                manager.CompleteItem(idx, code == 0 ? "Verifying" : $"Failed (exit {code})", code != 0);
+                manager.CompleteItem(idx, code == 0 ? verifyingLabel : $"Failed (exit {code})", code != 0);
             }
-            manager.SetStage("Refreshing Windows Update and WinGet results…");
+            manager.SetStage(norwegian ? "Oppdaterer Windows Update- og WinGet-resultater…" : "Refreshing Windows Update and WinGet results…");
+            bool verifyTimedOut = false;
             try
             {
-                var pending = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(true, true));
+                var pending = await AwaitInstallationTaskAsync(
+                    WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(true, true)),
+                    manager,
+                    TimeSpan.FromMinutes(5),
+                    norwegian ? "Verifisering (WUA-rescan) tidsavbrutt." : "Verification (WUA rescan) timed out.");
                 ReplacePendingSnapshot(pending);
-                _historySnapshot = await WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
+                _historySnapshot = await AwaitInstallationTaskAsync(
+                    WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay),
+                    manager,
+                    TimeSpan.FromMinutes(3),
+                    norwegian ? "Verifisering (historikk) tidsavbrutt." : "Verification (history) timed out.");
                 HidePendingAlreadyInHistory(_historySnapshot);
                 foreach (var item in software.Select((update, i) => new { update, i }))
                 {
                     if (queue[item.i].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
                     bool remains = pending.Any(x => x.UpdateId.Equals(item.update.UpdateId, StringComparison.OrdinalIgnoreCase));
-                    // Absence from pending list is not proof of installation. A successful
-                    // installer result + absence is the minimum verification we can make here.
-                    manager.CompleteItem(item.i, remains ? "Not verified" :
-                        queue[item.i].State == "Verifying" ? "Completed" : "Not verified", remains);
+                    bool historyOk = HistoryConfirmsInstall(_historySnapshot, item.update);
+                    // Absence from pending alone is not proof. Installer success (Verifying) +
+                    // absence, or a successful history row, is the verification we accept.
+                    string next = ResolveVerifiedState(queue[item.i].State, remains, historyOk, completedLabel, notVerifiedLabel);
+                    manager.CompleteItem(item.i, next, InstallationManagerWindow.IsUnverifiedState(next));
+                    Log("WUA", next, new { item.update.UpdateId, item.update.Title, remains, historyOk });
                 }
                 for (int i = 0; i < drivers.Count; i++)
                 {
                     int driverIndex = software.Count + i;
                     if (queue[driverIndex].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
                     bool remains = pending.Any(x => x.UpdateId.Equals(drivers[i].UpdateId, StringComparison.OrdinalIgnoreCase));
-                    manager.CompleteItem(driverIndex, remains ? "Not verified" :
-                        queue[driverIndex].State == "Verifying" ? "Completed" : "Not verified", remains);
+                    bool historyOk = HistoryConfirmsInstall(_historySnapshot, drivers[i]);
+                    string next = ResolveVerifiedState(queue[driverIndex].State, remains, historyOk, completedLabel, notVerifiedLabel);
+                    manager.CompleteItem(driverIndex, next, InstallationManagerWindow.IsUnverifiedState(next));
+                    Log("Driver", next, new { drivers[i].UpdateId, drivers[i].Title, remains, historyOk });
                 }
                 Log("WUA", "Rescan completed", new { Count = pending.Count });
+            }
+            catch (TimeoutException tex)
+            {
+                verifyTimedOut = true;
+                Log("WUA", "Rescan timed out", tex.Message);
+                manager.SetStage(tex.Message + " " + retryGuidance);
+                for (int i = 0; i < software.Count + drivers.Count; i++)
+                    if (InstallationManagerWindow.IsVerifyingState(queue[i].State))
+                        manager.CompleteItem(i, timedOutLabel, true);
             }
             catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage("Windows Update rescan failed: " + ex.Message); }
             try
             {
-                var scan = await WingetReader.ScanAsync();
+                var scan = await AwaitInstallationTaskAsync(
+                    WingetReader.ScanAsync(),
+                    manager,
+                    TimeSpan.FromMinutes(5),
+                    norwegian ? "Verifisering (WinGet-rescan) tidsavbrutt." : "Verification (WinGet rescan) timed out.");
                 _rawWinget = scan.Raw;
                 _appEntries.Clear(); LoadAppPreferences(scan.Updates);
                 foreach (var item in apps.Select((app, i) => new { app, i }))
                 {
-                    if (queue[software.Count + drivers.Count + item.i].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
+                    int qi = software.Count + drivers.Count + item.i;
+                    if (queue[qi].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
                     bool remains = scan.Updates.Any(x => x.Id.Equals(item.app.Id, StringComparison.OrdinalIgnoreCase));
-                    manager.CompleteItem(software.Count + drivers.Count + item.i, remains ? "Not verified" : "Completed", remains);
+                    string next = remains ? notVerifiedLabel :
+                        InstallationManagerWindow.IsVerifyingState(queue[qi].State) ? completedLabel : notVerifiedLabel;
+                    manager.CompleteItem(qi, next, InstallationManagerWindow.IsUnverifiedState(next));
                     Log("WinGet", remains ? "Not verified" : "Verified absent from upgrade list", new { item.app.Id, item.app.Available });
+                }
+            }
+            catch (TimeoutException tex)
+            {
+                verifyTimedOut = true;
+                Log("WinGet", "Rescan timed out", tex.Message);
+                manager.SetStage(tex.Message + " " + retryGuidance);
+                for (int i = 0; i < apps.Count; i++)
+                {
+                    int qi = software.Count + drivers.Count + i;
+                    if (InstallationManagerWindow.IsVerifyingState(queue[qi].State))
+                        manager.CompleteItem(qi, timedOutLabel, true);
                 }
             }
             catch (Exception ex) { Log("WinGet", "Rescan failed", ex.Message); manager.SetStage("WinGet rescan failed: " + ex.Message); }
             SetTab(_activeTab);
             RefreshHealthSummary();
-            Log("InstallationManager", "Finished", new { Total = queue.Count });
-            manager.Finish();
-            StatusText.Text = "Installation finished. Review Installation Manager results.";
+            Log("InstallationManager", "Finished", new { Total = queue.Count, verifyTimedOut });
+            string? guidance = queue.Any(q => InstallationManagerWindow.IsUnverifiedState(q.State) || InstallationManagerWindow.IsVerifyingState(q.State))
+                ? retryGuidance
+                : null;
+            manager.Finish(norwegian, guidance, verifyTimedOut ? timedOutLabel : notVerifiedLabel);
+            StatusText.Text = norwegian
+                ? "Installasjon ferdig. Se resultatene i Installation Manager."
+                : "Installation finished. Review Installation Manager results.";
         }
         catch (Exception ex)
         {
             Log("InstallationManager", "Failed", ex.ToString());
             manager.SetStage("Installation interrupted: " + ex.Message);
-            manager.Finish();
+            manager.Finish(norwegian, retryGuidance, notVerifiedLabel);
             MessageBox.Show(this, ex.Message, "Installation Manager", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -1856,14 +1929,14 @@ public partial class MainWindow : Window
                         WindowsUpdateReader.InstallSelected(matches, progress.Report, activity.Report));
                     for (int i = 0; i < matches.Count; i++)
                     {
-                        var result = i < results.Count ? results[i] : null;
-                        string itemState = result == null ? "Not verified" :
-                            result.Status is "Installert" or "Already up to date" ? "Completed" :
-                            result.Status == "Delvis fullført" ? "Not verified" :
+                        var result = WindowsUpdateReader.MatchInstallResult(results, matches[i], i);
+                        string itemState = result == null ? InstallationManagerWindow.StatusNotVerified(norwegian) :
+                            result.Status is "Installert" or "Already up to date" ? InstallationManagerWindow.StatusCompleted(norwegian) :
+                            result.Status == "Delvis fullført" ? InstallationManagerWindow.StatusNotVerified(norwegian) :
                             "Failed" + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " " + result.ErrorCode);
                         manager.CompleteItem(i, itemState, itemState.StartsWith("Failed", StringComparison.Ordinal));
                     }
-                    manager.Finish();
+                    manager.Finish(norwegian);
                 }
                 catch (Exception ex)
                 {
@@ -1938,6 +2011,70 @@ public partial class MainWindow : Window
         if (width < 240) return;
         if (double.IsNaN(ResultsHeaderBar.Width) || Math.Abs(ResultsHeaderBar.Width - width) > 0.5)
             ResultsHeaderBar.Width = width;
+    }
+
+    /// <summary>
+    /// Await install/verify work while pulsing the Installation Manager elapsed clock.
+    /// Throws TimeoutException with a clear message so the UI can leave a terminal state.
+    /// </summary>
+    private static async Task<T> AwaitInstallationTaskAsync<T>(
+        Task<T> task,
+        InstallationManagerWindow manager,
+        TimeSpan timeout,
+        string timeoutMessage)
+    {
+        var started = DateTime.UtcNow;
+        while (!task.IsCompleted)
+        {
+            if (DateTime.UtcNow - started > timeout)
+                throw new TimeoutException(timeoutMessage);
+            manager.PulseElapsed();
+            await Task.WhenAny(task, Task.Delay(500)).ConfigureAwait(true);
+        }
+        return await task.ConfigureAwait(true);
+    }
+
+    private static string ResolveVerifiedState(
+        string prior,
+        bool remainsInPending,
+        bool historyOk,
+        string completedLabel,
+        string notVerifiedLabel)
+    {
+        if (prior.StartsWith("Failed", StringComparison.Ordinal) ||
+            prior.StartsWith("Feilet", StringComparison.Ordinal))
+            return prior;
+        // Installer reported success (Verifying) + gone from pending, or history success.
+        if (InstallationManagerWindow.IsVerifyingState(prior) && (!remainsInPending || historyOk))
+            return completedLabel;
+        // Unmatched installer row: only accept history success when the update is also gone.
+        if (historyOk && !remainsInPending)
+            return completedLabel;
+        return notVerifiedLabel;
+    }
+
+    private static bool HistoryConfirmsInstall(IEnumerable<UpdateEntry>? history, UpdateEntry requested)
+    {
+        if (history == null || requested == null) return false;
+        foreach (var entry in history)
+        {
+            if (!entry.IsHistorySuccessful) continue;
+            if (!string.IsNullOrWhiteSpace(requested.UpdateId) &&
+                !string.IsNullOrWhiteSpace(entry.UpdateId) &&
+                entry.UpdateId.Equals(requested.UpdateId, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!string.IsNullOrWhiteSpace(requested.Title) &&
+                !string.IsNullOrWhiteSpace(entry.Title) &&
+                entry.Title.Equals(requested.Title, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!string.IsNullOrWhiteSpace(requested.KB) &&
+                !string.IsNullOrWhiteSpace(entry.KB) &&
+                entry.KB.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                    .Any(kb => requested.KB.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                        .Any(r => r.Equals(kb, StringComparison.OrdinalIgnoreCase))))
+                return true;
+        }
+        return false;
     }
 
 }

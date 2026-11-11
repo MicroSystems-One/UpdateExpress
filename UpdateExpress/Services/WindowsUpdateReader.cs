@@ -362,9 +362,11 @@ public static class WindowsUpdateReader
             var matches = System.Text.RegularExpressions.Regex.Matches(title, @"KB\d{5,9}", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             var kbs = matches.Select(m => m.Value.ToUpperInvariant()).Distinct();
             int hr = (int)item.HResult;
+            string historyUpdateId = "";
+            try { historyUpdateId = Convert.ToString(item.UpdateIdentity.UpdateID) ?? ""; } catch { }
             var entry = new UpdateEntry
             {
-                KB = string.Join(", ", kbs), Title = title,
+                KB = string.Join(", ", kbs), Title = title, UpdateId = historyUpdateId,
                 Status = code switch { 2 => "Vellykket", 3 => "Vellykket med feil", 4 => "Mislykket", 5 => "Avbrutt", _ => "Ukjent" },
                 Date = ((DateTime)item.Date).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 Source = "WUA-historikk", ErrorCode = hr == 0 ? "" : $"0x{unchecked((uint)hr):X8}"
@@ -433,10 +435,58 @@ public static class WindowsUpdateReader
         bool alreadyCurrent = !changed && requestedMatch.Success && Version.TryParse(requestedMatch.Groups[1].Value, out var offeredVersion) && installedVersion >= offeredVersion;
         string verification = changed ? "Installed" : alreadyCurrent ? "Already up to date" : "Verification unavailable";
         report?.Invoke($"Defender signatures: {before} -> {installed}; {verification}.");
-        return new UpdateEntry { KB = selected.KB, Title = selected.Title, Status = changed ? "Installert" : alreadyCurrent ? "Already up to date" : "Verification unavailable",
+        return new UpdateEntry
+        {
+            KB = selected.KB,
+            Title = selected.Title,
+            UpdateId = selected.UpdateId,
+            Status = changed ? "Installert" : alreadyCurrent ? "Already up to date" : "Verification unavailable",
             Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-            Source = $"Update Express — Defender signatures ({before} -> {installed})" };
+            Source = $"Update Express — Defender signatures ({before} -> {installed})"
+        };
     }
+
+    /// <summary>
+    /// Map a requested update to its WUA/Defender install result.
+    /// InstallSelectedWua must populate UpdateId; KB/title/index are fallbacks for
+    /// KB-less packages (e.g. PowerShell LTS) and defender rows.
+    /// </summary>
+    public static UpdateEntry? MatchInstallResult(IReadOnlyList<UpdateEntry> results, UpdateEntry requested, int index = -1)
+    {
+        if (results == null || results.Count == 0 || requested == null) return null;
+        if (!string.IsNullOrWhiteSpace(requested.UpdateId))
+        {
+            var byId = results.FirstOrDefault(x =>
+                !string.IsNullOrWhiteSpace(x.UpdateId) &&
+                x.UpdateId.Equals(requested.UpdateId, StringComparison.OrdinalIgnoreCase));
+            if (byId != null) return byId;
+        }
+        var requestedKbs = SplitKbs(requested.KB);
+        if (requestedKbs.Count > 0)
+        {
+            var byKb = results.FirstOrDefault(x =>
+            {
+                var resultKbs = SplitKbs(x.KB);
+                return resultKbs.Count > 0 && requestedKbs.Any(kb =>
+                    resultKbs.Any(r => r.Equals(kb, StringComparison.OrdinalIgnoreCase)));
+            });
+            if (byKb != null) return byKb;
+        }
+        if (!string.IsNullOrWhiteSpace(requested.Title))
+        {
+            var byTitle = results.FirstOrDefault(x =>
+                !string.IsNullOrWhiteSpace(x.Title) &&
+                x.Title.Equals(requested.Title, StringComparison.OrdinalIgnoreCase));
+            if (byTitle != null) return byTitle;
+        }
+        if (index >= 0 && index < results.Count) return results[index];
+        return null;
+    }
+
+    private static List<string> SplitKbs(string? kb) =>
+        string.IsNullOrWhiteSpace(kb)
+            ? new List<string>()
+            : kb.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
 
     public static List<UpdateEntry> InstallSelected(List<UpdateEntry> selectedUpdates, Action<string>? report = null, Action<WuaActivity>? activity = null)
     {
@@ -768,7 +818,18 @@ public static class WindowsUpdateReader
             dynamic r = result.GetUpdateResult(i);
             int code = (int)r.ResultCode;
             int hr = (int)r.HResult;
-            entries.Add(new UpdateEntry { KB = KBs(u), Title = Convert.ToString(u.Title) ?? "", Status = code == 2 ? "Installert" : code == 3 ? "Delvis fullført" : "Feilet / avbrutt", Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), Source = restartRequired ?  $"Update Express v{ProductVersion.Display} — Restart required" : $"Update Express v{ProductVersion.Display}", ErrorCode = hr == 0 ? "" : $"0x{unchecked((uint)hr):X8}" });
+            string updateId = "";
+            try { updateId = Convert.ToString(u.Identity.UpdateID) ?? ""; } catch { }
+            entries.Add(new UpdateEntry
+            {
+                KB = KBs(u),
+                Title = Convert.ToString(u.Title) ?? "",
+                UpdateId = updateId,
+                Status = code == 2 ? "Installert" : code == 3 ? "Delvis fullført" : "Feilet / avbrutt",
+                Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                Source = restartRequired ? $"Update Express v{ProductVersion.Display} — Restart required" : $"Update Express v{ProductVersion.Display}",
+                ErrorCode = hr == 0 ? "" : $"0x{unchecked((uint)hr):X8}"
+            });
         }
         return entries;
     }
