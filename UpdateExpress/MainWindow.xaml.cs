@@ -1333,7 +1333,9 @@ public partial class MainWindow : Window
         dlg.ShowDialog();
         if (dlg.Hidden)
         {
-            _historySnapshot.RemoveAll(row => HistoryArchive.SameIdentity(row, entry) && row.Date == entry.Date && row.ErrorCode == entry.ErrorCode && row.Status == entry.Status);
+            string hiddenIdentity = HistoryArchive.DisplayIdentityKey(entry);
+            _historySnapshot.RemoveAll(row =>
+                string.Equals(HistoryArchive.DisplayIdentityKey(row), hiddenIdentity, StringComparison.OrdinalIgnoreCase));
             if (_showingHistory) SetTab("history");
             RefreshHealthSummary();
         }
