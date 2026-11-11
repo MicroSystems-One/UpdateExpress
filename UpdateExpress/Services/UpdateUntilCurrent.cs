@@ -18,8 +18,12 @@ internal static class UpdateUntilCurrent
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     private static Mutex? _mutex;
+    /// <summary>Non-reentrant same-process guard (Mutex alone is recursive for the owning thread).</summary>
+    private static int _entered;
 
     private static string PathFile => Path.Combine(InstallationManager.InstallDir, "update-until-current.json");
+
+    internal static bool IsRunning => Volatile.Read(ref _entered) != 0;
 
     internal static bool IsInCycle(UpdateEntry entry) =>
         UpdateCategoryRules.IsCriticalSoftware(entry)
@@ -55,7 +59,8 @@ internal static class UpdateUntilCurrent
             Phase = "starting",
             Message = "Starting.",
             StartedAt = DateTime.Now,
-            ResumeAfterReboot = false
+            ResumeAfterReboot = false,
+            LastResumeLaunch = null
         });
         AgentLog.Write("Update until current started.");
         ActivityLog.TryWrite("UpdateUntilCurrent", "Started", new { MaxRounds = DefaultMaxRounds }, mode: "Manual", source: "MainWindow");
@@ -72,18 +77,56 @@ internal static class UpdateUntilCurrent
         AgentLog.Write("Update until current stopped: " + message);
     }
 
+    /// <summary>
+    /// Acquire the cycle runner. Combines a cross-process mutex with a non-reentrant
+    /// in-process flag so a second start on the same UI thread cannot nest while the
+    /// first await is still in flight.
+    /// </summary>
     internal static bool TryEnter()
     {
-        _mutex = new Mutex(false, @"Local\MicroSystems.UpdateExpress.UpdateUntilCurrent");
-        try { return _mutex.WaitOne(0); }
-        catch (AbandonedMutexException) { return true; }
+        if (Interlocked.CompareExchange(ref _entered, 1, 0) != 0)
+            return false;
+
+        var mutex = new Mutex(false, @"Local\MicroSystems.UpdateExpress.UpdateUntilCurrent");
+        try
+        {
+            if (!mutex.WaitOne(0))
+            {
+                mutex.Dispose();
+                Interlocked.Exchange(ref _entered, 0);
+                return false;
+            }
+        }
+        catch (AbandonedMutexException)
+        {
+            // Previous owner died while holding the mutex; we own it now.
+        }
+        catch
+        {
+            mutex.Dispose();
+            Interlocked.Exchange(ref _entered, 0);
+            return false;
+        }
+
+        _mutex = mutex;
+        return true;
     }
 
     internal static void Exit()
     {
         try { _mutex?.ReleaseMutex(); } catch { }
-        _mutex?.Dispose();
+        try { _mutex?.Dispose(); } catch { }
         _mutex = null;
+        Interlocked.Exchange(ref _entered, 0);
+    }
+
+    /// <summary>Clear the tray resume throttle once the elevated runner actually starts.</summary>
+    internal static void ClearResumeLaunchMarker()
+    {
+        var state = Load();
+        if (state.LastResumeLaunch is null) return;
+        state.LastResumeLaunch = null;
+        Save(state);
     }
 
     /// <summary>After sign-in, open the elevated app once so a reboot can continue the cycle.</summary>

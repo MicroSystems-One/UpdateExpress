@@ -1652,12 +1652,24 @@ public partial class MainWindow : Window
     {
         bool norwegian = _schedule.Language == "no";
         var state = UpdateUntilCurrent.Load();
-        if (state.Active)
+        if (state.Active || UpdateUntilCurrent.IsRunning)
         {
             UpdateUntilCurrent.Stop(norwegian
                 ? "Stoppet. Den pågående runden fullføres, uten ny omstart."
                 : "Stopped. The current round finishes, without another restart.");
+            RebootCoordinator.CancelCountdownReboot("Update until current stopped by user.");
             RefreshUpdateUntilCurrentUi();
+            return;
+        }
+
+        if (_busy)
+        {
+            MessageBox.Show(this,
+                norwegian
+                    ? "En annen operasjon kjører allerede. Vent til den er ferdig."
+                    : "Another operation is already running. Wait until it finishes.",
+                norwegian ? "Oppdater til ferdig" : "Update until current",
+                MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -1681,14 +1693,26 @@ public partial class MainWindow : Window
         }
 
         MaintenanceExpander.IsExpanded = true;
+        if (!UpdateUntilCurrent.TryEnter())
+        {
+            MessageBox.Show(this,
+                norwegian
+                    ? "Oppdateringsrunden kjører allerede."
+                    : "The update cycle is already running.",
+                norwegian ? "Oppdater til ferdig" : "Update until current",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            RefreshUpdateUntilCurrentUi();
+            return;
+        }
+
         UpdateUntilCurrent.Start();
         RefreshUpdateUntilCurrentUi();
-        await RunUpdateUntilCurrentAsync();
+        await RunUpdateUntilCurrentAsync(alreadyEntered: true);
     }
 
-    private async Task RunUpdateUntilCurrentAsync()
+    private async Task RunUpdateUntilCurrentAsync(bool alreadyEntered = false)
     {
-        if (!UpdateUntilCurrent.TryEnter())
+        if (!alreadyEntered && !UpdateUntilCurrent.TryEnter())
         {
             RefreshUpdateUntilCurrentUi();
             return;
@@ -1696,6 +1720,10 @@ public partial class MainWindow : Window
 
         bool norwegian = _schedule.Language == "no";
         string[] previousIds = Array.Empty<string>();
+        _busy = true;
+        ScanButton.IsEnabled = HistoryButton.IsEnabled = InstallButton.IsEnabled = AppsScanButton.IsEnabled = false;
+        UpdateSelectionControls();
+        UpdateUntilCurrent.ClearResumeLaunchMarker();
         try
         {
             while (true)
@@ -1847,7 +1875,12 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _busy = false;
+            ScanButton.IsEnabled = HistoryButton.IsEnabled = AppsScanButton.IsEnabled = true;
+            ResetInstallButtonLabel();
+            UpdateSelectionControls();
             UpdateUntilCurrent.Exit();
+            RefreshUpdateUntilCurrentUi();
         }
     }
 
