@@ -313,12 +313,13 @@ public partial class MainWindow : Window
             "Windows automation policy saved.\n\n" +
             "Defender (K1) can auto-install via the background agent.\n" +
             "Critical (K2) and General (K3) download in the background and ask before install.\n" +
+            "Drivers: " + (_policy.AutomaticDrivers ? "automatic (download + ask; firmware manual)" : "manual only") + ".\n" +
+            "Applications: " + (_policy.AutomaticApplications ? "automatic (WinGet ask before install)" : "manual only") + ".\n" +
             "Optional auto-reboot: " + (_policy.WindowsAutomation.AutoReboot.Enabled
                 ? (_policy.WindowsAutomation.AutoReboot.Mode == "outsideActiveHours"
                     ? "outside active hours"
                     : "ask for confirmation")
-                : "off") + ".\n" +
-            "Driver/application checkboxes remain preferences only.",
+                : "off") + ".",
             "Update Express");
     }
 
@@ -363,9 +364,11 @@ public partial class MainWindow : Window
         AutomationStatusText.Text =
             $"Windows automation: Defender={status.Defender.LastResult}" +
             $"  |  Critical={status.Critical.LastResult}" +
-            $"  |  General={status.General.LastResult}";
+            $"  |  General={status.General.LastResult}" +
+            $"  |  Drivers={status.Drivers.LastResult}" +
+            $"  |  Apps={status.Applications.LastResult}";
         AutomationStatusText.ToolTip =
-            $"Defender: {status.Defender.Detail}\nCritical: {status.Critical.Detail}\nGeneral: {status.General.Detail}";
+            $"Defender: {status.Defender.Detail}\nCritical: {status.Critical.Detail}\nGeneral: {status.General.Detail}\nDrivers: {status.Drivers.Detail}\nApplications: {status.Applications.Detail}";
     }
     private async void HistoryTab_Click(object sender, RoutedEventArgs e)
     {
@@ -959,8 +962,8 @@ public partial class MainWindow : Window
         ["1. Defender signatures"] = "1. Defender-signaturer",
         ["2. Critical updates"] = "2. Kritiske oppdateringer",
         ["3. General Windows updates"] = "3. Generelle Windows-oppdateringer",
-        ["Drivers automatic (optional, not implemented)"] = "Drivere automatisk (valgfritt, ikke implementert)",
-        ["Application automatic (optional, not implemented)"] = "Programmer automatisk (valgfritt, ikke implementert)",
+        ["Drivers automatic"] = "Drivere automatisk",
+        ["Application automatic"] = "Programmer automatisk",
         ["Firmware: manual only"] = "Fastvare: kun manuelt", ["Save Policy"] = "Lagre policy",
         ["Interval (minutes)"] = "Intervall (minutter)", ["Preferred time"] = "Foretrukket tid",
         ["Mode: Auto-install (K1)"] = "Modus: Auto-installasjon (K1)",
@@ -974,8 +977,8 @@ public partial class MainWindow : Window
         ["Only outside active hours"] = "Kun utenfor arbeidstid",
         ["Active hours"] = "Arbeidstid",
         ["Countdown (sec)"] = "Nedtelling (sek)",
-        ["Critical and general updates download in the background and ask before install. Default preferred time is 12:00. Auto-reboot is optional and off by default."] =
-            "Kritiske og generelle oppdateringer lastes ned i bakgrunnen og spør før installasjon. Standard foretrukket tid er 12:00. Auto-omstart er valgfri og av som standard.",
+        ["Critical and general updates download in the background and ask before install. Default preferred time is 12:00. Auto-reboot is optional and off by default. Drivers and applications follow the same ask-before-install path when enabled below."] =
+            "Kritiske og generelle oppdateringer lastes ned i bakgrunnen og spør før installasjon. Standard foretrukket tid er 12:00. Auto-omstart er valgfri og av som standard. Drivere og programmer følger samme spør-før-installasjon-løp når de er aktivert nedenfor.",
         ["Update until current"] = "Oppdater til ferdig",
         ["Searches, downloads, and installs Windows software updates, restarts when Windows requires it, then repeats until none remain. Drivers, firmware, and feature updates stay manual."] =
             "Søker, laster ned og installerer Windows-programvareoppdateringer, starter på nytt når Windows krever det, og gjentar til ingen gjenstår. Drivere, fastvare og funksjonsoppdateringer forblir manuelle.",

@@ -37,6 +37,20 @@ public partial class App : System.Windows.Application
             Shutdown();
             return;
         }
+        if (args.Contains("--apply-drivers-install", StringComparer.OrdinalIgnoreCase))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            DriverAutomation.ApplyQueuedInstall();
+            Shutdown();
+            return;
+        }
+        if (args.Contains("--apply-applications-install", StringComparer.OrdinalIgnoreCase))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            ApplicationAutomation.ApplyQueuedInstall();
+            Shutdown();
+            return;
+        }
         if (args.Contains("--agent", StringComparer.OrdinalIgnoreCase))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;

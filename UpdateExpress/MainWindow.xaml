@@ -385,14 +385,14 @@
         </StackPanel>
       </StackPanel>
     </Border>
-    <TextBlock Text="Critical and general updates download in the background and ask before install. Default preferred time is 12:00. Auto-reboot is optional and off by default." FontSize="11" Foreground="#52617A" Margin="0,0,0,8" TextWrapping="Wrap"/>
+    <TextBlock Text="Critical and general updates download in the background and ask before install. Default preferred time is 12:00. Auto-reboot is optional and off by default. Drivers and applications follow the same ask-before-install path when enabled below." FontSize="11" Foreground="#52617A" Margin="0,0,0,8" TextWrapping="Wrap"/>
     <WrapPanel Margin="0,0,0,4">
-      <CheckBox x:Name="AutoDrivers" Content="Drivers automatic (optional, not implemented)" Margin="0,0,18,6"/>
-      <CheckBox x:Name="AutoApplications" Content="Application automatic (optional, not implemented)" Margin="0,0,18,6" Click="AutoApplications_Click"/>
+      <CheckBox x:Name="AutoDrivers" Content="Drivers automatic" Margin="0,0,18,6" ToolTip="Assigned WUA drivers: background download, ask before install. Firmware stays manual."/>
+      <CheckBox x:Name="AutoApplications" Content="Application automatic" Margin="0,0,18,6" Click="AutoApplications_Click" ToolTip="WinGet upgrades: ask before install at the preferred time used by Critical updates."/>
       <TextBlock Text="Firmware: manual only" Foreground="#9B5A00" VerticalAlignment="Center" Margin="0,0,10,6"/>
       <Button Content="Save Policy" Click="SavePolicy_Click" Padding="10,4" MinHeight="29"/>
     </WrapPanel>
   </StackPanel></ScrollViewer></Expander></Border>
-  <TextBlock Grid.Row="4" x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical and general Windows updates download automatically and require confirmation before install. Optional auto-reboot after K2/K3 is off by default (confirm or outside active hours). Drivers/firmware are not installed automatically." Foreground="#52617A" FontSize="12" Margin="4,10,0,0" TextWrapping="Wrap"/>
+  <TextBlock Grid.Row="4" x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical and general Windows updates download automatically and require confirmation before install. Optional auto-reboot after K2/K3 is off by default (confirm or outside active hours). Drivers and WinGet applications use the same ask-before-install path when enabled; firmware stays manual." Foreground="#52617A" FontSize="12" Margin="4,10,0,0" TextWrapping="Wrap"/>
  </Grid>
 </Window>

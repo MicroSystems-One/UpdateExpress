@@ -61,18 +61,23 @@ internal sealed class TrayAgent : IDisposable
         // Avoid an expensive WUA scan during Windows sign-in. Scan after 5 minutes,
         // then at most every six hours. Manual scans use the same overlap guard.
         _timer = new System.Threading.Timer(_ => { _nextScheduled = DateTime.Now.Add(_interval); StartScan(); }, null, TimeSpan.FromMinutes(5), _interval);
-        // Categories 1–3: poll often; each job decides whether it is due.
-        CriticalAutomation.SetBalloon((title, text) => ShowAppBalloon(title, text, ToolTipIcon.Info));
+        // Categories 1–3 plus optional drivers/apps: poll often; each job decides whether it is due.
+        Action<string, string> balloon = (title, text) => ShowAppBalloon(title, text, ToolTipIcon.Info);
+        CriticalAutomation.SetBalloon(balloon);
+        DriverAutomation.SetBalloon(balloon);
+        ApplicationAutomation.SetBalloon(balloon);
         _defenderTimer = new System.Threading.Timer(_ =>
         {
             _ = DefenderAutomation.RunDueJobAsync();
             _ = CriticalAutomation.RunDueJobAsync(_dispatcher);
             _ = GeneralAutomation.RunDueJobAsync(_dispatcher);
+            _ = DriverAutomation.RunDueJobAsync(_dispatcher);
+            _ = ApplicationAutomation.RunDueJobAsync(_dispatcher);
             try { _dispatcher.BeginInvoke(new Action(RebootCoordinator.RunDueJob)); }
             catch (Exception ex) { AgentLog.Write("Deferred reboot poll failed: " + ex.Message); }
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
         WriteMonitorStatus("waiting", 0, 0, null, null);
-        AgentLog.Write("Tray agent started; WUA monitor every 6h; Defender+Critical+General+reboot poll every 5m.");
+        AgentLog.Write("Tray agent started; WUA monitor every 6h; Defender+Critical+General+Drivers+Apps+reboot poll every 5m.");
         _ = Task.Run(async () =>
         {
             try

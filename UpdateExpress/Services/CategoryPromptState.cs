@@ -12,9 +12,11 @@ public sealed class PromptUpdateItem
     public string KB { get; set; } = "";
     public string Title { get; set; } = "";
     public string Priority { get; set; } = "";
+    /// <summary>WUA driver hardware ID when Category is drivers; unused otherwise.</summary>
+    public string HardwareId { get; set; } = "";
 }
 
-/// <summary>Persisted download+prompt queue for a Windows automation category (critical/general).</summary>
+/// <summary>Persisted download+prompt queue for an automation category (critical/general/drivers/applications).</summary>
 internal sealed class CategoryPromptState
 {
     public DateTime CreatedAt { get; set; } = DateTime.Now;
@@ -102,6 +104,11 @@ internal sealed class CategoryPromptState
         catch (Exception ex) { AgentLog.Write($"Could not clear {category} install queue: " + ex.Message); }
     }
 
-    private static string NormalizeCategory(string category) =>
-        string.Equals(category, "general", StringComparison.OrdinalIgnoreCase) ? "general" : "critical";
+    private static string NormalizeCategory(string category)
+    {
+        if (string.Equals(category, "general", StringComparison.OrdinalIgnoreCase)) return "general";
+        if (string.Equals(category, "drivers", StringComparison.OrdinalIgnoreCase)) return "drivers";
+        if (string.Equals(category, "applications", StringComparison.OrdinalIgnoreCase)) return "applications";
+        return "critical";
+    }
 }
