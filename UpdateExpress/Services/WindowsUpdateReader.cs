@@ -448,8 +448,9 @@ public static class WindowsUpdateReader
 
     /// <summary>
     /// Map a requested update to its WUA/Defender install result.
-    /// InstallSelectedWua must populate UpdateId; KB/title/index are fallbacks for
-    /// KB-less packages (e.g. PowerShell LTS) and defender rows.
+    /// InstallSelectedWua must populate UpdateId; KB/title are fallbacks for KB-less
+    /// packages (e.g. PowerShell LTS). Positional index is only used when both sides
+    /// lack UpdateId — never when identities conflict or results were filtered/reordered.
     /// </summary>
     public static UpdateEntry? MatchInstallResult(IReadOnlyList<UpdateEntry> results, UpdateEntry requested, int index = -1)
     {
@@ -479,7 +480,14 @@ public static class WindowsUpdateReader
                 x.Title.Equals(requested.Title, StringComparison.OrdinalIgnoreCase));
             if (byTitle != null) return byTitle;
         }
-        if (index >= 0 && index < results.Count) return results[index];
+        if (index >= 0 && index < results.Count)
+        {
+            var positional = results[index];
+            // Reject positional matches when either side has an UpdateId (lists can omit
+            // skipped/failed downloads, so index alignment is not guaranteed).
+            if (string.IsNullOrWhiteSpace(requested.UpdateId) && string.IsNullOrWhiteSpace(positional.UpdateId))
+                return positional;
+        }
         return null;
     }
 

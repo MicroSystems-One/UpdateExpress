@@ -1515,6 +1515,9 @@ public partial class MainWindow : Window
         string retryGuidance = norwegian
             ? "Lukk, skann på nytt, og prøv installasjon igjen om oppdateringen fortsatt tilbys."
             : "Close, rescan, and retry install if the update is still offered.";
+        // Soft-timeout UI must not start overlapping WUA work: keep references and await
+        // them before clearing _busy / enabling another install.
+        var outstandingWork = new List<Task>();
         try
         {
             Log("InstallationManager", "Started", queue.Select(q => new { q.Source, q.Name }).ToArray());
@@ -1525,17 +1528,24 @@ public partial class MainWindow : Window
                 manager.SetStage(norwegian ? "Forbereder nedlasting…" : "Preparing download…");
                 try
                 {
+                    bool acceptUiProgress = true;
                     IProgress<WuaActivity> activity = new Progress<WuaActivity>(update =>
                     {
+                        if (!acceptUiProgress) return;
                         manager.ApplyActivity(update, norwegian);
                         Log("WUA", "Progress", WuaProgressText.Stage(norwegian, update.Phase, update.Kb, update.Number, update.Total, update.Percent));
                     });
                     IProgress<string> progress = new Progress<string>(stage => Log("WUA", "Progress", stage));
+                    // Always await WUA install completion — never abandon the STA thread mid-install.
                     var results = await AwaitInstallationTaskAsync(
                         WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.InstallSelected(software, progress.Report, activity.Report)),
                         manager,
-                        TimeSpan.FromMinutes(90),
-                        norwegian ? "WUA-installasjon tidsavbrutt." : "WUA installation timed out.");
+                        softTimeout: TimeSpan.FromMinutes(90),
+                        timeoutMessage: norwegian
+                            ? "WUA-installasjon tar lengre tid enn forventet — venter fortsatt på Windows Update Agent…"
+                            : "WUA installation is taking longer than expected — still waiting for Windows Update Agent…",
+                        abandonOnTimeout: false);
+                    acceptUiProgress = false;
                     foreach (var entry in results) Log("WUA", entry.Status, new { entry.Title, entry.KB, entry.UpdateId, entry.ErrorCode });
                     for (int i = 0; i < software.Count; i++)
                     {
@@ -1548,14 +1558,6 @@ public partial class MainWindow : Window
                         manager.CompleteItem(start + i, state, state.StartsWith("Failed", StringComparison.Ordinal));
                     }
                 }
-                catch (TimeoutException tex)
-                {
-                    for (int i = 0; i < software.Count; i++)
-                        if (InstallationManagerWindow.IsVerifyingState(queue[start + i].State) || queue[start + i].State == "Installing..." || queue[start + i].State == "Pending")
-                            manager.CompleteItem(start + i, timedOutLabel, true);
-                    Log("WUA", "Timed out", tex.Message);
-                    manager.SetStage(tex.Message);
-                }
                 catch (Exception ex) { for (int i = 0; i < software.Count; i++) manager.CompleteItem(start + i, "Failed", true); Log("WUA", "Failed", ex.ToString()); }
                 cursor += software.Count;
             }
@@ -1565,8 +1567,10 @@ public partial class MainWindow : Window
                 manager.SetStage("Rechecking driver identity: " + d.Title + "…");
                 try
                 {
+                    bool acceptUiProgress = true;
                     IProgress<WuaActivity> activity = new Progress<WuaActivity>(update =>
                     {
+                        if (!acceptUiProgress) return;
                         manager.ApplyActivity(update, norwegian);
                         Log("Driver", "Progress", new { d.Title, update.Phase, update.Kb, update.Percent });
                     });
@@ -1574,8 +1578,12 @@ public partial class MainWindow : Window
                     var results = await AwaitInstallationTaskAsync(
                         WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.InstallSelectedDriver(d, progress.Report, true, activity.Report)),
                         manager,
-                        TimeSpan.FromMinutes(45),
-                        norwegian ? "Driverinstallasjon tidsavbrutt." : "Driver installation timed out.");
+                        softTimeout: TimeSpan.FromMinutes(45),
+                        timeoutMessage: norwegian
+                            ? "Driverinstallasjon tar lengre tid enn forventet — venter fortsatt…"
+                            : "Driver installation is taking longer than expected — still waiting…",
+                        abandonOnTimeout: false);
+                    acceptUiProgress = false;
                     foreach (var entry in results) Log("Driver", entry.Status, new { entry.Title, entry.UpdateId, entry.ErrorCode });
                     var driverResult = results.FirstOrDefault();
                     string driverState = driverResult == null ? notVerifiedLabel :
@@ -1583,12 +1591,6 @@ public partial class MainWindow : Window
                         driverResult.Status == "Delvis fullført" ? notVerifiedLabel :
                         "Failed" + (string.IsNullOrWhiteSpace(driverResult.ErrorCode) ? "" : " " + driverResult.ErrorCode);
                     manager.CompleteItem(idx, driverState, driverState.StartsWith("Failed", StringComparison.Ordinal));
-                }
-                catch (TimeoutException tex)
-                {
-                    manager.CompleteItem(idx, timedOutLabel, true);
-                    Log("Driver", "Timed out", new { d.Title, tex.Message });
-                    manager.SetStage(tex.Message);
                 }
                 catch (Exception ex)
                 {
@@ -1612,17 +1614,25 @@ public partial class MainWindow : Window
             bool verifyTimedOut = false;
             try
             {
+                var pendingTask = WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(true, true));
+                outstandingWork.Add(pendingTask);
                 var pending = await AwaitInstallationTaskAsync(
-                    WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(true, true)),
+                    pendingTask,
                     manager,
-                    TimeSpan.FromMinutes(5),
-                    norwegian ? "Verifisering (WUA-rescan) tidsavbrutt." : "Verification (WUA rescan) timed out.");
+                    softTimeout: TimeSpan.FromMinutes(5),
+                    timeoutMessage: norwegian ? "Verifisering (WUA-rescan) tidsavbrutt." : "Verification (WUA rescan) timed out.",
+                    abandonOnTimeout: true);
+                outstandingWork.Remove(pendingTask);
                 ReplacePendingSnapshot(pending);
+                var historyTask = WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
+                outstandingWork.Add(historyTask);
                 _historySnapshot = await AwaitInstallationTaskAsync(
-                    WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay),
+                    historyTask,
                     manager,
-                    TimeSpan.FromMinutes(3),
-                    norwegian ? "Verifisering (historikk) tidsavbrutt." : "Verification (history) timed out.");
+                    softTimeout: TimeSpan.FromMinutes(3),
+                    timeoutMessage: norwegian ? "Verifisering (historikk) tidsavbrutt." : "Verification (history) timed out.",
+                    abandonOnTimeout: true);
+                outstandingWork.Remove(historyTask);
                 HidePendingAlreadyInHistory(_historySnapshot);
                 foreach (var item in software.Select((update, i) => new { update, i }))
                 {
@@ -1659,11 +1669,15 @@ public partial class MainWindow : Window
             catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage("Windows Update rescan failed: " + ex.Message); }
             try
             {
+                var scanTask = WingetReader.ScanAsync();
+                outstandingWork.Add(scanTask);
                 var scan = await AwaitInstallationTaskAsync(
-                    WingetReader.ScanAsync(),
+                    scanTask,
                     manager,
-                    TimeSpan.FromMinutes(5),
-                    norwegian ? "Verifisering (WinGet-rescan) tidsavbrutt." : "Verification (WinGet rescan) timed out.");
+                    softTimeout: TimeSpan.FromMinutes(5),
+                    timeoutMessage: norwegian ? "Verifisering (WinGet-rescan) tidsavbrutt." : "Verification (WinGet rescan) timed out.",
+                    abandonOnTimeout: true);
+                outstandingWork.Remove(scanTask);
                 _rawWinget = scan.Raw;
                 _appEntries.Clear(); LoadAppPreferences(scan.Updates);
                 foreach (var item in apps.Select((app, i) => new { app, i }))
@@ -1710,6 +1724,14 @@ public partial class MainWindow : Window
         }
         finally
         {
+            if (outstandingWork.Count > 0)
+            {
+                manager.SetStage(norwegian
+                    ? "Venter på at bakgrunns-WUA/WinGet skal bli ferdig før ny installasjon tillates…"
+                    : "Waiting for background WUA/WinGet work to finish before allowing another install…");
+                try { await Task.WhenAll(outstandingWork.Select(DrainTaskAsync)); }
+                catch { /* logged inside DrainTaskAsync */ }
+            }
             _busy = false;
             InstallButtonActive = false;
             ResetInstallButtonLabel();
@@ -2015,23 +2037,42 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Await install/verify work while pulsing the Installation Manager elapsed clock.
-    /// Throws TimeoutException with a clear message so the UI can leave a terminal state.
+    /// When <paramref name="abandonOnTimeout"/> is false (installs), soft timeout only updates
+    /// the stage text and keeps waiting so overlapping WUA work cannot start.
+    /// When true (verify rescans), throws TimeoutException for a terminal UI state; callers
+    /// must keep the Task in outstandingWork and await it before clearing _busy.
     /// </summary>
     private static async Task<T> AwaitInstallationTaskAsync<T>(
         Task<T> task,
         InstallationManagerWindow manager,
-        TimeSpan timeout,
-        string timeoutMessage)
+        TimeSpan? softTimeout,
+        string? timeoutMessage,
+        bool abandonOnTimeout)
     {
         var started = DateTime.UtcNow;
+        bool softNotified = false;
         while (!task.IsCompleted)
         {
-            if (DateTime.UtcNow - started > timeout)
-                throw new TimeoutException(timeoutMessage);
+            if (softTimeout is { } limit && DateTime.UtcNow - started > limit)
+            {
+                if (abandonOnTimeout)
+                    throw new TimeoutException(timeoutMessage ?? "Timed out.");
+                if (!softNotified && !string.IsNullOrWhiteSpace(timeoutMessage))
+                {
+                    softNotified = true;
+                    manager.SetStage(timeoutMessage);
+                }
+            }
             manager.PulseElapsed();
             await Task.WhenAny(task, Task.Delay(500)).ConfigureAwait(true);
         }
         return await task.ConfigureAwait(true);
+    }
+
+    private static async Task DrainTaskAsync(Task task)
+    {
+        try { await task.ConfigureAwait(true); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Outstanding install/verify drain: " + ex.Message); }
     }
 
     private static string ResolveVerifiedState(
