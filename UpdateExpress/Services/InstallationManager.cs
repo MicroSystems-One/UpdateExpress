@@ -157,8 +157,8 @@ internal static class InstallationManager
                 hive.DeleteSubKeyTree(UninstallKey, false);
                 if (File.Exists(menuShortcut)) File.Delete(menuShortcut);
                 if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
-                if (File.Exists(targetExe)) RetryFileOperation(() => File.Delete(targetExe));
-                if (File.Exists(iconPath)) RetryFileOperation(() => File.Delete(iconPath));
+                if (File.Exists(targetExe)) RetryFileOperation(() => File.Delete(targetExe), targetExe);
+                if (File.Exists(iconPath)) RetryFileOperation(() => File.Delete(iconPath), iconPath);
                 AgentLog.Write("Uninstall completed.");
                 MessageBox.Show("Update Express er avinstallert. Historikk og innstillinger er beholdt.", "Update Express");
             }
@@ -168,10 +168,10 @@ internal static class InstallationManager
                 // The staged helper must not be copied over itself; source can be an installed or published EXE.
                 // For repair from installed EXE, existing program file is left unchanged.
                 if (!string.Equals(source, targetExe, StringComparison.OrdinalIgnoreCase))
-                    RetryFileOperation(() => File.Copy(source, targetExe, true));
+                    RetryFileOperation(() => File.Copy(source, targetExe, true), targetExe);
                 else if (!File.Exists(targetExe))
                     throw new FileNotFoundException("Programfilen mangler. Kjør Installer fra den nye Publisert-mappen.");
-                WriteInstalledIcon(iconPath);
+                RetryFileOperation(() => WriteInstalledIcon(iconPath), iconPath);
                 if (startMenu) { Directory.CreateDirectory(menuDir); CreateShortcut(menuShortcut, targetExe, "--installed", targetDir, iconPath); }
                 else if (File.Exists(menuShortcut)) File.Delete(menuShortcut);
                 if (desktop) CreateShortcut(desktopShortcut, targetExe, "--installed", targetDir, iconPath);
@@ -211,9 +211,49 @@ internal static class InstallationManager
         catch (Exception ex)
         {
             AgentLog.Write("Maintenance FAILED: " + ex);
-            MessageBox.Show("Vedlikehold mislyktes: " + ex.Message + "\n\nSe agent.log for detaljer.",
+            MessageBox.Show("Vedlikehold mislyktes:\n\n" + FormatMaintenanceError(ex) + "\n\nSe agent.log for detaljer.",
                 "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private static string FormatMaintenanceError(Exception ex)
+    {
+        // RetryFileOperation already emits a path-specific antivirus/quarantine message.
+        if (ex.Message.Contains("Bitdefender", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("karantene", StringComparison.OrdinalIgnoreCase))
+            return ex.Message;
+
+        if (!IsAccessDenied(ex))
+            return ex.Message;
+
+        return "Tilgang nektet til installasjonsfilen. Dette skjer ofte når antivirus "
+            + "(f.eks. Bitdefender Advanced Threat Control) har karantenesatt eller låst "
+            + "UpdateExpress.exe midt i en kjøring.\n\n"
+            + "1) Sjekk Managed Antivirus / karantene og gjenopprett UpdateExpress.exe om den ligger der.\n"
+            + "2) Legg inn mappeunntak for:\n"
+            + @"   %LOCALAPPDATA%\MicroSystems\Update Express\" + "\n"
+            + @"   C:\Program Files\MicroSystems\Update Express\" + " (ved alle-brukere-installasjon)\n"
+            + "3) Bruk full sti / mappe / prosess-unntak — ikke bare filnavnet UpdateExpress.exe.\n"
+            + "4) Lukk Update Express og prøv Vedlikehold / oppdatering på nytt.\n\n"
+            + "Teknisk: " + ex.Message;
+    }
+
+    private static bool IsAccessDenied(Exception ex)
+    {
+        for (Exception? current = ex; current != null; current = current.InnerException)
+        {
+            if (current is UnauthorizedAccessException)
+                return true;
+            if (current is IOException && (current.HResult & 0xFFFF) == 5)
+                return true;
+            string message = current.Message ?? "";
+            if (message.Contains("access denied", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (message.Contains("Access to the path", StringComparison.OrdinalIgnoreCase)
+                && message.Contains("denied", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     private static string ReadDisplayVersion(string exePath)
@@ -311,15 +351,32 @@ internal static class InstallationManager
 
     internal static readonly string AgentPidFile = Path.Combine(UserInstallDir, "agent.pid");
 
-    private static void RetryFileOperation(Action action)
+    private static void RetryFileOperation(Action action, string? pathHint = null)
     {
-        IOException? last = null;
-        for (int attempt = 0; attempt < 12; attempt++)
+        Exception? last = null;
+        for (int attempt = 0; attempt < 16; attempt++)
         {
             try { action(); return; }
-            catch (IOException ex) { last = ex; System.Threading.Thread.Sleep(500); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                last = ex;
+                // ATC disinfection / quarantine can hold the file briefly; back off a bit longer than a normal lock.
+                System.Threading.Thread.Sleep(attempt < 4 ? 500 : 1000);
+            }
         }
-        throw new IOException("Programfilen er fortsatt låst. Lukk Update Express og prøv igjen.", last);
+        throw CreateLockedFileException(pathHint, last);
+    }
+
+    private static IOException CreateLockedFileException(string? pathHint, Exception? inner)
+    {
+        string subject = string.IsNullOrWhiteSpace(pathHint)
+            ? "Programfilen"
+            : "Filen «" + pathHint + "»";
+        return new IOException(
+            subject + " er fortsatt låst eller sperret (ofte antivirus/karantene, f.eks. Bitdefender ATC). "
+            + "Gjenopprett filen fra karantene hvis den er der, legg inn mappe-/prosessunntak for "
+            + @"%LOCALAPPDATA%\MicroSystems\Update Express\, lukk Update Express, og prøv igjen.",
+            inner);
     }
 
     private static void WriteInstalledIcon(string destination)
