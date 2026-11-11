@@ -131,9 +131,52 @@ internal static class HistoryArchive
         var hidden = new HashSet<string>(state.HiddenEventKeys, StringComparer.OrdinalIgnoreCase);
         if (hidden.Count > 0)
             rows.RemoveAll(entry => hidden.Contains(EventKey(entry)));
+        // Collapse fully identical History rows (same title, KB, version, status,
+        // and error code). Empty KB/Version count as equal. Keep the newest Date/Time.
+        // Distinct versions (e.g. Defender KB2267602) and success vs failure stay separate.
+        rows = CollapseIdenticalRows(rows);
         foreach (var entry in rows)
             OperationalPriority.Apply(entry);
         return rows.OrderByDescending(entry => ParseDate(entry.Date) ?? DateTime.MinValue).ToList();
+    }
+
+    /// <summary>
+    /// One visible History row per display identity. Prefer the newest Date/Time.
+    /// </summary>
+    private static List<UpdateEntry> CollapseIdenticalRows(IReadOnlyList<UpdateEntry> rows)
+    {
+        var best = new Dictionary<string, UpdateEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in rows)
+        {
+            string key = DisplayIdentityKey(entry);
+            if (!best.TryGetValue(key, out var existing))
+            {
+                best[key] = entry;
+                continue;
+            }
+            var entryDate = ParseDate(entry.Date) ?? DateTime.MinValue;
+            var existingDate = ParseDate(existing.Date) ?? DateTime.MinValue;
+            if (entryDate >= existingDate)
+                best[key] = entry;
+        }
+        return best.Values.ToList();
+    }
+
+    /// <summary>
+    /// Stable History display key: Update title + KB + Version + Status (+ ErrorCode).
+    /// Empty fields match each other. Status differs keep success and failure both visible.
+    /// </summary>
+    internal static string DisplayIdentityKey(UpdateEntry entry)
+    {
+        static string Norm(string? value) =>
+            Regex.Replace(value ?? "", @"\s+", " ").Trim();
+
+        return string.Join("|",
+            Norm(entry.DisplayTitle).ToUpperInvariant(),
+            Norm(entry.KB).ToUpperInvariant(),
+            Norm(entry.UnifiedVersion),
+            Norm(entry.Status).ToUpperInvariant(),
+            Norm(entry.ErrorCode).ToUpperInvariant());
     }
 
     /// <summary>Remember a history row the user chose to hide. Windows Update history itself is left unchanged.</summary>
