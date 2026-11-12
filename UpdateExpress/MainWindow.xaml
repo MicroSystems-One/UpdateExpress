@@ -173,13 +173,31 @@
   </Style>
  </Window.Resources>
  <Grid x:Name="MainLayout" Margin="12,0,12,7"><Grid.RowDefinitions><RowDefinition Height="118"/><RowDefinition Height="Auto"/><RowDefinition x:Name="ResultsRow" Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <!-- Header: transparent MicroSystems banner sits on the light chrome opposite the Update Express title. -->
+  <!-- Header: FIX IT! (64×64) left of MicroSystems banner with ≥96px gap; title on the left. -->
   <Grid Grid.Row="0" Margin="0,6,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
     <Border Width="55" Height="55" CornerRadius="13" Background="#FFF4E5" Margin="0,0,18,0"><Image Source="Assets/MicroSystems-M.png" Stretch="Uniform" Margin="3"/></Border>
     <StackPanel VerticalAlignment="Center"><TextBlock FontSize="20" FontWeight="Bold"><Run Text="Update " Foreground="#142035"/><Run Text="Express" Foreground="#F46D00"/></TextBlock><TextBlock x:Name="AppSubtitle" Text="Windows Update Management · Background Monitoring" Foreground="#52617A" FontSize="12" Margin="0,5,0,0"/></StackPanel>
    </StackPanel>
-   <Image Grid.Column="1" Source="Assets/MicroSystemsBanner.png" Height="100" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="16,0,0,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+   <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
+    <Button x:Name="FixItOpenButton" Click="FixItOpen_Click" Width="64" Height="64" Padding="0" Margin="0,0,96,0"
+            Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
+            ToolTip="Open FIX IT! – repair and diagnose Windows Update problems"
+            AutomationProperties.Name="FIX IT">
+     <Button.Template>
+      <ControlTemplate TargetType="Button">
+       <Border Background="Transparent" Width="64" Height="64" ClipToBounds="True">
+        <Border.Clip>
+         <EllipseGeometry Center="32,32" RadiusX="32" RadiusY="32"/>
+        </Border.Clip>
+        <Image Source="Assets/FixIt.png" Width="64" Height="64" Stretch="Uniform"
+               RenderOptions.BitmapScalingMode="HighQuality"/>
+       </Border>
+      </ControlTemplate>
+     </Button.Template>
+    </Button>
+    <Image Source="Assets/MicroSystemsBanner.png" Height="100" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0" RenderOptions.BitmapScalingMode="HighQuality"/>
+   </StackPanel>
   </Grid>
   <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="WindowsUpdateControlExpander" IsExpanded="True" Background="Transparent" BorderThickness="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"><Expander.Header><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="↻" Foreground="#F47700" FontSize="20" FontWeight="Bold" Margin="0,-3,12,0"/><TextBlock Text="Windows Update Status – Health Check" FontSize="14" FontWeight="SemiBold" Foreground="#152137" VerticalAlignment="Center" Margin="0,0,16,0"/><TextBlock x:Name="OsSupportIcon" Text="?" FontSize="14" FontWeight="Bold" Foreground="#B7791F" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock x:Name="OsVersionLabel" Text="Checking Windows…" FontSize="12" FontWeight="SemiBold" Foreground="#152137" VerticalAlignment="Center"/><Button x:Name="OsSupportInfo" Content="ⓘ" Click="OsSupportInfo_Click" ToolTip="Windows lifecycle and security support" FontSize="12" Padding="3,0" Margin="3,0,0,0" Height="20" MinHeight="20" MinWidth="20" VerticalAlignment="Center"/></StackPanel></Expander.Header><StackPanel Margin="0,8,0,0">
    <Grid Margin="0,0,0,6">
@@ -290,16 +308,6 @@
     <TextBlock x:Name="InstallProgressLabel" Text="Preparing installation…" FontSize="12" Foreground="#52617A" Margin="0,0,0,3"/>
     <ProgressBar x:Name="InstallProgressBar" Height="7" IsIndeterminate="True" Foreground="#F47700"/>
    </StackPanel>
-   <Grid Margin="0,0,0,0" HorizontalAlignment="Right"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="155"/><ColumnDefinition Width="140"/><ColumnDefinition Width="170"/><ColumnDefinition Width="140"/></Grid.ColumnDefinitions>
-     <Button x:Name="WindowsUpdateFixButton" Grid.Row="0" Grid.Column="0" Content="⚒  Windows Update fix" Click="WindowsUpdateFix_Click" ToolTip="Quick / Medium / Deep repair for stuck or empty Windows Update" Margin="0,0,6,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button x:Name="WuaDeepCheckButton" Grid.Row="0" Grid.Column="1" Content="🔍  WUA deep check" Click="WuaDeepCheck_Click" ToolTip="Read-only deep analysis when Windows Update fix did not help (network, services, WUA). ~2–4 min." Margin="0,0,6,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button x:Name="HistoryButton" Grid.Row="0" Grid.Column="2" Content="☷  Installation History" Click="History_Click" Margin="0,0,6,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button Grid.Row="0" Grid.Column="3" Content="↓  Export CSV" Click="Export_Click" Margin="0,0,0,5" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button x:Name="ErrorReportButton" Grid.Row="1" Grid.Column="0" Content="📋  Error report" Click="ErrorReport_Click" ToolTip="AI troubleshooting prompt from the last Windows Update fix" Margin="0,0,6,0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button x:Name="WuaStatusReportButton" Grid.Row="1" Grid.Column="1" Content="📄  WUA status report" Click="WuaStatusReport_Click" ToolTip="Open the latest or a previous WUA deep check report" Margin="0,0,6,0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button x:Name="DiagnosticsButton" Grid.Row="1" Grid.Column="2" Content="⚙  Diagnostics" Click="Diagnostics_Click" Margin="0,0,6,0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-     <Button x:Name="HealthButton" Grid.Row="1" Grid.Column="3" Content="✓  Check Status" Click="Health_Click" Margin="0" Height="30" MinHeight="30" Padding="9,3" FontSize="12"/>
-   </Grid>
   </StackPanel></Expander></Border>
   <Border Grid.Row="2" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,10" VerticalAlignment="Stretch"><Expander x:Name="ResultsExpander" IsExpanded="True" Background="Transparent" BorderThickness="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Expanded="ResultsExpander_Expanded" Collapsed="ResultsExpander_Collapsed" SizeChanged="ResultsExpander_SizeChanged"><Expander.Header><Grid x:Name="ResultsHeaderBar" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid Margin="0,0,12,0" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="☷" Foreground="#F47700" FontSize="14" FontWeight="Bold" Margin="0,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="ListHeading" Grid.Column="1" Text="Check for Updates &amp; Results" Foreground="#152137" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid><StackPanel x:Name="ResultsHeaderActions" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="PmeControlButton" Content="N-Able PME" Click="PmeControl_Click" ToolTip="Inspect or change N-able PME service on this PC" Padding="10,5" Height="30" MinHeight="30" Margin="0,0,6,0" VerticalAlignment="Center"/><Button x:Name="ActivityLogButton" Content="Activity Log" Click="ActivityLog_Click" Style="{StaticResource CompactActionButton}" Margin="0,0,6,0"/><Button x:Name="ActivityExportButton" Content="Export Log" Click="ActivityExport_Click" Style="{StaticResource CompactActionButton}" Margin="0"/><StackPanel x:Name="AppsToolbar" Orientation="Horizontal" Visibility="Collapsed" Margin="6,0,0,0"><Button x:Name="AppsScanButton" Content="Check WinGet" Click="AppsScan_Click" Style="{StaticResource CompactActionButton}" Margin="0,0,6,0"/><Button x:Name="AppsExportButton" Content="Export WinGet" Click="AppsRaw_Click" Style="{StaticResource CompactActionButton}"/></StackPanel></StackPanel></Grid></Expander.Header><Grid Margin="0,8,0,0" VerticalAlignment="Stretch"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
     <Grid Grid.Row="0" Margin="0,0,0,7"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="HealthSummary" FontWeight="Medium" Text="Windows: —  |  Drivers: —  |  Applications: —" Foreground="#52617A" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" FontSize="12"/><StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="12,0,0,0"><CheckBox x:Name="IncludeOptionalUpdates" Content="Include optional" ToolTip="Also query WUA browse-only software updates. Preview updates are never selected automatically." FontFamily="Segoe UI" FontSize="12" VerticalAlignment="Center" Margin="0,0,18,0" IsChecked="True"/><CheckBox x:Name="ShowAllDrivers" Content="All WUA drivers" ToolTip="Unchecked: WUA assigned drivers, plus every firmware offer. Checked: all WUA driver offers. Firmware is always listed and stays manual." Checked="DriverMode_Changed" Unchecked="DriverMode_Changed" FontSize="12" VerticalAlignment="Center" Margin="0" IsChecked="False"/></StackPanel></Grid>
