@@ -66,5 +66,6 @@ public partial class FixItWindow : Window
         if (DiagnosticsButton.IsEnabled)
             SetButton(DiagnosticsButton, "⚙  Diagnostics", "Diagnostikk");
         SetButton(HealthButton, "✓  Check Status", "Kontroller status");
+        CloseButton.Content = norwegian ? "Lukk" : "Close";
     }
 }

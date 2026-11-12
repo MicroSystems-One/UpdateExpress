@@ -28,7 +28,8 @@
             <Border x:Name="Outer" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6"
                     Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"
+                                TextElement.Foreground="{TemplateBinding Foreground}"/>
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
@@ -92,8 +93,9 @@
         <Button x:Name="HealthButton" Grid.Row="1" Grid.Column="3" Content="✓  Check Status"
                 Style="{StaticResource FixItActionButton}" Margin="0" Click="Health_Click"/>
       </Grid>
-      <Button Grid.Row="3" Content="Close" Width="100" HorizontalAlignment="Right" Margin="0,16,0,0"
-              Height="30" MinHeight="30" Click="Close_Click"/>
+      <Button x:Name="CloseButton" Grid.Row="3" Content="Close" Width="100" HorizontalAlignment="Right"
+              Margin="0,16,0,0" Style="{StaticResource FixItActionButton}"
+              Foreground="#182335" FontWeight="SemiBold" Click="Close_Click"/>
     </Grid>
   </Border>
 </Window>
