@@ -1550,7 +1550,7 @@ public partial class MainWindow : Window
                     for (int i = 0; i < software.Count; i++)
                     {
                         var requested = software[i];
-                        var result = WindowsUpdateReader.MatchInstallResult(results, requested, i);
+                        var result = WindowsUpdateReader.MatchInstallResult(results, requested, i, software.Count);
                         var state = result == null ? notVerifiedLabel :
                             result.Status is "Installert" or "Already up to date" ? verifyingLabel :
                             result.Status is "Delvis fullført" ? notVerifiedLabel :
@@ -1960,7 +1960,7 @@ public partial class MainWindow : Window
                         WindowsUpdateReader.InstallSelected(matches, progress.Report, activity.Report));
                     for (int i = 0; i < matches.Count; i++)
                     {
-                        var result = WindowsUpdateReader.MatchInstallResult(results, matches[i], i);
+                        var result = WindowsUpdateReader.MatchInstallResult(results, matches[i], i, matches.Count);
                         string itemState = result == null ? InstallationManagerWindow.StatusNotVerified(norwegian) :
                             result.Status is "Installert" or "Already up to date" ? InstallationManagerWindow.StatusCompleted(norwegian) :
                             result.Status == "Delvis fullført" ? InstallationManagerWindow.StatusNotVerified(norwegian) :
