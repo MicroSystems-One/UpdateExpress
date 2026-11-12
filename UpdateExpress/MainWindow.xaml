@@ -173,7 +173,7 @@
   </Style>
  </Window.Resources>
  <Grid x:Name="MainLayout" Margin="12,0,12,7"><Grid.RowDefinitions><RowDefinition Height="118"/><RowDefinition Height="Auto"/><RowDefinition x:Name="ResultsRow" Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <!-- Header: FIX IT! (64×64) left of MicroSystems banner with ≥96px gap; title on the left. -->
+  <!-- Header: FIX IT! / CLICK IT (64×64 crossfade) left of MicroSystems banner with ≥96px gap; title on the left. -->
   <Grid Grid.Row="0" Margin="0,6,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
     <Border Width="55" Height="55" CornerRadius="13" Background="#FFF4E5" Margin="0,0,18,0"><Image Source="Assets/MicroSystems-M.png" Stretch="Uniform" Margin="3"/></Border>
@@ -190,11 +190,16 @@
         <Border.Clip>
          <EllipseGeometry Center="32,32" RadiusX="32" RadiusY="32"/>
         </Border.Clip>
-        <Image Source="Assets/FixIt.png" Width="64" Height="64" Stretch="Uniform"
-               RenderOptions.BitmapScalingMode="HighQuality"/>
+        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
        </Border>
       </ControlTemplate>
      </Button.Template>
+     <Grid Width="64" Height="64" IsHitTestVisible="False">
+      <Image x:Name="FixItIconImage" Source="Assets/FixIt.png" Width="64" Height="64" Stretch="Uniform"
+             RenderOptions.BitmapScalingMode="HighQuality"/>
+      <Image x:Name="ClickItIconImage" Source="Assets/ClickIt.png" Width="64" Height="64" Stretch="Uniform"
+             Opacity="0" RenderOptions.BitmapScalingMode="HighQuality"/>
+     </Grid>
     </Button>
     <Image Source="Assets/MicroSystemsBanner.png" Height="75" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0" RenderOptions.BitmapScalingMode="HighQuality"/>
    </StackPanel>

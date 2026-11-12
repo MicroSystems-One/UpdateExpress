@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>UpdateExpress</AssemblyName>
     <Version>0.7.2.6</Version>
-    <InformationalVersion>0.7.2.6.92</InformationalVersion>
+    <InformationalVersion>0.7.2.6.93</InformationalVersion>
     <FileVersion>0.7.2.6</FileVersion>
     <AssemblyVersion>0.7.2.6</AssemblyVersion>
     <Product>Update Express</Product>
@@ -18,6 +18,7 @@
     <Resource Include="Assets\MicroSystemsBanner.png" />
     <Resource Include="Assets\MicroSystems-M.png" />
     <Resource Include="Assets\FixIt.png" />
+    <Resource Include="Assets\ClickIt.png" />
     <Resource Include="Assets\UpdateExpress-U.png" />
     <Resource Include="Assets\UpdateExpress-U.ico" />
     <Resource Include="Assets\UpdateExpressWindow.ico" />
