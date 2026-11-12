@@ -131,30 +131,32 @@ internal static class AppUpdatePrompt
                         ToolTipIcon.Info);
                     bool canInstall = !string.IsNullOrWhiteSpace(result.DownloadUrl) && !string.IsNullOrWhiteSpace(result.Sha256);
                     bool hasDownload = !string.IsNullOrWhiteSpace(result.DownloadUrl);
-                    string body;
-                    MessageBoxButtons buttons;
                     string header =
                         AppLanguage.T("A newer Update Express version is available.") + "\n\n" +
                         AppLanguage.Tf("Installed: {0}", result.InstalledVersion) + "\n" +
                         AppLanguage.Tf("Available: {0}", result.AvailableVersion) + "\n\n" +
                         notes;
+                    string body;
+                    MessageBoxButtons buttons;
+                    string? primaryLabel = null;
+                    string? secondaryLabel = null;
+                    string? cancelLabel = null;
                     if (canInstall)
                     {
                         body = header + "\n\n" +
-                            AppLanguage.ButtonLegend(
-                                "Yes",
-                                "Install now (closes open Update Express, then download + verify SHA-256 + replace)") + "\n" +
-                            AppLanguage.ButtonLegend("No", "Open download page") + "\n" +
-                            AppLanguage.ButtonLegend("Cancel", "Later");
+                            AppLanguage.T("Install now (closes open Update Express, then download + verify SHA-256 + replace)");
                         buttons = MessageBoxButtons.YesNoCancel;
+                        primaryLabel = AppLanguage.T("Install now");
+                        secondaryLabel = AppLanguage.T("Open download page");
+                        cancelLabel = AppLanguage.T("Later");
                     }
                     else if (hasDownload)
                     {
                         body = header + "\n\n" +
-                            AppLanguage.T("SHA-256 is missing from the update channel, so Install is unavailable.") + "\n" +
-                            AppLanguage.ButtonLegend("Yes", "Open download page") + "\n" +
-                            AppLanguage.ButtonLegend("No", "Later");
+                            AppLanguage.T("SHA-256 is missing from the update channel, so Install is unavailable.");
                         buttons = MessageBoxButtons.YesNo;
+                        primaryLabel = AppLanguage.T("Open download page");
+                        secondaryLabel = AppLanguage.T("Later");
                     }
                     else
                     {
@@ -167,7 +169,10 @@ internal static class AppUpdatePrompt
                         body,
                         AppLanguage.T("Update Express update available"),
                         buttons,
-                        MessageBoxIcon.Information);
+                        MessageBoxIcon.Information,
+                        primaryLabel,
+                        secondaryLabel,
+                        cancelLabel);
 
                     if (canInstall && choice == DialogResult.Yes)
                     {
@@ -222,14 +227,67 @@ internal static class AppUpdatePrompt
     }
 
     /// <summary>
-    /// WinForms MessageBox localizes Yes/No/Cancel from the OS UI language, which can disagree
-    /// with ReminderSchedule.Language. This dialog paints button captions from AppLanguage.
+    /// Prefer Update Express AppDialog (WPF). Fall back to a small WinForms dialog only when
+    /// no WPF Application dispatcher is available.
     /// </summary>
     private static DialogResult ShowAppLanguageDialog(
         string text,
         string caption,
         MessageBoxButtons buttons,
-        MessageBoxIcon icon)
+        MessageBoxIcon icon,
+        string? primaryLabel = null,
+        string? secondaryLabel = null,
+        string? cancelLabel = null)
+    {
+        var app = System.Windows.Application.Current;
+        if (app?.Dispatcher is { } dispatcher)
+        {
+            System.Windows.MessageBoxResult ShowWpf()
+            {
+                var wpfButtons = buttons switch
+                {
+                    MessageBoxButtons.YesNoCancel => System.Windows.MessageBoxButton.YesNoCancel,
+                    MessageBoxButtons.YesNo => System.Windows.MessageBoxButton.YesNo,
+                    MessageBoxButtons.OKCancel => System.Windows.MessageBoxButton.OKCancel,
+                    _ => System.Windows.MessageBoxButton.OK
+                };
+                var wpfImage = icon switch
+                {
+                    MessageBoxIcon.Warning => System.Windows.MessageBoxImage.Warning,
+                    MessageBoxIcon.Error => System.Windows.MessageBoxImage.Error,
+                    MessageBoxIcon.Question => System.Windows.MessageBoxImage.Question,
+                    _ => System.Windows.MessageBoxImage.Information
+                };
+                System.Windows.Window? owner = null;
+                try { owner = app.MainWindow is { IsVisible: true } w ? w : null; } catch { }
+                return AppDialog.Show(owner, text, caption, wpfButtons, wpfImage, primaryLabel, secondaryLabel, cancelLabel);
+            }
+
+            var wpfResult = dispatcher.CheckAccess()
+                ? ShowWpf()
+                : dispatcher.Invoke(ShowWpf);
+
+            return wpfResult switch
+            {
+                System.Windows.MessageBoxResult.Yes => DialogResult.Yes,
+                System.Windows.MessageBoxResult.No => DialogResult.No,
+                System.Windows.MessageBoxResult.OK => DialogResult.OK,
+                System.Windows.MessageBoxResult.Cancel => DialogResult.Cancel,
+                _ => DialogResult.Cancel
+            };
+        }
+
+        return ShowWinFormsFallback(text, caption, buttons, icon, primaryLabel, secondaryLabel, cancelLabel);
+    }
+
+    private static DialogResult ShowWinFormsFallback(
+        string text,
+        string caption,
+        MessageBoxButtons buttons,
+        MessageBoxIcon icon,
+        string? primaryLabel,
+        string? secondaryLabel,
+        string? cancelLabel)
     {
         using var form = new Form
         {
@@ -251,8 +309,7 @@ internal static class AppUpdatePrompt
             AutoSize = true,
             ColumnCount = 2,
             RowCount = 2,
-            Dock = DockStyle.Fill,
-            Padding = new Padding(0)
+            Dock = DockStyle.Fill
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
@@ -286,21 +343,18 @@ internal static class AppUpdatePrompt
             AutoSize = true,
             FlowDirection = FlowDirection.RightToLeft,
             WrapContents = false,
-            Dock = DockStyle.Fill,
-            Margin = new Padding(0),
-            Padding = new Padding(0)
+            Dock = DockStyle.Fill
         };
 
         DialogResult result = DialogResult.Cancel;
 
         void AddButton(string label, DialogResult dialogResult, bool isAccept = false, bool isCancel = false)
         {
-            // Global WpfTypeAliases maps Button → WPF; this dialog is WinForms.
             var button = new System.Windows.Forms.Button
             {
                 Text = label,
                 AutoSize = true,
-                MinimumSize = new Size(88, 28),
+                MinimumSize = new Size(96, 32),
                 Margin = new Padding(8, 0, 0, 0),
                 DialogResult = dialogResult
             };
@@ -318,17 +372,16 @@ internal static class AppUpdatePrompt
         switch (buttons)
         {
             case MessageBoxButtons.YesNoCancel:
-                // RightToLeft flow: add Cancel, No, Yes so Yes ends leftmost visually like MessageBox.
-                AddButton(AppLanguage.Cancel, DialogResult.Cancel, isCancel: true);
-                AddButton(AppLanguage.No, DialogResult.No);
-                AddButton(AppLanguage.Yes, DialogResult.Yes, isAccept: true);
+                AddButton(cancelLabel ?? AppLanguage.Cancel, DialogResult.Cancel, isCancel: true);
+                AddButton(secondaryLabel ?? AppLanguage.No, DialogResult.No);
+                AddButton(primaryLabel ?? AppLanguage.Yes, DialogResult.Yes, isAccept: true);
                 break;
             case MessageBoxButtons.YesNo:
-                AddButton(AppLanguage.No, DialogResult.No, isCancel: true);
-                AddButton(AppLanguage.Yes, DialogResult.Yes, isAccept: true);
+                AddButton(secondaryLabel ?? AppLanguage.No, DialogResult.No, isCancel: true);
+                AddButton(primaryLabel ?? AppLanguage.Yes, DialogResult.Yes, isAccept: true);
                 break;
             default:
-                AddButton(AppLanguage.Ok, DialogResult.OK, isAccept: true, isCancel: true);
+                AddButton(primaryLabel ?? AppLanguage.Ok, DialogResult.OK, isAccept: true, isCancel: true);
                 break;
         }
 
@@ -337,7 +390,6 @@ internal static class AppUpdatePrompt
         layout.SetColumnSpan(buttonRow, 2);
         layout.Controls.Add(buttonRow, 0, 1);
         form.Controls.Add(layout);
-
         form.ShowDialog();
         return result;
     }

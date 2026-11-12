@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
+using UpdateExpress.Services;
 
 namespace UpdateExpress;
 
@@ -27,16 +28,9 @@ internal sealed class AutoCloseInfoDialog : Window
         FontFamily = new System.Windows.Media.FontFamily("Segoe UI");
         Topmost = true;
 
-        var ok = new Button
-        {
-            Content = "OK",
-            Width = 88,
-            Height = 30,
-            MinHeight = 30,
-            Margin = new Thickness(0, 14, 0, 0),
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
-            IsDefault = true
-        };
+        var ok = AppDialog.CreateChromeButton(AppLanguage.Ok, primary: true, isDefault: true);
+        ok.Margin = new Thickness(0, 14, 0, 0);
+        ok.HorizontalAlignment = System.Windows.HorizontalAlignment.Right;
         ok.Click += (_, _) => Close();
 
         _countdown = new TextBlock

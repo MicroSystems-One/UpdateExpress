@@ -3,7 +3,6 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using UpdateExpress.Services;
-using WpfBrush = System.Windows.Media.Brush;
 using WpfOrientation = System.Windows.Controls.Orientation;
 using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
 using WpfVerticalAlignment = System.Windows.VerticalAlignment;
@@ -23,14 +22,17 @@ internal sealed class AppDialog : Window
         string title,
         MessageBoxButton buttons,
         MessageBoxImage image,
-        Window? owner)
+        Window? owner,
+        string? primaryLabel = null,
+        string? secondaryLabel = null,
+        string? cancelLabel = null)
     {
         Title = title;
-        Width = 480;
+        Width = 500;
         SizeToContent = SizeToContent.Height;
         MinHeight = 170;
         MinWidth = 420;
-        MaxWidth = 560;
+        MaxWidth = 580;
         ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false;
         WindowStartupLocation = owner is null
@@ -41,19 +43,15 @@ internal sealed class AppDialog : Window
         FontFamily = new System.Windows.Media.FontFamily("Segoe UI");
         Icon = owner?.Icon;
 
-        var primary = MakeButton(
-            PrimaryCaption(buttons),
-            Hex("#FF7900"),
-            Brushes.White,
-            Hex("#F06A00"),
+        var primary = CreateChromeButton(
+            primaryLabel ?? PrimaryCaption(buttons),
+            primary: true,
             isDefault: true);
         primary.Click += (_, _) => Finish(PrimaryResult(buttons));
 
-        var secondary = MakeButton(
-            SecondaryCaption(buttons),
-            Hex("#EAF0F7"),
-            Hex("#152137"),
-            Hex("#DDE5EF"),
+        var secondary = CreateChromeButton(
+            secondaryLabel ?? SecondaryCaption(buttons),
+            primary: false,
             isCancel: buttons is MessageBoxButton.YesNo or MessageBoxButton.YesNoCancel or MessageBoxButton.OKCancel);
         secondary.Click += (_, _) => Finish(SecondaryResult(buttons));
 
@@ -66,7 +64,7 @@ internal sealed class AppDialog : Window
 
         if (buttons == MessageBoxButton.YesNoCancel)
         {
-            var cancel = MakeButton(AppLanguage.Cancel, Hex("#EAF0F7"), Hex("#152137"), Hex("#DDE5EF"), isCancel: true);
+            var cancel = CreateChromeButton(cancelLabel ?? AppLanguage.Cancel, primary: false, isCancel: true);
             cancel.Click += (_, _) => Finish(MessageBoxResult.Cancel);
             buttonRow.Children.Add(cancel);
             buttonRow.Children.Add(secondary);
@@ -134,9 +132,12 @@ internal sealed class AppDialog : Window
         string message,
         string title,
         MessageBoxButton buttons = MessageBoxButton.OK,
-        MessageBoxImage image = MessageBoxImage.None)
+        MessageBoxImage image = MessageBoxImage.None,
+        string? primaryLabel = null,
+        string? secondaryLabel = null,
+        string? cancelLabel = null)
     {
-        var dialog = new AppDialog(message, title, buttons, image, owner);
+        var dialog = new AppDialog(message, title, buttons, image, owner, primaryLabel, secondaryLabel, cancelLabel);
         dialog.ShowDialog();
         return dialog._result == MessageBoxResult.None
             ? buttons switch
@@ -153,8 +154,38 @@ internal sealed class AppDialog : Window
         string message,
         string title,
         MessageBoxButton buttons = MessageBoxButton.OK,
-        MessageBoxImage image = MessageBoxImage.None) =>
-        Show(System.Windows.Application.Current?.MainWindow as Window, message, title, buttons, image);
+        MessageBoxImage image = MessageBoxImage.None,
+        string? primaryLabel = null,
+        string? secondaryLabel = null,
+        string? cancelLabel = null) =>
+        Show(System.Windows.Application.Current?.MainWindow as Window, message, title, buttons, image, primaryLabel, secondaryLabel, cancelLabel);
+
+    /// <summary>Flat rounded chrome button used by AppDialog and AutoCloseInfoDialog.</summary>
+    internal static Button CreateChromeButton(string content, bool primary, bool isDefault = false, bool isCancel = false)
+    {
+        var button = new Button
+        {
+            Content = content,
+            MinWidth = primary ? 96 : 92,
+            MinHeight = 36,
+            Height = 36,
+            Margin = new Thickness(8, 0, 0, 0),
+            Padding = new Thickness(16, 6, 16, 6),
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Background = primary ? Hex("#FF7900") : Hex("#EAF0F7"),
+            Foreground = primary ? Brushes.White : Hex("#152137"),
+            BorderBrush = primary ? Hex("#F06A00") : Hex("#DDE5EF"),
+            BorderThickness = new Thickness(1),
+            IsDefault = isDefault,
+            IsCancel = isCancel,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            VerticalContentAlignment = WpfVerticalAlignment.Center,
+            HorizontalContentAlignment = WpfHorizontalAlignment.Center,
+            Style = FlatButtonStyle()
+        };
+        return button;
+    }
 
     private void Finish(MessageBoxResult result)
     {
@@ -189,35 +220,6 @@ internal sealed class AppDialog : Window
         MessageBoxButton.OKCancel => MessageBoxResult.Cancel,
         _ => MessageBoxResult.OK
     };
-
-    private static Button MakeButton(
-        string content,
-        WpfBrush background,
-        WpfBrush foreground,
-        WpfBrush border,
-        bool isDefault = false,
-        bool isCancel = false)
-    {
-        var button = new Button
-        {
-            Content = content,
-            MinWidth = 92,
-            Height = 32,
-            Margin = new Thickness(8, 0, 0, 0),
-            Padding = new Thickness(14, 0, 14, 0),
-            FontSize = 12,
-            FontWeight = FontWeights.SemiBold,
-            Background = background,
-            Foreground = foreground,
-            BorderBrush = border,
-            BorderThickness = new Thickness(1),
-            IsDefault = isDefault,
-            IsCancel = isCancel,
-            Cursor = System.Windows.Input.Cursors.Hand,
-            Style = FlatButtonStyle()
-        };
-        return button;
-    }
 
     private static Style FlatButtonStyle()
     {
