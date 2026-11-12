@@ -281,7 +281,7 @@ public partial class MainWindow : Window
         var selected = _appEntries.Where(a => a.IsSelected).ToList();
         if (selected.Count == 0) return;
         var names = string.Join("\n", selected.Select(a => $"• {a.Name} ({a.Id}): {a.Installed} → {a.Available}"));
-        if (MessageBox.Show(this, $"Install {selected.Count} selected application updates?\n\n{names}\n\nSave your work and close affected applications. Remote support software may disconnect. No automatic restart will be initiated by Update Express.", "Confirm WinGet Installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (AppDialog.Show(this, $"Install {selected.Count} selected application updates?\n\n{names}\n\nSave your work and close affected applications. Remote support software may disconnect. No automatic restart will be initiated by Update Express.", "Confirm WinGet Installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         _busy = true; AppsScanButton.IsEnabled = false; UpdateAppSelection();
         var logs = new List<string>();
         var activityRunId = Guid.NewGuid().ToString("N");
@@ -724,7 +724,7 @@ public partial class MainWindow : Window
     private void ConfirmAndRestart()
     {
         bool norwegian = _schedule.Language == "no";
-        var answer = MessageBox.Show(this,
+        var answer = AppDialog.Show(this,
             norwegian
                 ? "Vil du starte denne datamaskinen på nytt nå?\n\nLagre arbeidet ditt først. Det du ikke har lagret, går tapt."
                 : "Restart this computer now?\n\nSave your work first. Anything you have not saved will be lost.",
@@ -1649,7 +1649,7 @@ public partial class MainWindow : Window
         // WUA may return 0x80240044 when a non-elevated process attempts a download.
         if (!UpdateExpress.Services.ElevationHelper.IsElevated)
         {
-            var choice = MessageBox.Show(this,
+            var choice = AppDialog.Show(this,
                 "Installation requires administrator privileges.\n\n" +
                 "Restart Update Express as administrator?\n\n" +
                 "No updates will be installed automatically. Scan again and select updates after restart.",
@@ -1662,25 +1662,25 @@ public partial class MainWindow : Window
             }
             catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
             {
-                MessageBox.Show(this, "Administrator approval cancelled. No installation was started.",
+                AppDialog.Show(this, "Administrator approval cancelled. No installation was started.",
                     "Update Express", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Unable to restart as administrator: " + ex.Message,
+                AppDialog.Show(this, "Unable to restart as administrator: " + ex.Message,
                     "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             return;
         }
         if (drivers.Any(x => !IsManuallyInstallableDriver(x)))
         {
-            MessageBox.Show(this, "A selected driver or firmware update has no verified hardware ID, so it was not installed.", "Driver safety", MessageBoxButton.OK, MessageBoxImage.Warning);
+            AppDialog.Show(this, "A selected driver or firmware update has no verified hardware ID, so it was not installed.", "Driver safety", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         if (drivers.Count > 0)
         {
             var summary = string.Join("\n", drivers.Select(d => $"• {d.Title} [{d.DriverHardwareId}]"));
-            if (MessageBox.Show(this,
+            if (AppDialog.Show(this,
                 $"Install {drivers.Count} manually selected driver or firmware update(s), sequentially?\n\n{summary}\n\nEach one is rechecked against WUA and its hardware ID. A failure will not stop the next one. Nothing is installed automatically, and there is no automatic restart.",
                 "Confirm driver installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         }
@@ -1689,7 +1689,7 @@ public partial class MainWindow : Window
         queue.AddRange(drivers.Select(x => new InstallationQueueItem("Driver", x.Title)));
         queue.AddRange(apps.Select(x => new InstallationQueueItem("WinGet", x.DisplayName)));
         var manager = new InstallationManagerWindow(queue) { Owner = this };
-        if (MessageBox.Show(this, $"Install {queue.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}\n\nNo automatic restart will be performed.", "Confirm combined installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (AppDialog.Show(this, $"Install {queue.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}\n\nNo automatic restart will be performed.", "Confirm combined installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         _busy = true;
         InstallButtonActive = true;
         InstallButton.Content = "Installing updates…";
@@ -2005,7 +2005,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var answer = MessageBox.Show(this,
+        var answer = AppDialog.Show(this,
             norwegian
                 ? "Oppdater til ferdig søker, laster ned og installerer Windows-oppdateringer.\n\nNår Windows krever omstart, starter PC-en på nytt etter 90 sekunder. Etter innlogging må administrator-spørsmålet godkjennes, så fortsetter runden til det ikke er flere slike oppdateringer.\n\nDrivere, fastvare og funksjonsoppdateringer tas ikke med. Høyeste antall runder er 8."
                 : "Update until current searches, downloads, and installs Windows software updates.\n\nWhen Windows requires a restart, the PC restarts after 90 seconds. After you sign in, approve the administrator prompt and the cycle continues until none of those updates remain.\n\nDrivers, firmware, and feature updates are not included. The cycle stops after 8 rounds.",
