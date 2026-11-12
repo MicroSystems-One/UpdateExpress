@@ -475,10 +475,20 @@ public static class WindowsUpdateReader
         }
         if (!string.IsNullOrWhiteSpace(requested.Title))
         {
+            string wantTitle = requested.Title.Trim();
             var byTitle = results.FirstOrDefault(x =>
                 !string.IsNullOrWhiteSpace(x.Title) &&
-                x.Title.Equals(requested.Title, StringComparison.OrdinalIgnoreCase));
+                x.Title.Trim().Equals(wantTitle, StringComparison.OrdinalIgnoreCase));
             if (byTitle != null) return byTitle;
+        }
+        // Single-result installs (common for KB-less packages): if the only result has no
+        // UpdateId but the caller asked for one, still accept it when titles already failed
+        // and there is no ambiguity.
+        if (results.Count == 1 && index == 0)
+        {
+            var only = results[0];
+            if (string.IsNullOrWhiteSpace(only.UpdateId))
+                return only;
         }
         if (index >= 0 && index < results.Count)
         {
