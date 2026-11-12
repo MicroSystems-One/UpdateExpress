@@ -363,8 +363,8 @@ internal static class ApplicationAutomation
             }
             catch (Exception ex)
             {
+                // Keep the previous winget-available snapshot — do not publish an empty list on scan failure.
                 AgentLog.Write("Applications install helper: post-install WinGet rescan failed: " + ex.Message);
-                WingetAvailableCache.Write(Array.Empty<AppUpdate>());
             }
 
             var policy = UpdatePolicy.Load();

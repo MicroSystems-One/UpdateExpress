@@ -19,25 +19,40 @@ internal static class WingetAvailableCache
     /// <summary>Raised after a successful Write in the same process (MainWindow can refresh immediately).</summary>
     internal static event Action? Changed;
 
-    internal static void Write(IEnumerable<AppUpdate> updates, string? raw = null)
+    /// <summary>
+    /// Persist a successful WinGet snapshot. Atomic temp+replace; I/O failures are logged and ignored
+    /// so callers (tray scan / install) are not aborted by cache contention.
+    /// </summary>
+    internal static bool Write(IEnumerable<AppUpdate> updates, string? raw = null)
     {
-        var list = updates?.ToList() ?? new List<AppUpdate>();
-        var dto = new CacheDto
+        try
         {
-            WrittenAt = DateTimeOffset.Now,
-            Raw = raw ?? "",
-            Updates = list.Select(u => new CacheItem
+            var list = updates?.ToList() ?? new List<AppUpdate>();
+            var dto = new CacheDto
             {
-                Name = u.Name,
-                Id = u.Id,
-                Installed = u.Installed,
-                Available = u.Available
-            }).ToList()
-        };
+                WrittenAt = DateTimeOffset.Now,
+                Raw = raw ?? "",
+                Updates = list.Select(u => new CacheItem
+                {
+                    Name = u.Name,
+                    Id = u.Id,
+                    Installed = u.Installed,
+                    Available = u.Available
+                }).ToList()
+            };
 
-        Directory.CreateDirectory(AutomationStatePaths.Directory);
-        File.WriteAllText(PathName, JsonSerializer.Serialize(dto, JsonOptions));
-        try { Changed?.Invoke(); } catch { /* listener errors must not break automation */ }
+            Directory.CreateDirectory(AutomationStatePaths.Directory);
+            string temp = PathName + "." + Environment.ProcessId + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(dto, JsonOptions));
+            File.Move(temp, PathName, overwrite: true);
+            try { Changed?.Invoke(); } catch { /* listener errors must not break automation */ }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("WingetAvailableCache write failed: " + ex.Message);
+            return false;
+        }
     }
 
     internal static bool TryRead(out DateTimeOffset writtenAt, out List<AppUpdate> updates, out string raw)
