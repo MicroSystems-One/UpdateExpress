@@ -1048,7 +1048,7 @@ public partial class MainWindow : Window
         ["WUA status report"] = "WUA statusrapport", ["Error report"] = "Feilrapport",
         ["Reboot needed"] = "Omstart nødvendig",
         ["Export CSV"] = "Eksporter CSV", ["Diagnostics"] = "Diagnostikk", ["Check Status"] = "Kontroller status",
-        ["Refresh Security Status"] = "Oppdater sikkerhetsstatus", ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
+        ["Refresh"] = "Oppdater", ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
         ["Check for Updates & Results"] = "Søk etter oppdateringer og resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
         ["Windows Updates"] = "Windows-oppdateringer", ["Drivers / Firmware"] = "Drivere / fastvare",
         ["Applications"] = "Programmer", ["History"] = "Historikk", ["Select All"] = "Velg alle",
