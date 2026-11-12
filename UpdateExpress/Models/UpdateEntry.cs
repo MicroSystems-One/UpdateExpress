@@ -89,7 +89,12 @@ public sealed class UpdateEntry
         }
     }
     public string Status { get; set; } = "";
+    /// <summary>Canonical timestamp (yyyy-MM-dd HH:mm:ss) for sort, EventKey, archive, and reconcile.</summary>
     public string Date { get; set; } = "";
+    /// <summary>Settings-formatted Date/Time for History (and similar) grids. Empty falls back to <see cref="Date"/>.</summary>
+    public string DateDisplay { get; set; } = "";
+    /// <summary>Value shown in Date/Time cells; prefers Settings formatting when set.</summary>
+    public string DateShown => string.IsNullOrWhiteSpace(DateDisplay) ? Date : DateDisplay;
     public string Source { get; set; } = "";
     public string ErrorCode { get; set; } = "";
     /// <summary>Settings feature update. The row opens Windows Update instead of installing through WUA.</summary>
@@ -118,6 +123,7 @@ public sealed class UpdateEntry
         Status = Status,
         StatusNote = StatusNote,
         Date = Date,
+        DateDisplay = DateDisplay,
         Source = Source,
         ErrorCode = ErrorCode,
         OpensWindowsUpdate = OpensWindowsUpdate

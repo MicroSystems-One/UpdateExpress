@@ -82,18 +82,20 @@ public partial class MainWindow : Window
         Entries.Clear();
         if (_showingHistory)
         {
-            // Keep ISO-like timestamps in _historySnapshot for reconcile/health; show Settings format in the grid.
+            // Keep raw Date on the same objects (EventKey / hide / Fixed). Format only DateDisplay for the grid.
             foreach (var entry in _historySnapshot)
             {
-                var view = entry.Clone();
-                view.Date = _schedule.FormatDateValue(entry.Date);
-                Entries.Add(view);
+                entry.DateDisplay = _schedule.FormatDateValue(entry.Date);
+                Entries.Add(entry);
             }
         }
         else
         {
             foreach (var entry in _pendingSnapshot)
+            {
+                entry.DateDisplay = string.IsNullOrWhiteSpace(entry.Date) ? "" : _schedule.FormatDateValue(entry.Date);
                 Entries.Add(entry);
+            }
         }
         _entriesView.Refresh();
         // All tabs share the same visible column order. Empty values remain blank.
@@ -1592,7 +1594,7 @@ public partial class MainWindow : Window
             return;
         }
         string note = string.IsNullOrWhiteSpace(entry.StatusNote) ? "" : entry.StatusNote + "\n\n";
-        MessageBox.Show(this, $"Update: {entry.Title}\nKB: {entry.KB}\nCategory: {entry.Category}\nPriority: {entry.PriorityDisplay}\nStatus: {entry.Status}\nDate: {entry.Date}\nError: {entry.ErrorCode}\n\n{note}{assessment}\n\nUninstall is not implemented.", "Update Details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show(this, $"Update: {entry.Title}\nKB: {entry.KB}\nCategory: {entry.Category}\nPriority: {entry.PriorityDisplay}\nStatus: {entry.Status}\nDate: {entry.DateShown}\nError: {entry.ErrorCode}\n\n{note}{assessment}\n\nUninstall is not implemented.", "Update Details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
     }
     private void Export_Click(object sender, RoutedEventArgs e)
     {
@@ -1601,7 +1603,7 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) != true) return;
         static string Q(string? s) => "\"" + (s ?? "").Replace("\"", "\"\"") + "\"";
         var sb = new StringBuilder("KB;Update;Status;DateTime;Source;ErrorCode\r\n");
-        foreach (var x in Entries) sb.AppendLine(string.Join(';', new[] { x.KB, x.Title, x.Status, x.Date, x.Source, x.ErrorCode }.Select(Q)));
+        foreach (var x in Entries) sb.AppendLine(string.Join(';', new[] { x.KB, x.Title, x.Status, x.DateShown, x.Source, x.ErrorCode }.Select(Q)));
         File.WriteAllText(dialog.FileName, sb.ToString(), new UTF8Encoding(true));
         StatusText.Text = $"Exported {Entries.Count} entries to {dialog.FileName}";
     }
