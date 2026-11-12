@@ -79,9 +79,22 @@ public partial class MainWindow : Window
         _showingHistory = tab == "history";
         // Entries is the visible table only. Keep pending and history in separate snapshots.
         // Never reuse history rows when returning to Windows Updates / Drivers.
-        IEnumerable<UpdateEntry> source = _showingHistory ? _historySnapshot : _pendingSnapshot;
         Entries.Clear();
-        foreach (var entry in source) Entries.Add(entry);
+        if (_showingHistory)
+        {
+            // Keep ISO-like timestamps in _historySnapshot for reconcile/health; show Settings format in the grid.
+            foreach (var entry in _historySnapshot)
+            {
+                var view = entry.Clone();
+                view.Date = _schedule.FormatDateValue(entry.Date);
+                Entries.Add(view);
+            }
+        }
+        else
+        {
+            foreach (var entry in _pendingSnapshot)
+                Entries.Add(entry);
+        }
         _entriesView.Refresh();
         // All tabs share the same visible column order. Empty values remain blank.
         SoftwareTab.FontWeight = DriversTab.FontWeight = HistoryTab.FontWeight = AppsTab.FontWeight = FontWeights.Normal;
@@ -490,7 +503,7 @@ public partial class MainWindow : Window
         }
         var failures = _historySnapshot.Where(x => x.Status is "Mislykket" or "Avbrutt").ToList();
         var success = _historySnapshot.Where(x => x.Status == "Vellykket").ToList();
-        var latestSuccess = success.Select(x => DateTime.TryParse(x.Date, out var d) ? d : DateTime.MinValue).DefaultIfEmpty().Max();
+        var latestSuccess = success.Select(x => ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue).DefaultIfEmpty().Max();
         var pendingKbs = _pendingSnapshot.SelectMany(x => SplitKbs(x.KB)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         int fixedCount = _historySnapshot.Count(x => x.IsHistoryFixed);
         int laterSuccess = 0, stillPending = 0, unresolved = 0;
@@ -498,9 +511,9 @@ public partial class MainWindow : Window
         {
             var keys = SplitKbs(failure.KB).ToArray();
             if (keys.Length == 0) { unresolved++; continue; }
-            var failureDate = DateTime.TryParse(failure.Date, out var d) ? d : DateTime.MinValue;
+            var failureDate = ReminderSchedule.TryParseDate(failure.Date) ?? DateTime.MinValue;
             if (keys.Any(k => pendingKbs.Contains(k))) { stillPending++; continue; }
-            if (success.Any(x => DateTime.TryParse(x.Date, out var sd) && sd > failureDate && SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any())) laterSuccess++;
+            if (success.Any(x => (ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue) > failureDate && SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any())) laterSuccess++;
             else unresolved++;
         }
         HealthSummary.Text = CategorySummary() + $"\nHistory: {_historySnapshot.Count}  |  Failures: {failures.Count}  |  Fixed: {fixedCount}  |  Resolved KB: {laterSuccess}  |  Unresolved: {unresolved}";
@@ -914,6 +927,7 @@ public partial class MainWindow : Window
         _reminderTimer.Start();
         _monitorUiTimer.Tick += (_, _) =>
         {
+            ReloadDisplaySettings();
             RefreshMonitorPanel();
             RefreshAutomationStatusTexts();
             RefreshRebootNeededBanner();
@@ -1036,6 +1050,9 @@ public partial class MainWindow : Window
         _schedule.DateFormat = dateFormat;
         ApplyLanguage();
         RefreshScheduleStatus();
+        // History Date/Time follows Settings date format + 12h/24h clock.
+        if (_showingHistory)
+            SetTab("history");
     }
     private bool _languageReady;
     private static readonly Dictionary<string, string> Norwegian = new(StringComparer.Ordinal)

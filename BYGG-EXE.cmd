@@ -3,18 +3,18 @@ setlocal EnableExtensions
 set "ROOT=%~dp0"
 set "PROJECT=%ROOT%UpdateExpress"
 set "OUT=%ROOT%Publisert"
-set "TARGET=%OUT%\UpdateExpress_v0.7.2.6.84.exe"
+set "TARGET=%OUT%\UpdateExpress_v0.7.2.6.85.exe"
 cd /d "%PROJECT%" || exit /b 1
 where dotnet >nul 2>&1
 if errorlevel 1 (
- echo ERROR: .NET 10 SDK not found.
+    echo ERROR: .NET 10 SDK not found.
  pause
  exit /b 1
 )
 if not exist "%OUT%" mkdir "%OUT%"
 if exist "%TARGET%" del /q "%TARGET%"
 echo.
-echo === Publish Update Express v0.7.2.6.84 ===
+echo === Publish Update Express v0.7.2.6.85 ===
 dotnet publish UpdateExpress.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "%OUT%"
 if errorlevel 1 goto :failed
 if not exist "%OUT%\UpdateExpress.exe" goto :failed

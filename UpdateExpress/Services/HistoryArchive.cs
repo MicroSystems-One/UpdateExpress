@@ -391,13 +391,7 @@ internal static class HistoryArchive
         return Version.TryParse(text, out var version) ? version : null;
     }
 
-    private static DateTime? ParseDate(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        if (DateTime.TryParseExact(value.Trim(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
-            return exact;
-        return DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var parsed) ? parsed : null;
-    }
+    private static DateTime? ParseDate(string? value) => ReminderSchedule.TryParseDate(value);
 
     private static void Trim(HistoryArchiveState state)
     {
