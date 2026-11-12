@@ -49,7 +49,7 @@ public partial class MainWindow : Window
     private bool _healthCheckRunning;
     private bool _diagnosticsRunning;
     private FixItWindow? _fixItWindow;
-    private readonly DispatcherTimer _fixItIconTimer = new() { Interval = TimeSpan.FromSeconds(3.2) };
+    private readonly DispatcherTimer _fixItIconTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
     private bool _showingClickItIcon;
     private bool _fixItIconAnimating;
     private static bool IsManuallyInstallableDriver(UpdateEntry e) =>
@@ -1371,7 +1371,7 @@ public partial class MainWindow : Window
         _showingClickItIcon = !_showingClickItIcon;
         _fixItIconAnimating = true;
 
-        var duration = TimeSpan.FromSeconds(0.95);
+        var duration = TimeSpan.FromSeconds(0.4);
         var ease = new QuadraticEase { EasingMode = EasingMode.EaseInOut };
         var showClick = _showingClickItIcon;
         var clickAnim = new DoubleAnimation(showClick ? 0 : 1, showClick ? 1 : 0, duration) { EasingFunction = ease };
