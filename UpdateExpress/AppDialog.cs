@@ -75,8 +75,15 @@ internal sealed class AppDialog : Window
         {
             buttonRow.Children.Add(primary);
         }
+        else if (buttons == MessageBoxButton.YesNo)
+        {
+            // Yes | No — e.g. Restart computer affirmative action on the left.
+            buttonRow.Children.Add(primary);
+            buttonRow.Children.Add(secondary);
+        }
         else
         {
+            // OKCancel stays Cancel | OK.
             buttonRow.Children.Add(secondary);
             buttonRow.Children.Add(primary);
         }
