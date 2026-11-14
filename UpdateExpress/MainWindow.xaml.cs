@@ -5,6 +5,8 @@ using System.IO;
 using System.Text.Json;
 using System.Text;
 using System.Windows;
+using System.Windows.Documents;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -502,14 +504,15 @@ public partial class MainWindow : Window
 
     private void RefreshHealthSummary()
     {
-        if (_historySnapshot.Count == 0 && _pendingSnapshot.Count == 0)
+        if (HealthSummary is null) return;
+        if (_historySnapshot.Count == 0 && _pendingSnapshot.Count == 0 && _installOutcomeSuccess is null && _installOutcomeFailures is null)
         {
+            HealthSummary.Inlines.Clear();
             HealthSummary.Text = CategorySummary() + "\nHistory not checked yet.";
             return;
         }
         var failures = _historySnapshot.Where(x => x.Status is "Mislykket" or "Avbrutt").ToList();
         var success = _historySnapshot.Where(x => x.Status == "Vellykket").ToList();
-        var latestSuccess = success.Select(x => ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue).DefaultIfEmpty().Max();
         var pendingKbs = _pendingSnapshot.SelectMany(x => SplitKbs(x.KB)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         int fixedCount = _historySnapshot.Count(x => x.IsHistoryFixed);
         int laterSuccess = 0, stillPending = 0, unresolved = 0;
@@ -522,8 +525,71 @@ public partial class MainWindow : Window
             if (success.Any(x => (ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue) > failureDate && SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any())) laterSuccess++;
             else unresolved++;
         }
-        HealthSummary.Text = CategorySummary() + $"\nHistory: {_historySnapshot.Count}  |  Failures: {failures.Count}  |  Fixed: {fixedCount}  |  Resolved KB: {laterSuccess}  |  Unresolved: {unresolved}";
+
+        bool norwegian = _schedule.Language == "no";
+        int failureCount = _installOutcomeFailures ?? failures.Count;
+        int? installSuccess = _installOutcomeSuccess;
+        bool blinkFailures = _installOutcomeFailures is > 0;
+        bool blinkSuccess = installSuccess is > 0;
+        string failuresLabel = norwegian ? "Feil" : "Failures";
+        string successLabel = norwegian ? "Vellykket" : "Success";
+
+        HealthSummary.Inlines.Clear();
+        HealthSummary.Inlines.Add(new Run(CategorySummary() + "\n"));
+        HealthSummary.Inlines.Add(new Run($"History: {_historySnapshot.Count}  |  "));
+        AppendOutcomeRun(failuresLabel, failureCount, blinkFailures, highlightRed: true);
+        if (installSuccess is int successCount)
+        {
+            HealthSummary.Inlines.Add(new Run("  |  "));
+            AppendOutcomeRun(successLabel, successCount, blinkSuccess, highlightRed: false);
+        }
+        HealthSummary.Inlines.Add(new Run($"  |  Fixed: {fixedCount}  |  Resolved KB: {laterSuccess}  |  Unresolved: {unresolved}"));
         HealthSummary.ToolTip = "History keeps events saved before a Windows Update fix. Fixed means a later success for the same KB, or the update you fixed is no longer offered. Matching KB numbers do not prove the original error was repaired.";
+    }
+
+    private void AppendOutcomeRun(string label, int count, bool blink, bool highlightRed)
+    {
+        var brush = blink && _installOutcomeBlinkOn
+            ? (highlightRed
+                ? new SolidColorBrush(Color.FromRgb(198, 40, 40))
+                : new SolidColorBrush(Color.FromRgb(46, 125, 50)))
+            : new SolidColorBrush(Color.FromRgb(82, 97, 122));
+        HealthSummary.Inlines.Add(new Run($"{label}: {count}")
+        {
+            Foreground = brush,
+            FontWeight = blink && _installOutcomeBlinkOn ? FontWeights.Bold : FontWeights.Medium
+        });
+    }
+
+    private void SetInstallOutcome(int completed, int failed)
+    {
+        _installOutcomeSuccess = completed;
+        _installOutcomeFailures = failed;
+        _installOutcomeBlinkOn = true;
+        if (!_installOutcomeBlinkTimer.IsEnabled)
+            _installOutcomeBlinkTimer.Start();
+        RefreshHealthSummary();
+    }
+
+    private void ClearInstallOutcomeHighlight()
+    {
+        if (_installOutcomeSuccess is null && _installOutcomeFailures is null) return;
+        _installOutcomeBlinkTimer.Stop();
+        _installOutcomeSuccess = null;
+        _installOutcomeFailures = null;
+        _installOutcomeBlinkOn = false;
+        RefreshHealthSummary();
+    }
+
+    private void InstallOutcomeBlinkTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_installOutcomeSuccess is null && _installOutcomeFailures is null)
+        {
+            _installOutcomeBlinkTimer.Stop();
+            return;
+        }
+        _installOutcomeBlinkOn = !_installOutcomeBlinkOn;
+        RefreshHealthSummary();
     }
 
     private void ReplacePendingSnapshot(IEnumerable<UpdateEntry> items)
@@ -646,6 +712,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _rebootBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(1600) };
     private bool _rebootPrompt;
     private bool _windowsRebootPending;
+    private readonly DispatcherTimer _installOutcomeBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
+    private int? _installOutcomeSuccess;
+    private int? _installOutcomeFailures;
+    private bool _installOutcomeBlinkOn;
 
     private string RebootBannerText()
     {
@@ -959,6 +1029,7 @@ public partial class MainWindow : Window
         };
         TrySyncAppsFromWingetCache();
         _rebootBlinkTimer.Tick += RebootBlinkTimer_Tick;
+        _installOutcomeBlinkTimer.Tick += InstallOutcomeBlinkTimer_Tick;
         RefreshMonitorPanel();
         RefreshAutomationStatusTexts();
         RefreshRebootNeededBanner();
@@ -1310,6 +1381,7 @@ public partial class MainWindow : Window
     private async void Scan_Click(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
+        ClearInstallOutcomeHighlight();
         _busy = true;
         ScanButton.IsEnabled = AppsScanButton.IsEnabled = false;
         SetHistoryActionsEnabled(false);
@@ -1972,16 +2044,18 @@ public partial class MainWindow : Window
                 : stillOfferedAfterSuccess || verifyTimedOut
                     ? catalogLagGuidance
                     : null;
-            manager.Finish(norwegian, guidance, verifyTimedOut ? timedOutLabel : notVerifiedLabel);
+            var outcome = manager.Finish(norwegian, guidance, verifyTimedOut ? timedOutLabel : notVerifiedLabel);
+            SetInstallOutcome(outcome.Completed, outcome.Failed);
             StatusText.Text = norwegian
-                ? "Installasjon ferdig. Se resultatene i Installation Manager."
-                : "Installation finished. Review Installation Manager results.";
+                ? "Installasjon ferdig. Installation Manager lukkes automatisk om ca. 60 sekunder."
+                : "Installation finished. Installation Manager closes automatically in about 60 seconds.";
         }
         catch (Exception ex)
         {
             Log("InstallationManager", "Failed", ex.ToString());
             manager.SetStage("Installation interrupted: " + ex.Message);
-            manager.Finish(norwegian, retryGuidance, notVerifiedLabel);
+            var outcome = manager.Finish(norwegian, retryGuidance, notVerifiedLabel);
+            SetInstallOutcome(outcome.Completed, outcome.Failed);
             MessageBox.Show(this, ex.Message, "Installation Manager", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -2222,11 +2296,18 @@ public partial class MainWindow : Window
                             "Failed" + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " " + result.ErrorCode);
                         manager.CompleteItem(i, itemState, itemState.StartsWith("Failed", StringComparison.Ordinal));
                     }
-                    manager.Finish(norwegian);
+                    var outcome = manager.Finish(norwegian);
+                    SetInstallOutcome(outcome.Completed, outcome.Failed);
                 }
                 catch (Exception ex)
                 {
-                    try { manager.Finish(); manager.SetStage(ex.Message); } catch { }
+                    try
+                    {
+                        var outcome = manager.Finish();
+                        SetInstallOutcome(outcome.Completed, outcome.Failed);
+                        manager.SetStage(ex.Message);
+                    }
+                    catch { }
                     UpdateUntilCurrent.Stop(norwegian ? "Installasjonen feilet: " + ex.Message : "Installation failed: " + ex.Message);
                     RefreshUpdateUntilCurrentUi();
                     return;

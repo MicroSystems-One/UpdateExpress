@@ -264,11 +264,19 @@ public sealed class InstallationManagerWindow : Window
         PulseElapsed();
     }
 
-    public void Finish(bool norwegian = false, string? guidance = null, string unresolvedLabel = "Not verified")
+    public (int Completed, int Failed, int Unverified) Finish(bool norwegian = false, string? guidance = null, string unresolvedLabel = "Not verified")
     {
         _running = false;
         _clock.Stop();
-        if (!IsLoaded) return;
+        if (!IsLoaded)
+        {
+            int failedGone = _items.Count(x =>
+                x.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase) ||
+                x.State.StartsWith("Feilet", StringComparison.OrdinalIgnoreCase));
+            int completedGone = _items.Count(x => IsCompletedState(x.State) || IsVerifyingState(x.State));
+            int unverifiedGone = Math.Max(0, _items.Count - failedGone - completedGone);
+            return (completedGone, failedGone, unverifiedGone);
+        }
         _elapsed.Text = "Elapsed: " + (DateTime.Now - _started).ToString(@"hh\:mm\:ss");
         // Verifying means the installer already reported success — promote to Completed.
         // Only unmatched / still-running rows become the unresolved label.
@@ -298,5 +306,23 @@ public sealed class InstallationManagerWindow : Window
             _notice.Text = guidance;
         _cancel.Content = norwegian ? "Lukk" : "Close";
         _cancel.IsEnabled = true;
+        ScheduleAutoClose(TimeSpan.FromSeconds(60));
+        return (completed, failed, unverified);
+    }
+
+    /// <summary>Close is already enabled; auto-dismiss after delay unless the user closes sooner.</summary>
+    public void ScheduleAutoClose(TimeSpan delay)
+    {
+        if (!IsLoaded) return;
+        var timer = new DispatcherTimer { Interval = delay };
+        void Stop(object? s, EventArgs e) => timer.Stop();
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            Closed -= Stop;
+            if (IsLoaded) Close();
+        };
+        Closed += Stop;
+        timer.Start();
     }
 }
