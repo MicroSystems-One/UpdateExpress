@@ -582,10 +582,11 @@ public partial class MainWindow : Window
             HealthSummary.Text = CategorySummary() + "\nHistory not checked yet.";
             return;
         }
-        var failures = _historySnapshot.Where(x => x.Status is "Mislykket" or "Avbrutt").ToList();
-        var success = _historySnapshot.Where(x => x.Status == "Vellykket").ToList();
+        var failures = _historySnapshot.Where(x => x.IsHistoryFailed).ToList();
+        var success = _historySnapshot.Where(x => x.IsHistorySuccessful).ToList();
+        var fixedEntries = _historySnapshot.Where(x => x.IsHistoryFixed).ToList();
         var pendingKbs = _pendingSnapshot.SelectMany(x => SplitKbs(x.KB)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        int fixedCount = _historySnapshot.Count(x => x.IsHistoryFixed);
+        var resolvedEntries = new List<UpdateEntry>();
         int laterSuccess = 0, stillPending = 0, unresolved = 0;
         foreach (var failure in failures)
         {
@@ -593,43 +594,135 @@ public partial class MainWindow : Window
             if (keys.Length == 0) { unresolved++; continue; }
             var failureDate = ReminderSchedule.TryParseDate(failure.Date) ?? DateTime.MinValue;
             if (keys.Any(k => pendingKbs.Contains(k))) { stillPending++; continue; }
-            if (success.Any(x => (ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue) > failureDate && SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any())) laterSuccess++;
+            if (success.Any(x => (ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue) > failureDate && SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any()))
+            {
+                laterSuccess++;
+                resolvedEntries.Add(failure);
+            }
             else unresolved++;
         }
 
         bool norwegian = _schedule.Language == "no";
         int failureCount = _installOutcomeFailures ?? failures.Count;
-        int? installSuccess = _installOutcomeSuccess;
+        int successCount = _installOutcomeSuccess ?? success.Count;
         bool blinkFailures = _installOutcomeFailures is > 0;
-        bool blinkSuccess = installSuccess is > 0;
+        bool blinkSuccess = _installOutcomeSuccess is > 0;
         string failuresLabel = norwegian ? "Feil" : "Failures";
         string successLabel = norwegian ? "Vellykket" : "Success";
+        string fixedLabel = norwegian ? "Fikset" : "Fixed";
+        string resolvedLabel = norwegian ? "Løst KB" : "Resolved KB";
+        string unresolvedLabel = norwegian ? "Uløst" : "Unresolved";
 
         HealthSummary.Inlines.Clear();
         HealthSummary.Inlines.Add(new Run(CategorySummary() + "\n"));
-        HealthSummary.Inlines.Add(new Run($"History: {_historySnapshot.Count}  |  "));
-        AppendOutcomeRun(failuresLabel, failureCount, blinkFailures, highlightRed: true);
-        if (installSuccess is int successCount)
-        {
-            HealthSummary.Inlines.Add(new Run("  |  "));
-            AppendOutcomeRun(successLabel, successCount, blinkSuccess, highlightRed: false);
-        }
-        HealthSummary.Inlines.Add(new Run($"  |  Fixed: {fixedCount}  |  Resolved KB: {laterSuccess}  |  Unresolved: {unresolved}"));
-        HealthSummary.ToolTip = "History keeps events saved before a Windows Update fix. Fixed means a later success for the same KB, or the update you fixed is no longer offered. Matching KB numbers do not prove the original error was repaired.";
+        HealthSummary.Inlines.Add(new Run(norwegian
+            ? $"Historikk: {_historySnapshot.Count}  |  "
+            : $"History: {_historySnapshot.Count}  |  "));
+        AppendOutcomeLink(failuresLabel, failureCount, "failures", blinkFailures, highlightRed: true);
+        HealthSummary.Inlines.Add(new Run("  |  "));
+        AppendOutcomeLink(successLabel, successCount, "success", blinkSuccess, highlightRed: false);
+        HealthSummary.Inlines.Add(new Run("  |  "));
+        AppendOutcomeLink(fixedLabel, fixedEntries.Count, "fixed", blink: false, highlightRed: false);
+        HealthSummary.Inlines.Add(new Run("  |  "));
+        AppendOutcomeLink(resolvedLabel, laterSuccess, "resolved", blink: false, highlightRed: false);
+        HealthSummary.Inlines.Add(new Run($"  |  {unresolvedLabel}: {unresolved}"));
+        HealthSummary.ToolTip = norwegian
+            ? "Klikk Feil / Vellykket / Fikset / Løst KB for oversikt. Fikset = senere suksess for samme KB, eller at den feilede oppdateringen ikke lenger tilbys. Matching KB beviser ikke at den opprinnelige feilen er reparert."
+            : "Click Failures / Success / Fixed / Resolved KB for a list. Fixed means a later success for the same KB, or the failed update is no longer offered. Matching KB numbers do not prove the original error was repaired.";
     }
 
-    private void AppendOutcomeRun(string label, int count, bool blink, bool highlightRed)
+    private void AppendOutcomeLink(string label, int count, string kind, bool blink, bool highlightRed)
     {
         var brush = blink && _installOutcomeBlinkOn
             ? (highlightRed
                 ? new SolidColorBrush(Color.FromRgb(198, 40, 40))
                 : new SolidColorBrush(Color.FromRgb(46, 125, 50)))
             : new SolidColorBrush(Color.FromRgb(82, 97, 122));
-        HealthSummary.Inlines.Add(new Run($"{label}: {count}")
+        var run = new Run($"{label}: {count}")
         {
+            FontWeight = blink && _installOutcomeBlinkOn ? FontWeights.Bold : FontWeights.SemiBold
+        };
+        var link = new Hyperlink(run)
+        {
+            Tag = kind,
             Foreground = brush,
-            FontWeight = blink && _installOutcomeBlinkOn ? FontWeights.Bold : FontWeights.Medium
-        });
+            TextDecorations = null,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            ToolTip = _schedule.Language == "no"
+                ? "Klikk for oversikt"
+                : "Click for overview"
+        };
+        link.Click += OutcomeLink_Click;
+        HealthSummary.Inlines.Add(link);
+    }
+
+    private void OutcomeLink_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Hyperlink { Tag: string kind }) return;
+        ShowOutcomeOverview(kind);
+    }
+
+    private void ShowOutcomeOverview(string kind)
+    {
+        bool norwegian = _schedule.Language == "no";
+        var failures = _historySnapshot.Where(x => x.IsHistoryFailed).ToList();
+        var success = _historySnapshot.Where(x => x.IsHistorySuccessful).ToList();
+        var fixedEntries = _historySnapshot.Where(x => x.IsHistoryFixed).ToList();
+        var pendingKbs = _pendingSnapshot.SelectMany(x => SplitKbs(x.KB)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var resolvedEntries = new List<UpdateEntry>();
+        foreach (var failure in failures)
+        {
+            var keys = SplitKbs(failure.KB).ToArray();
+            if (keys.Length == 0) continue;
+            var failureDate = ReminderSchedule.TryParseDate(failure.Date) ?? DateTime.MinValue;
+            if (keys.Any(k => pendingKbs.Contains(k))) continue;
+            if (success.Any(x => (ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue) > failureDate &&
+                                 SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any()))
+                resolvedEntries.Add(failure);
+        }
+
+        string heading;
+        string subtitle;
+        IReadOnlyList<UpdateEntry> entries;
+        bool showFixIt = false;
+        switch (kind)
+        {
+            case "failures":
+                heading = norwegian ? "Feil" : "Failures";
+                subtitle = norwegian
+                    ? "Mislykkede eller avbrutte historikkoppføringer. Bruk Fix it når feilkode er kjent."
+                    : "Failed or cancelled history entries. Use Fix it when an error code is available.";
+                entries = failures;
+                showFixIt = true;
+                break;
+            case "success":
+                heading = norwegian ? "Vellykket" : "Success";
+                subtitle = norwegian
+                    ? "Vellykkede historikkoppføringer (og sist installasjonsrunde når den er fremhevet)."
+                    : "Successful history entries (and the latest install run when highlighted).";
+                entries = success;
+                break;
+            case "fixed":
+                heading = norwegian ? "Fikset" : "Fixed";
+                subtitle = norwegian
+                    ? "Historikk merket Fixed etter senere suksess eller fullført fiks."
+                    : "History rows marked Fixed after a later success or a completed fix.";
+                entries = fixedEntries;
+                break;
+            case "resolved":
+                heading = norwegian ? "Løst KB" : "Resolved KB";
+                subtitle = norwegian
+                    ? "Tidligere feil der samme KB senere ble installert med suksess."
+                    : "Earlier failures where the same KB later installed successfully.";
+                entries = resolvedEntries;
+                break;
+            default:
+                return;
+        }
+
+        var dlg = new OutcomeOverviewWindow(kind, heading, subtitle, entries, showFixIt, norwegian) { Owner = this };
+        if (dlg.ShowDialog() == true && dlg.FixRequestedEntry is UpdateEntry fixEntry)
+            ShowErrorFix(fixEntry);
     }
 
     private void SetInstallOutcome(int completed, int failed)
