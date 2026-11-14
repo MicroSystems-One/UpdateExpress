@@ -50,11 +50,21 @@
           </DataGridTemplateColumn>
         </DataGrid.Columns>
       </DataGrid>
-      <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-        <Button x:Name="FixSelectedButton" Content="Fix it" Padding="12,5" Margin="0,0,8,0"
+      <Grid Grid.Row="3" Height="27" MinHeight="27" MaxHeight="27" HorizontalAlignment="Right" Margin="0,12,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="100"/>
+          <ColumnDefinition Width="8"/>
+          <ColumnDefinition Width="90"/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="FixSelectedButton" Grid.Column="0" Content="Fix it"
+                Height="27" MinHeight="27" MaxHeight="27" Padding="10,0"
+                VerticalAlignment="Stretch" VerticalContentAlignment="Center"
                 Click="FixSelected_Click" IsEnabled="False"/>
-        <Button x:Name="CloseButton" Content="Close" Padding="12,5" IsCancel="True" Click="Close_Click"/>
-      </StackPanel>
+        <Button x:Name="CloseButton" Grid.Column="2" Content="Close"
+                Height="27" MinHeight="27" MaxHeight="27" Padding="10,0"
+                VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                IsCancel="True" Click="Close_Click"/>
+      </Grid>
     </Grid>
   </Border>
 </Window>
