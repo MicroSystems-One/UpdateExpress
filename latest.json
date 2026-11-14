@@ -1,0 +1,7 @@
+{
+  "version": "0.7.2.6.96",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.6.96/UpdateExpress_v0.7.2.6.96.exe",
+  "sha256": "66e91168ad17c294517ac9efc5fd28096ffae75ea027d8f60a2fb4031c318268",
+  "publishedAt": "2026-11-14T16:05:23Z",
+  "releaseNotes": "Migrate update channel to MicroSystems-One/UpdateExpress. Tip 8a3d0e0."
+}
