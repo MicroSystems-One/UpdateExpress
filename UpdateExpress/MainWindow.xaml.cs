@@ -36,7 +36,7 @@ public partial class MainWindow : Window
     private bool VisibleInTab(object item)
     {
         if (item is not UpdateEntry e) return false;
-        if (_activeTab == "history") return true;
+        if (_activeTab is "history" or "all") return true;
         return _activeTab switch
         {
             "software" => e.Category != "Driver / firmware",
@@ -44,7 +44,7 @@ public partial class MainWindow : Window
             _ => false
         };
     }
-    public bool CanSelectDisplayedEntry => _activeTab == "history" || _activeTab == "drivers" || _activeTab == "software";
+    public bool CanSelectDisplayedEntry => _activeTab is "history" or "drivers" or "software" or "all";
     private bool _busy;
     private bool _scanButtonSearching;
     private bool _historyActionsEnabled = true;
@@ -52,6 +52,8 @@ public partial class MainWindow : Window
     private bool _diagnosticsRunning;
     private FixItWindow? _fixItWindow;
     private readonly DispatcherTimer _fixItIconTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
+    private readonly DispatcherTimer _installSelectionBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(850) };
+    private bool _installSelectionBlinkOn;
     private bool _showingClickItIcon;
     private bool _fixItIconAnimating;
     private static bool IsManuallyInstallableDriver(UpdateEntry e) =>
@@ -59,23 +61,37 @@ public partial class MainWindow : Window
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
         !string.IsNullOrWhiteSpace(e.DriverHardwareId);
 
+    private bool IsEligiblePending(UpdateEntry e) =>
+        !_showingHistory &&
+        !string.IsNullOrWhiteSpace(e.UpdateId) &&
+        (e.Category == "Driver / firmware" ? IsManuallyInstallableDriver(e) : e.SafeDefault);
+
     private void UpdateSelectionControls()
     {
         var visible = Entries.Where(e => VisibleInTab(e)).ToList();
-        var eligible = visible.Where(e => !_showingHistory && (_activeTab == "drivers" ? IsManuallyInstallableDriver(e) : e.SafeDefault) && !string.IsNullOrWhiteSpace(e.UpdateId)).ToList();
+        var eligible = visible.Where(IsEligiblePending).ToList();
         var selected = eligible.Count(e => e.IsSelected);
-        SelectAllUpdates.IsEnabled = !_busy && (_activeTab == "apps" ? _appEntries.Count > 0 : eligible.Count > 0);
-        SelectAllUpdates.IsChecked = _activeTab == "apps" ? _appEntries.Count > 0 && _appEntries.All(a => a.IsSelected) : eligible.Count > 0 && selected == eligible.Count;
         int appCount = _appEntries.Count(a => a.IsSelected);
-        SelectedCountText.Text = _schedule.Language == "no" ? $"{(_activeTab == "apps" ? appCount : selected)} valgt" : $"{(_activeTab == "apps" ? appCount : selected)} selected";
+        bool includeApps = _activeTab is "apps" or "all";
+        bool includeWindows = _activeTab is not "apps";
+        int windowEligible = includeWindows ? eligible.Count : 0;
+        int appEligible = includeApps ? _appEntries.Count : 0;
+        int totalEligible = windowEligible + appEligible;
+        int totalSelected = (includeWindows ? selected : 0) + (includeApps ? appCount : 0);
+        SelectAllUpdates.IsEnabled = !_busy && totalEligible > 0;
+        SelectAllUpdates.IsChecked = totalEligible > 0 && totalSelected == totalEligible;
+        SelectedCountText.Text = _schedule.Language == "no" ? $"{totalSelected} valgt" : $"{totalSelected} selected";
         InstallButton.IsEnabled = !_busy && !_showingHistory && (_pendingSnapshot.Any(e => e.IsSelected && !string.IsNullOrWhiteSpace(e.UpdateId)) || appCount > 0);
+        UpdateInstallSelectionBlink();
     }
     private void UpdateCheckbox_Click(object sender, RoutedEventArgs e) => UpdateSelectionControls();
     private void SelectAllUpdates_Click(object sender, RoutedEventArgs e)
     {
         bool value = SelectAllUpdates.IsChecked == true;
-        if (_activeTab == "apps") foreach (var app in _appEntries) app.IsSelected = value;
-        else foreach (var item in Entries.Where(e => VisibleInTab(e) && (!_showingHistory && (_activeTab == "drivers" ? IsManuallyInstallableDriver(e) : e.SafeDefault) && !string.IsNullOrWhiteSpace(e.UpdateId)))) item.IsSelected = value;
+        if (_activeTab is "apps" or "all")
+            foreach (var app in _appEntries) app.IsSelected = value;
+        if (_activeTab is not "apps")
+            foreach (var item in Entries.Where(e => VisibleInTab(e) && IsEligiblePending(e))) item.IsSelected = value;
         UpdatesGrid.Items.Refresh(); AppsGrid.Items.Refresh();
         UpdateSelectionControls();
     }
@@ -105,14 +121,19 @@ public partial class MainWindow : Window
         }
         _entriesView.Refresh();
         // All tabs share the same visible column order. Empty values remain blank.
-        SoftwareTab.FontWeight = DriversTab.FontWeight = HistoryTab.FontWeight = AppsTab.FontWeight = FontWeights.Normal;
+        AllTab.FontWeight = SoftwareTab.FontWeight = DriversTab.FontWeight = HistoryTab.FontWeight = AppsTab.FontWeight = FontWeights.Normal;
+        PaintResultTab(AllTab, tab == "all");
         PaintResultTab(SoftwareTab, tab == "software");
         PaintResultTab(DriversTab, tab == "drivers");
         PaintResultTab(AppsTab, tab == "apps");
         PaintResultTab(HistoryTab, tab == "history");
-        WindowsUpdatesTable.Visibility = tab == "apps" ? Visibility.Collapsed : Visibility.Visible;
-        AppsActions.Visibility = tab == "apps" ? Visibility.Visible : Visibility.Collapsed;
-        AppsToolbar.Visibility = tab == "apps" ? Visibility.Visible : Visibility.Collapsed;
+        bool showWindows = tab is not "apps";
+        bool showApps = tab is "apps" or "all";
+        WindowsUpdatesTable.Visibility = showWindows ? Visibility.Visible : Visibility.Collapsed;
+        AppsActions.Visibility = showApps ? Visibility.Visible : Visibility.Collapsed;
+        WindowsResultsRow.Height = showWindows ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        AppsResultsRow.Height = showApps ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        AppsToolbar.Visibility = showApps ? Visibility.Visible : Visibility.Collapsed;
         SelectAllUpdates.Visibility = Visibility.Visible;
         SelectedCountText.Visibility = Visibility.Visible;
         HistoryPdfButton.Visibility = tab == "history" ? Visibility.Visible : Visibility.Collapsed;
@@ -141,10 +162,54 @@ public partial class MainWindow : Window
         get => (bool)GetValue(InstallButtonActiveProperty);
         set => SetValue(InstallButtonActiveProperty, value);
     }
+    public static readonly System.Windows.DependencyProperty InstallButtonPulseProperty =
+        System.Windows.DependencyProperty.Register(nameof(InstallButtonPulse), typeof(bool), typeof(MainWindow), new System.Windows.PropertyMetadata(false));
+    /// <summary>Soft red blink while one or more updates are selected (not during active install).</summary>
+    public bool InstallButtonPulse
+    {
+        get => (bool)GetValue(InstallButtonPulseProperty);
+        set => SetValue(InstallButtonPulseProperty, value);
+    }
+    private void AllTab_Click(object sender, RoutedEventArgs e)
+    {
+        SetTab("all");
+        HidePendingAlreadyInHistory(_historySnapshot);
+        UpdateAppSelection();
+    }
     private void SoftwareTab_Click(object sender, RoutedEventArgs e)
     {
         SetTab("software");
         HidePendingAlreadyInHistory(_historySnapshot);
+    }
+    private void UpdateInstallSelectionBlink()
+    {
+        bool hasSelection = InstallButton.IsEnabled && !InstallButtonActive && !_busy && !_showingHistory;
+        if (!hasSelection)
+        {
+            if (_installSelectionBlinkTimer.IsEnabled)
+                _installSelectionBlinkTimer.Stop();
+            _installSelectionBlinkOn = false;
+            InstallButtonPulse = false;
+            return;
+        }
+        if (!_installSelectionBlinkTimer.IsEnabled)
+        {
+            _installSelectionBlinkOn = true;
+            InstallButtonPulse = true;
+            _installSelectionBlinkTimer.Start();
+        }
+    }
+    private void InstallSelectionBlinkTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!InstallButton.IsEnabled || InstallButtonActive || _busy || _showingHistory)
+        {
+            _installSelectionBlinkTimer.Stop();
+            _installSelectionBlinkOn = false;
+            InstallButtonPulse = false;
+            return;
+        }
+        _installSelectionBlinkOn = !_installSelectionBlinkOn;
+        InstallButtonPulse = _installSelectionBlinkOn;
     }
     private void DriverMode_Changed(object sender, RoutedEventArgs e)
     {
@@ -609,7 +674,7 @@ public partial class MainWindow : Window
     private void RefreshFeatureUpdateButton()
     {
         if (OpenWindowsUpdateButton is null) return;
-        bool show = _activeTab == "software" && _pendingSnapshot.Any(entry => entry.Source == FeatureUpdateOfferReader.Source);
+        bool show = (_activeTab is "software" or "all") && _pendingSnapshot.Any(entry => entry.Source == FeatureUpdateOfferReader.Source);
         OpenWindowsUpdateButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -1036,6 +1101,7 @@ public partial class MainWindow : Window
         TrySyncAppsFromWingetCache();
         _rebootBlinkTimer.Tick += RebootBlinkTimer_Tick;
         _installOutcomeBlinkTimer.Tick += InstallOutcomeBlinkTimer_Tick;
+        _installSelectionBlinkTimer.Tick += InstallSelectionBlinkTimer_Tick;
         RefreshMonitorPanel();
         RefreshAutomationStatusTexts();
         RefreshRebootNeededBanner();
@@ -1152,6 +1218,7 @@ public partial class MainWindow : Window
         ["Export CSV"] = "Eksporter CSV", ["Diagnostics"] = "Diagnostikk", ["Check Status"] = "Kontroller status",
         ["Refresh"] = "Oppdater", ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
         ["Check for Updates & Results"] = "Søk etter oppdateringer og resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
+        ["All"] = "Alle",
         ["Windows Updates"] = "Windows-oppdateringer", ["Drivers / Firmware"] = "Drivere / fastvare",
         ["Applications"] = "Programmer", ["History"] = "Historikk", ["Select All"] = "Velg alle",
         ["Select"] = "Velg", ["Category"] = "Kategori", ["Update"] = "Oppdatering",
