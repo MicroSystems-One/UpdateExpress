@@ -64,11 +64,12 @@ internal sealed class AppDialog : Window
 
         if (buttons == MessageBoxButton.YesNoCancel)
         {
+            // Primary | secondary | cancel — e.g. Install now | Open download page | Later.
             var cancel = CreateChromeButton(cancelLabel ?? AppLanguage.Cancel, primary: false, isCancel: true);
             cancel.Click += (_, _) => Finish(MessageBoxResult.Cancel);
-            buttonRow.Children.Add(cancel);
-            buttonRow.Children.Add(secondary);
             buttonRow.Children.Add(primary);
+            buttonRow.Children.Add(secondary);
+            buttonRow.Children.Add(cancel);
         }
         else if (buttons == MessageBoxButton.OK)
         {
