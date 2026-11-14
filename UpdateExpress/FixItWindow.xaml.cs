@@ -67,5 +67,33 @@ public partial class FixItWindow : Window
             SetButton(DiagnosticsButton, "⚙  Diagnostics", "Diagnostikk");
         SetButton(HealthButton, "✓  Check Status", "Kontroller status");
         CloseButton.Content = norwegian ? "Lukk" : "Close";
+
+        void SetTip(System.Windows.Controls.Button button, string english, string norwegianText) =>
+            button.ToolTip = norwegian ? norwegianText : english;
+
+        SetTip(WindowsUpdateFixButton,
+            "Quick / Medium / Deep repair for stuck or empty Windows Update",
+            "Hurtig / Middels / Dyp reparasjon for fastlåst eller tom Windows Update");
+        SetTip(WuaDeepCheckButton,
+            "Read-only deep analysis when Windows Update fix did not help (network, services, WUA). ~2–4 min.",
+            "Skrivebeskyttet dybdeanalyse når Windows Update-fiks ikke hjalp (nettverk, tjenester, WUA). ~2–4 min.");
+        SetTip(HistoryButton,
+            "Show Windows Update installation history in the main window",
+            "Vis Windows Update-installasjonshistorikk i hovedvinduet");
+        SetTip(ExportCsvButton,
+            "Export the current history list as a CSV file",
+            "Eksporter gjeldende historikkliste som CSV-fil");
+        SetTip(ErrorReportButton,
+            "AI troubleshooting prompt from the last Windows Update fix",
+            "AI-feilsøkingsprompt fra siste Windows Update-fiks");
+        SetTip(WuaStatusReportButton,
+            "Open the latest or a previous WUA deep check report",
+            "Åpne siste eller en tidligere WUA dybdesjekk-rapport");
+        SetTip(DiagnosticsButton,
+            "Collect WUA diagnostics and open the report in Notepad",
+            "Samle WUA-diagnostikk og åpne rapporten i Notepad");
+        SetTip(HealthButton,
+            "Refresh history and pending updates (health check)",
+            "Oppdater historikk og ventende oppdateringer (helsesjekk)");
     }
 }

@@ -79,9 +79,11 @@
                 Style="{StaticResource FixItActionButton}" Click="WuaDeepCheck_Click"
                 ToolTip="Read-only deep analysis when Windows Update fix did not help (network, services, WUA). ~2–4 min."/>
         <Button x:Name="HistoryButton" Grid.Row="0" Grid.Column="2" Content="☷  Installation History"
-                Style="{StaticResource FixItActionButton}" Click="History_Click"/>
+                Style="{StaticResource FixItActionButton}" Click="History_Click"
+                ToolTip="Show Windows Update installation history in the main window"/>
         <Button x:Name="ExportCsvButton" Grid.Row="0" Grid.Column="3" Content="↓  Export CSV"
-                Style="{StaticResource FixItActionButton}" Margin="0,0,0,8" Click="Export_Click"/>
+                Style="{StaticResource FixItActionButton}" Margin="0,0,0,8" Click="Export_Click"
+                ToolTip="Export the current history list as a CSV file"/>
         <Button x:Name="ErrorReportButton" Grid.Row="1" Grid.Column="0" Content="📋  Error report"
                 Style="{StaticResource FixItActionButton}" Margin="0,0,8,0" Click="ErrorReport_Click"
                 ToolTip="AI troubleshooting prompt from the last Windows Update fix"/>
@@ -89,9 +91,11 @@
                 Style="{StaticResource FixItActionButton}" Margin="0,0,8,0" Click="WuaStatusReport_Click"
                 ToolTip="Open the latest or a previous WUA deep check report"/>
         <Button x:Name="DiagnosticsButton" Grid.Row="1" Grid.Column="2" Content="⚙  Diagnostics"
-                Style="{StaticResource FixItActionButton}" Margin="0,0,8,0" Click="Diagnostics_Click"/>
+                Style="{StaticResource FixItActionButton}" Margin="0,0,8,0" Click="Diagnostics_Click"
+                ToolTip="Collect WUA diagnostics and open the report in Notepad"/>
         <Button x:Name="HealthButton" Grid.Row="1" Grid.Column="3" Content="✓  Check Status"
-                Style="{StaticResource FixItActionButton}" Margin="0" Click="Health_Click"/>
+                Style="{StaticResource FixItActionButton}" Margin="0" Click="Health_Click"
+                ToolTip="Refresh history and pending updates (health check)"/>
       </Grid>
       <Button x:Name="CloseButton" Grid.Row="3" Content="Close" Width="100" HorizontalAlignment="Right"
               Margin="0,16,0,0" Style="{StaticResource FixItActionButton}"
