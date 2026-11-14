@@ -13,6 +13,8 @@ public sealed class InstallationQueueItem(string source, string name) : System.C
     public string Name { get; } = name;
     private string _state = "Pending";
     public string State { get => _state; set { _state = value; PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(State))); } }
+    private string? _tip;
+    public string? Tip { get => _tip; set { _tip = value; PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Tip))); } }
     public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -86,7 +88,9 @@ public sealed class InstallationManagerWindow : Window
         var statusColumn = new GridViewColumn { Header = "Status", Width = 182 };
         var statusFactory = new FrameworkElementFactory(typeof(TextBlock));
         statusFactory.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding("State"));
+        statusFactory.SetBinding(FrameworkElement.ToolTipProperty, new System.Windows.Data.Binding("Tip"));
         statusFactory.SetValue(TextBlock.TextAlignmentProperty, TextAlignment.Center);
+        statusFactory.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
         statusFactory.SetValue(FrameworkElement.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Stretch);
         statusFactory.SetValue(FrameworkElement.VerticalAlignmentProperty, System.Windows.VerticalAlignment.Center);
         statusColumn.CellTemplate = new DataTemplate { VisualTree = statusFactory };
@@ -247,10 +251,15 @@ public sealed class InstallationManagerWindow : Window
         || state.StartsWith("Laster ned", StringComparison.Ordinal)
         || state.StartsWith("Installerer", StringComparison.Ordinal);
 
-    public void CompleteItem(int index, string state, bool failed)
+    public void CompleteItem(int index, string state, bool failed, string? tip = null)
     {
         if (!IsLoaded) return;
-        if (index >= 0 && index < _items.Count) _items[index].State = state;
+        if (index >= 0 && index < _items.Count)
+        {
+            _items[index].State = state;
+            _items[index].Tip = tip;
+            _list.ScrollIntoView(_items[index]);
+        }
         PulseElapsed();
         _bar.IsIndeterminate = false;
         _bar.Value = _items.Count(x => !IsStillRunning(x.State));

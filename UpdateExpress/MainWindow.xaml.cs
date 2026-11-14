@@ -310,7 +310,13 @@ public partial class MainWindow : Window
                 var record = new { Timestamp = DateTimeOffset.Now, app.Name, app.Id, app.Installed, app.Available, ExitCode = code, Output = output };
                 File.AppendAllText(logPath, JsonSerializer.Serialize(record) + Environment.NewLine, Encoding.UTF8);
                 ActivityLog.TryWrite("WinGetUpgrade", code == 0 ? "Command completed - verification pending" : "Failed", new { app.Name, app.Id, app.Installed, app.Available, ExitCode = code, Output = output }, source: "WinGet", runId: activityRunId);
-                logs.Add($"{app.Name}: {(code == 0 ? "Command completed" : $"Failed (exit {code})")}");
+                if (code == 0)
+                    logs.Add($"{app.Name}: Command completed");
+                else
+                {
+                    var (state, tip, _) = WingetReader.DescribeUpgradeFailure(code, app.DisplayName, _schedule.Language == "no");
+                    logs.Add($"{app.Name}: {state}" + (string.IsNullOrWhiteSpace(tip) ? "" : "\n  " + tip));
+                }
             }
 
             ScanProgressText.Text = "Refreshing WinGet results…";
@@ -1930,7 +1936,18 @@ public partial class MainWindow : Window
                 try { using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(20)); (code, output) = await WingetReader.UpgradeAsync(app.Id, timeout.Token); }
                 catch (Exception ex) { code = -1; output = ex.ToString(); }
                 Log("WinGet", code == 0 ? "Verification pending" : "Failed", new { app.Name, app.Id, app.Installed, app.Available, ExitCode = code, Output = output });
-                manager.CompleteItem(idx, code == 0 ? verifyingLabel : $"Failed (exit {code})", code != 0);
+                if (code == 0)
+                    manager.CompleteItem(idx, verifyingLabel, false);
+                else
+                {
+                    var (state, tip, notice) = WingetReader.DescribeUpgradeFailure(code, app.DisplayName, norwegian);
+                    manager.CompleteItem(idx, state, true, tip);
+                    if (!string.IsNullOrWhiteSpace(notice))
+                    {
+                        manager.SetNotice(notice);
+                        manager.SetStage(notice);
+                    }
+                }
             }
             // Terminal install outcomes are on screen — unlock Close before the long rescan.
             manager.AllowClose(norwegian);

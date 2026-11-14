@@ -343,8 +343,22 @@ internal static class ApplicationAutomation
                     AgentLog.Write($"Applications install {id}: exit={code}");
                     if (!string.IsNullOrWhiteSpace(output))
                         AgentLog.Write("Applications install output: " + output.Trim());
-                    if (code == 0) ok++;
-                    manager.CompleteItem(i, code == 0 ? "Completed" : $"Failed (exit {code})", code != 0);
+                    if (code == 0)
+                    {
+                        ok++;
+                        manager.CompleteItem(i, "Completed", false);
+                    }
+                    else
+                    {
+                        bool norwegian = AppLanguage.IsNorwegian;
+                        var (state, tip, notice) = WingetReader.DescribeUpgradeFailure(code, id, norwegian);
+                        manager.CompleteItem(i, state, true, tip);
+                        if (!string.IsNullOrWhiteSpace(notice))
+                        {
+                            manager.SetNotice(notice);
+                            manager.SetStage(notice);
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
