@@ -21,9 +21,18 @@ if not exist "%OUT%\UpdateExpress.exe" goto :failed
 move /Y "%OUT%\UpdateExpress.exe" "%TARGET%" >nul
 if errorlevel 1 goto :failed
 echo.
+echo === Authenticode (dry-run until UE_SIGN_MODE is configured) ===
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\Sign-Release.ps1" "%TARGET%"
+if errorlevel 1 goto :signfailed
+echo.
 echo BUILD SUCCEEDED: "%TARGET%"
 exit /b 0
 :failed
 echo.
 echo ERROR: Publish failed. No new installer EXE was produced.
+exit /b 1
+:signfailed
+echo.
+echo ERROR: Publish succeeded but Authenticode signing failed.
+echo        Fix Sign-Release / UE_SIGN_* env, or set UE_SIGN=0 to skip.
 exit /b 1

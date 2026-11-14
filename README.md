@@ -17,6 +17,8 @@ BYGG-EXE.cmd
 
 Output: `Publisert\UpdateExpress_v0.7.2.8.exe`
 
+After publish, `BYGG-EXE.cmd` calls `tools\Sign-Release.ps1`. Until a code-signing identity is configured, that step **dry-runs** (exit 0) and leaves the EXE unsigned. To enable signing later, set `UE_SIGN_MODE=azure` or `signtool` plus the documented env vars (no secrets in git). Sample Azure metadata: `tools\azure-signing.metadata.sample.json`.
+
 ## Update channel
 
 Clients read:
