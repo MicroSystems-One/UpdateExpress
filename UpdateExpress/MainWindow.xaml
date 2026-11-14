@@ -334,7 +334,7 @@
           <CheckBox x:Name="CriticalAutoEnabled" Content="Enabled" Margin="0,0,0,4" IsChecked="True"/>
           <TextBlock Text="Interval (minutes)" FontSize="11" Foreground="#52617A"/>
           <TextBox x:Name="CriticalIntervalMinutes" Text="1440" Height="28" Margin="0,2,0,4" Padding="6,3"/>
-          <TextBlock Text="Mode: Download + ask (K2)" FontSize="11" Foreground="#0F766E"/>
+          <TextBlock Text="Mode: Download + ask (critical updates)" FontSize="11" Foreground="#0F766E"/>
           <TextBlock Text="Preferred time" FontSize="11" Foreground="#52617A" Margin="0,4,0,0"/>
           <TextBox x:Name="CriticalPreferredTime" Text="12:00" Height="28" Margin="0,2,0,0" Padding="6,3"/>
           <TextBlock x:Name="CriticalAutomationStatus" Text="Status: waiting for agent" FontSize="11" Foreground="#52617A" Margin="0,6,0,0" TextWrapping="Wrap"/>
@@ -346,7 +346,7 @@
           <CheckBox x:Name="GeneralAutoEnabled" Content="Enabled" Margin="0,0,0,4" IsChecked="True"/>
           <TextBlock Text="Interval (minutes)" FontSize="11" Foreground="#52617A"/>
           <TextBox x:Name="GeneralIntervalMinutes" Text="10080" Height="28" Margin="0,2,0,4" Padding="6,3"/>
-          <TextBlock Text="Mode: Download + ask (K3)" FontSize="11" Foreground="#0F766E"/>
+          <TextBlock Text="Mode: Download + ask (general Windows update)" FontSize="11" Foreground="#0F766E"/>
           <TextBlock Text="Preferred time" FontSize="11" Foreground="#52617A" Margin="0,4,0,0"/>
           <TextBox x:Name="GeneralPreferredTime" Text="12:00" Height="28" Margin="0,2,0,0" Padding="6,3"/>
           <TextBlock x:Name="GeneralAutomationStatus" Text="Status: waiting for agent" FontSize="11" Foreground="#52617A" Margin="0,6,0,0" TextWrapping="Wrap"/>
@@ -355,7 +355,7 @@
     </Grid>
     <Border Background="#F8FAFC" BorderBrush="#DDE3EB" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,8">
       <StackPanel>
-        <TextBlock Text="Optional auto-reboot (K2/K3 only)" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <TextBlock Text="Optional auto-reboot (critical updates / general Windows update only)" FontWeight="SemiBold" Margin="0,0,0,6"/>
         <CheckBox x:Name="AutoRebootEnabled" Content="Allow optional auto-reboot after Critical/General installs (default off)" Margin="0,0,0,6"/>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
           <RadioButton x:Name="AutoRebootConfirmOption" Content="Ask for confirmation" GroupName="AutoRebootMode" IsChecked="True" Margin="0,0,16,0" VerticalAlignment="Center"/>
@@ -390,6 +390,6 @@
       <Button Content="Save Policy" Click="SavePolicy_Click" Padding="10,4" MinHeight="29"/>
     </WrapPanel>
   </StackPanel></ScrollViewer></Expander></Border>
-  <TextBlock Grid.Row="4" x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical and general Windows updates download automatically and require confirmation before install. Optional auto-reboot after K2/K3 is off by default (confirm or outside active hours). Drivers and WinGet applications use the same ask-before-install path when enabled; firmware stays manual." Foreground="#52617A" FontSize="12" Margin="4,10,0,0" TextWrapping="Wrap"/>
+  <TextBlock Grid.Row="4" x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical and general Windows updates download automatically and require confirmation before install. Optional auto-reboot after critical updates / general Windows update is off by default (confirm or outside active hours). Drivers and WinGet applications use the same ask-before-install path when enabled; firmware stays manual." Foreground="#52617A" FontSize="12" Margin="4,10,0,0" TextWrapping="Wrap"/>
  </Grid>
 </Window>

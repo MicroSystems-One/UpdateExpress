@@ -403,7 +403,7 @@ public partial class MainWindow : Window
         MessageBox.Show(this,
             "Windows automation policy saved.\n\n" +
             "Defender (K1) can auto-install via the background agent.\n" +
-            "Critical (K2) and General (K3) download in the background and ask before install.\n" +
+            "Critical updates and general Windows update download in the background and ask before install.\n" +
             "Drivers: " + (_policy.AutomaticDrivers ? "automatic (download + ask; firmware manual)" : "manual only") + ".\n" +
             "Applications: " + (_policy.AutomaticApplications ? "automatic (WinGet ask before install)" : "manual only") + ".\n" +
             "Optional auto-reboot: " + (_policy.WindowsAutomation.AutoReboot.Enabled
@@ -1097,11 +1097,14 @@ public partial class MainWindow : Window
         ["Interval (minutes)"] = "Intervall (minutter)", ["Preferred time"] = "Foretrukket tid",
         ["Mode: Auto-install (K1)"] = "Modus: Auto-installasjon (K1)",
         ["Mode: Download + ask (soon)"] = "Modus: Last ned + spør (kommer)",
-        ["Mode: Download + ask (K2)"] = "Modus: Last ned + spør (K2)",
-        ["Mode: Download + ask (K3)"] = "Modus: Last ned + spør (K3)",
-        ["Optional auto-reboot (K2/K3 only)"] = "Valgfri auto-omstart (kun K2/K3)",
+        ["Mode: Download + ask (critical updates)"] = "Modus: Last ned + spør (kritiske oppdateringer)",
+        ["Mode: Download + ask (general Windows update)"] = "Modus: Last ned + spør (generell Windows-oppdatering)",
+        ["Optional auto-reboot (critical updates / general Windows update only)"] =
+            "Valgfri auto-omstart (kun kritiske oppdateringer / generell Windows-oppdatering)",
         ["Allow optional auto-reboot after Critical/General installs (default off)"] =
             "Tillat valgfri auto-omstart etter kritisk/generell installasjon (standard av)",
+        ["Update Express: Defender signatures may auto-update when enabled. Critical and general Windows updates download automatically and require confirmation before install. Optional auto-reboot after critical updates / general Windows update is off by default (confirm or outside active hours). Drivers and WinGet applications use the same ask-before-install path when enabled; firmware stays manual."] =
+            "Update Express: Defender-signaturer kan auto-oppdateres når det er aktivert. Kritiske og generelle Windows-oppdateringer lastes ned automatisk og krever bekreftelse før installasjon. Valgfri auto-omstart etter kritiske oppdateringer / generell Windows-oppdatering er av som standard (bekreft eller utenfor arbeidstid). Drivere og WinGet-programmer bruker samme spør-før-installasjon-løp når de er aktivert; fastvare forblir manuell.",
         ["Ask for confirmation"] = "Spør om bekreftelse",
         ["Only outside active hours"] = "Kun utenfor arbeidstid",
         ["Active hours"] = "Arbeidstid",
@@ -1165,6 +1168,12 @@ public partial class MainWindow : Window
             FixItOpenButton.ToolTip = norwegian
                 ? "Åpne FIX IT! – reparer og diagnostiser Windows Update-problemer"
                 : "Open FIX IT! – repair and diagnose Windows Update problems";
+        if (FooterSafetyText is not null)
+        {
+            const string footerEn =
+                "Update Express: Defender signatures may auto-update when enabled. Critical and general Windows updates download automatically and require confirmation before install. Optional auto-reboot after critical updates / general Windows update is off by default (confirm or outside active hours). Drivers and WinGet applications use the same ask-before-install path when enabled; firmware stays manual.";
+            FooterSafetyText.Text = norwegian && Norwegian.TryGetValue(footerEn, out var footerNo) ? footerNo : footerEn;
+        }
         _fixItWindow?.ApplyLanguage(norwegian);
     }
     private void RefreshScheduleStatus()
