@@ -43,14 +43,15 @@ public sealed class InstallationOptionsWindow : Window
         buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
         buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
         Grid.SetRow(buttons, 2);
-        var cancel = new Button { Content = "Cancel", Width = 90, Height = 36, MinHeight = 36, Padding = new Thickness(0), Margin = new Thickness(0), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch };
-        cancel.Click += (_, _) => { DialogResult = false; };
-        var ok = new Button { Content = repair ? "Repair" : "Install", Width = 90, Height = 36, MinHeight = 36, Padding = new Thickness(0), Margin = new Thickness(0), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch };
+        var ok = new Button { Content = repair ? "Repair" : "Install", Width = 90, Height = 36, MinHeight = 36, Padding = new Thickness(0), Margin = new Thickness(0), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch, IsDefault = true };
         ok.Click += (_, _) => { DialogResult = true; };
-        Grid.SetColumn(cancel, 0);
-        Grid.SetColumn(ok, 2);
-        buttons.Children.Add(cancel);
+        var cancel = new Button { Content = "Cancel", Width = 90, Height = 36, MinHeight = 36, Padding = new Thickness(0), Margin = new Thickness(0), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch, IsCancel = true };
+        cancel.Click += (_, _) => { DialogResult = false; };
+        // Primary action left, Cancel right (Install | Cancel / Repair | Cancel).
+        Grid.SetColumn(ok, 0);
+        Grid.SetColumn(cancel, 2);
         buttons.Children.Add(ok);
+        buttons.Children.Add(cancel);
         root.Children.Add(buttons);
     }
 }

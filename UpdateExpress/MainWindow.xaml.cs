@@ -1851,6 +1851,8 @@ public partial class MainWindow : Window
                 Log("WinGet", code == 0 ? "Verification pending" : "Failed", new { app.Name, app.Id, app.Installed, app.Available, ExitCode = code, Output = output });
                 manager.CompleteItem(idx, code == 0 ? verifyingLabel : $"Failed (exit {code})", code != 0);
             }
+            // Terminal install outcomes are on screen — unlock Close before the long rescan.
+            manager.AllowClose(norwegian);
             manager.SetStage(norwegian ? "Oppdaterer Windows Update- og WinGet-resultater…" : "Refreshing Windows Update and WinGet results…");
             bool verifyTimedOut = false;
             bool stillOfferedAfterSuccess = false;

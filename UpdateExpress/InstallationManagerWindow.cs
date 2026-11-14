@@ -97,6 +97,7 @@ public sealed class InstallationManagerWindow : Window
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _clock.Tick += (_, _) => PulseElapsed();
         Closing += (_, e) => { if (_running) e.Cancel = true; };
+        Closed += (_, _) => _clock.Stop();
     }
 
     /// <summary>Keep the elapsed label current even when the dispatcher is busy between ticks.</summary>
@@ -155,21 +156,38 @@ public sealed class InstallationManagerWindow : Window
     {
         _running = true; _started = DateTime.Now; _clock.Start(); _start.IsEnabled = false; _cancel.IsEnabled = false;
     }
+
+    /// <summary>
+    /// Install phase reached a terminal outcome (Failed / Verifying / etc.).
+    /// Unlock Close immediately so the user is not stuck during the post-install refresh.
+    /// </summary>
+    public void AllowClose(bool norwegian = false)
+    {
+        _running = false;
+        _cancel.Content = norwegian ? "Lukk" : "Close";
+        _cancel.IsEnabled = true;
+    }
     public void BeginItem(int index, string stage)
     {
+        if (!IsLoaded) return;
         if (index >= 0 && index < _items.Count) _items[index].State = "Installing...";
         SetStage(stage);
     }
-    public void SetNotice(string text) => _notice.Text = text;
+    public void SetNotice(string text)
+    {
+        if (!IsLoaded) return;
+        _notice.Text = text;
+    }
     public void SetItemState(int index, string state)
     {
-        if (index < 0 || index >= _items.Count) return;
+        if (!IsLoaded || index < 0 || index >= _items.Count) return;
         _items[index].State = state;
         _list.ScrollIntoView(_items[index]);
     }
 
     public void ApplyActivity(WuaActivity activity, bool norwegian)
     {
+        if (!IsLoaded) return;
         int row = FindRow(activity.Kb);
         int number = row >= 0 ? row + 1 : activity.Number;
         int total = _items.Count > 0 ? _items.Count : Math.Max(activity.Total, 1);
@@ -231,6 +249,7 @@ public sealed class InstallationManagerWindow : Window
 
     public void CompleteItem(int index, string state, bool failed)
     {
+        if (!IsLoaded) return;
         if (index >= 0 && index < _items.Count) _items[index].State = state;
         PulseElapsed();
         _bar.IsIndeterminate = false;
@@ -240,6 +259,7 @@ public sealed class InstallationManagerWindow : Window
 
     public void SetStage(string stage)
     {
+        if (!IsLoaded) return;
         _stage.Text = stage;
         PulseElapsed();
     }
@@ -248,6 +268,7 @@ public sealed class InstallationManagerWindow : Window
     {
         _running = false;
         _clock.Stop();
+        if (!IsLoaded) return;
         _elapsed.Text = "Elapsed: " + (DateTime.Now - _started).ToString(@"hh\:mm\:ss");
         // Verifying means the installer already reported success — promote to Completed.
         // Only unmatched / still-running rows become the unresolved label.
