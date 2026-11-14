@@ -66,25 +66,63 @@ public partial class MainWindow : Window
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
         (e.Category == "Driver / firmware" ? IsManuallyInstallableDriver(e) : e.SafeDefault);
 
+    private const string WinGetSource = "WinGet";
+
+    private static bool IsWinGetRow(UpdateEntry e) =>
+        string.Equals(e.Source, WinGetSource, StringComparison.OrdinalIgnoreCase);
+
+    private UpdateEntry ToAllListAppEntry(AppUpdate app) => new()
+    {
+        IsSelected = app.IsSelected,
+        UpdateId = app.Id,
+        Category = "Application",
+        SafeDefault = true,
+        Title = app.DisplayName,
+        VersionDisplay = app.VersionSummary,
+        Status = app.Status,
+        Priority = "Unrated",
+        PriorityExplanation = app.PriorityExplanation,
+        Source = WinGetSource,
+        KB = app.KB
+    };
+
+    private void SyncWingetSelectionFromAllEntries()
+    {
+        if (_activeTab != "all") return;
+        foreach (var app in _appEntries)
+        {
+            var row = Entries.FirstOrDefault(e => IsWinGetRow(e) &&
+                string.Equals(e.UpdateId, app.Id, StringComparison.OrdinalIgnoreCase));
+            if (row is not null) app.IsSelected = row.IsSelected;
+        }
+    }
+
     private void UpdateSelectionControls()
     {
+        SyncWingetSelectionFromAllEntries();
         var visible = Entries.Where(e => VisibleInTab(e)).ToList();
-        var eligible = visible.Where(IsEligiblePending).ToList();
-        var selected = eligible.Count(e => e.IsSelected);
+        // On All, WinGet rows share the grid but selection is counted via _appEntries (avoid double-count).
+        var eligibleWindows = visible.Where(e => !IsWinGetRow(e) && IsEligiblePending(e)).ToList();
+        var selected = eligibleWindows.Count(e => e.IsSelected);
         int appCount = _appEntries.Count(a => a.IsSelected);
         bool includeApps = _activeTab is "apps" or "all";
         bool includeWindows = _activeTab is not "apps";
-        int windowEligible = includeWindows ? eligible.Count : 0;
+        int windowEligible = includeWindows ? eligibleWindows.Count : 0;
         int appEligible = includeApps ? _appEntries.Count : 0;
         int totalEligible = windowEligible + appEligible;
         int totalSelected = (includeWindows ? selected : 0) + (includeApps ? appCount : 0);
         SelectAllUpdates.IsEnabled = !_busy && totalEligible > 0;
         SelectAllUpdates.IsChecked = totalEligible > 0 && totalSelected == totalEligible;
         SelectedCountText.Text = _schedule.Language == "no" ? $"{totalSelected} valgt" : $"{totalSelected} selected";
-        InstallButton.IsEnabled = !_busy && !_showingHistory && (_pendingSnapshot.Any(e => e.IsSelected && !string.IsNullOrWhiteSpace(e.UpdateId)) || appCount > 0);
+        InstallButton.IsEnabled = !_busy && !_showingHistory &&
+            (_pendingSnapshot.Any(e => e.IsSelected && !string.IsNullOrWhiteSpace(e.UpdateId)) || appCount > 0);
         UpdateInstallSelectionBlink();
     }
-    private void UpdateCheckbox_Click(object sender, RoutedEventArgs e) => UpdateSelectionControls();
+    private void UpdateCheckbox_Click(object sender, RoutedEventArgs e)
+    {
+        SyncWingetSelectionFromAllEntries();
+        UpdateSelectionControls();
+    }
     private void SelectAllUpdates_Click(object sender, RoutedEventArgs e)
     {
         bool value = SelectAllUpdates.IsChecked == true;
@@ -92,6 +130,8 @@ public partial class MainWindow : Window
             foreach (var app in _appEntries) app.IsSelected = value;
         if (_activeTab is not "apps")
             foreach (var item in Entries.Where(e => VisibleInTab(e) && IsEligiblePending(e))) item.IsSelected = value;
+        if (_activeTab == "all")
+            SyncWingetSelectionFromAllEntries();
         UpdatesGrid.Items.Refresh(); AppsGrid.Items.Refresh();
         UpdateSelectionControls();
     }
@@ -118,6 +158,12 @@ public partial class MainWindow : Window
                 entry.DateDisplay = string.IsNullOrWhiteSpace(entry.Date) ? "" : _schedule.FormatDateValue(entry.Date);
                 Entries.Add(entry);
             }
+            // All: one shared list — append WinGet apps into the same grid (no second header).
+            if (tab == "all")
+            {
+                foreach (var app in _appEntries)
+                    Entries.Add(ToAllListAppEntry(app));
+            }
         }
         _entriesView.Refresh();
         // All tabs share the same visible column order. Empty values remain blank.
@@ -127,13 +173,14 @@ public partial class MainWindow : Window
         PaintResultTab(DriversTab, tab == "drivers");
         PaintResultTab(AppsTab, tab == "apps");
         PaintResultTab(HistoryTab, tab == "history");
-        bool showWindows = tab is not "apps";
-        bool showApps = tab is "apps" or "all";
-        WindowsUpdatesTable.Visibility = showWindows ? Visibility.Visible : Visibility.Collapsed;
-        AppsActions.Visibility = showApps ? Visibility.Visible : Visibility.Collapsed;
-        WindowsResultsRow.Height = showWindows ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        AppsResultsRow.Height = showApps ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        AppsToolbar.Visibility = showApps ? Visibility.Visible : Visibility.Collapsed;
+        bool showWindowsGrid = tab is not "apps";
+        bool showAppsGrid = tab == "apps";
+        bool showAppsToolbar = tab is "apps" or "all";
+        WindowsUpdatesTable.Visibility = showWindowsGrid ? Visibility.Visible : Visibility.Collapsed;
+        AppsActions.Visibility = showAppsGrid ? Visibility.Visible : Visibility.Collapsed;
+        WindowsResultsRow.Height = showWindowsGrid ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        AppsResultsRow.Height = showAppsGrid ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        AppsToolbar.Visibility = showAppsToolbar ? Visibility.Visible : Visibility.Collapsed;
         SelectAllUpdates.Visibility = Visibility.Visible;
         SelectedCountText.Visibility = Visibility.Visible;
         HistoryPdfButton.Visibility = tab == "history" ? Visibility.Visible : Visibility.Collapsed;
@@ -286,7 +333,10 @@ public partial class MainWindow : Window
         else
             _appliedWingetCacheAt = DateTimeOffset.Now;
         RefreshHealthSummary();
-        UpdateAppSelection();
+        if (_activeTab == "all")
+            SetTab("all");
+        else
+            UpdateAppSelection();
     }
 
     /// <summary>Pull tray/automation WinGet snapshot into the Applications grid when newer than last apply.</summary>

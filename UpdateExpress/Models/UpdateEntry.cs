@@ -56,12 +56,18 @@ public sealed class UpdateEntry
             return match.Success ? match.Groups["version"].Value : "";
         }
     }
-    public string UnifiedVersion => Category == "Driver / firmware" ? DriverVersion : SoftwareVersion;
+    /// <summary>Optional Version column override (e.g. WinGet installed → available).</summary>
+    public string VersionDisplay { get; set; } = "";
+    public string UnifiedVersion =>
+        !string.IsNullOrWhiteSpace(VersionDisplay) ? VersionDisplay
+        : Category == "Driver / firmware" ? DriverVersion
+        : SoftwareVersion;
     public string DisplayTitle => Category == "Driver / firmware"
         ? System.Text.RegularExpressions.Regex.Replace(
             TrailingVersion.Replace(Title, ""),
             @"\s+-\s+\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M\s*$", "",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim()
+        : Category == "Application" ? Title
         : (string.IsNullOrEmpty(SoftwareVersion) ? Title : SoftwareVersionLabel.Replace(Title, "").Trim());
     public bool IsHistoryFailed => Status is "Mislykket" or "Avbrutt" or "Failed" or "Cancelled" or "Feilet / avbrutt";
     public bool IsHistorySuccessful => Status is "Vellykket" or "Successful" or "Installert";
@@ -124,6 +130,7 @@ public sealed class UpdateEntry
         StatusNote = StatusNote,
         Date = Date,
         DateDisplay = DateDisplay,
+        VersionDisplay = VersionDisplay,
         Source = Source,
         ErrorCode = ErrorCode,
         OpensWindowsUpdate = OpensWindowsUpdate
