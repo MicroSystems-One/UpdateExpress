@@ -715,12 +715,16 @@ public partial class MainWindow : Window
     private void ShowOutcomeOverview(string kind)
     {
         bool norwegian = _schedule.Language == "no";
-        var failures = _historySnapshot.Where(x => x.IsHistoryFailed).ToList();
-        var success = _historySnapshot.Where(x => x.IsHistorySuccessful).ToList();
+        var failures = MergeOutcomeEntries(
+            _historySnapshot.Where(x => x.IsHistoryFailed),
+            _installOutcomeFailureEntries);
+        var success = MergeOutcomeEntries(
+            _historySnapshot.Where(x => x.IsHistorySuccessful),
+            _installOutcomeSuccessEntries);
         var fixedEntries = _historySnapshot.Where(x => x.IsHistoryFixed).ToList();
         var pendingKbs = _pendingSnapshot.SelectMany(x => SplitKbs(x.KB)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var resolvedEntries = new List<UpdateEntry>();
-        foreach (var failure in failures)
+        foreach (var failure in failures.Where(x => !string.Equals(x.StatusNote, "install-outcome", StringComparison.OrdinalIgnoreCase)))
         {
             var keys = SplitKbs(failure.KB).ToArray();
             if (keys.Length == 0) continue;
@@ -740,16 +744,16 @@ public partial class MainWindow : Window
             case "failures":
                 heading = norwegian ? "Feil" : "Failures";
                 subtitle = norwegian
-                    ? "Mislykkede eller avbrutte historikkoppføringer. Bruk Fix it når feilkode er kjent."
-                    : "Failed or cancelled history entries. Use Fix it when an error code is available.";
+                    ? "Mislykkede historikkoppføringer og feil fra siste Installation Manager-kjøring. Bruk Fix it / hjelp når feilkode finnes."
+                    : "Failed history entries and failures from the latest Installation Manager run. Use Fix it / help when an error code is available.";
                 entries = failures;
                 showFixIt = true;
                 break;
             case "success":
                 heading = norwegian ? "Vellykket" : "Success";
                 subtitle = norwegian
-                    ? "Vellykkede historikkoppføringer (og sist installasjonsrunde når den er fremhevet)."
-                    : "Successful history entries (and the latest install run when highlighted).";
+                    ? "Vellykkede historikkoppføringer og fullførte rader fra siste installasjonsrunde."
+                    : "Successful history entries and completed rows from the latest install run.";
                 entries = success;
                 break;
             case "fixed":
@@ -772,13 +776,99 @@ public partial class MainWindow : Window
 
         var dlg = new OutcomeOverviewWindow(kind, heading, subtitle, entries, showFixIt, norwegian) { Owner = this };
         if (dlg.ShowDialog() == true && dlg.FixRequestedEntry is UpdateEntry fixEntry)
-            ShowErrorFix(fixEntry);
+            OpenOutcomeFix(fixEntry, norwegian);
     }
 
-    private void SetInstallOutcome(int completed, int failed)
+    private static List<UpdateEntry> MergeOutcomeEntries(IEnumerable<UpdateEntry> history, IReadOnlyList<UpdateEntry> recent)
+    {
+        var merged = new List<UpdateEntry>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in recent.Concat(history))
+        {
+            string key = $"{entry.Source}|{entry.UpdateId}|{entry.Title}|{entry.ErrorCode}|{entry.Date}";
+            if (!seen.Add(key)) continue;
+            merged.Add(entry);
+        }
+        return merged;
+    }
+
+    private void OpenOutcomeFix(UpdateEntry entry, bool norwegian)
+    {
+        if (string.Equals(entry.Source, "WinGet", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(entry.Category, "Application", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(entry.ErrorCode, "0x8A15008E", StringComparison.OrdinalIgnoreCase))
+        {
+            var item = new InstallationQueueItem(entry.Source, entry.Title)
+            {
+                State = entry.ErrorCode == "0x8A15008E"
+                    ? (norwegian ? "Feilet (teknologi-mismatch)" : "Failed (tech mismatch)")
+                    : (string.IsNullOrWhiteSpace(entry.ErrorCode) ? entry.Status : "Failed " + entry.ErrorCode),
+                Tip = string.IsNullOrWhiteSpace(entry.StatusNote) || entry.StatusNote == "install-outcome"
+                    ? null
+                    : entry.StatusNote
+            };
+            if (string.IsNullOrWhiteSpace(item.Tip) && entry.ErrorCode == "0x8A15008E")
+            {
+                var (_, tip, _) = WingetReader.DescribeUpgradeFailure(
+                    WingetReader.ExitInstallTechnologyMismatch, entry.Title, norwegian);
+                item.Tip = tip;
+            }
+            new InstallStatusHelpWindow(item, norwegian) { Owner = this }.ShowDialog();
+            return;
+        }
+        ShowErrorFix(entry);
+    }
+
+    private static UpdateEntry ToInstallOutcomeEntry(InstallationQueueItem item)
+    {
+        string blob = item.State + " " + (item.Tip ?? "");
+        var hr = System.Text.RegularExpressions.Regex.Match(blob, @"0x[0-9A-Fa-f]{8}");
+        string error = hr.Success ? hr.Value : "";
+        if (string.IsNullOrWhiteSpace(error) &&
+            (item.State.Contains("tech mismatch", StringComparison.OrdinalIgnoreCase)
+             || item.State.Contains("teknologi-mismatch", StringComparison.OrdinalIgnoreCase)
+             || (item.Tip?.Contains("0x8A15008E", StringComparison.OrdinalIgnoreCase) ?? false)
+             || (item.Tip?.Contains("-1978335090", StringComparison.OrdinalIgnoreCase) ?? false)))
+            error = "0x8A15008E";
+
+        string category = item.Source.Contains("WinGet", StringComparison.OrdinalIgnoreCase) ? "Application"
+            : item.Source.Contains("Driver", StringComparison.OrdinalIgnoreCase) ? "Driver / firmware"
+            : "Windows Update";
+        bool failed = item.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase)
+            || item.State.StartsWith("Feilet", StringComparison.OrdinalIgnoreCase);
+        bool completed = InstallationManagerWindow.IsCompletedState(item.State);
+
+        return new UpdateEntry
+        {
+            Title = item.Name,
+            Category = category,
+            Source = item.Source,
+            Status = failed ? "Failed" : completed ? "Successful" : item.State,
+            ErrorCode = error,
+            StatusNote = string.IsNullOrWhiteSpace(item.Tip) ? "install-outcome" : item.Tip,
+            Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+            UpdateId = "",
+            SafeDefault = false
+        };
+    }
+
+    private void SetInstallOutcome(int completed, int failed, IReadOnlyList<InstallationQueueItem>? queue = null)
     {
         _installOutcomeSuccess = completed;
         _installOutcomeFailures = failed;
+        _installOutcomeFailureEntries.Clear();
+        _installOutcomeSuccessEntries.Clear();
+        if (queue is not null)
+        {
+            foreach (var item in queue)
+            {
+                if (item.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase)
+                    || item.State.StartsWith("Feilet", StringComparison.OrdinalIgnoreCase))
+                    _installOutcomeFailureEntries.Add(ToInstallOutcomeEntry(item));
+                else if (InstallationManagerWindow.IsCompletedState(item.State))
+                    _installOutcomeSuccessEntries.Add(ToInstallOutcomeEntry(item));
+            }
+        }
         _installOutcomeBlinkOn = true;
         if (!_installOutcomeBlinkTimer.IsEnabled)
             _installOutcomeBlinkTimer.Start();
@@ -787,10 +877,14 @@ public partial class MainWindow : Window
 
     private void ClearInstallOutcomeHighlight()
     {
-        if (_installOutcomeSuccess is null && _installOutcomeFailures is null) return;
+        if (_installOutcomeSuccess is null && _installOutcomeFailures is null
+            && _installOutcomeFailureEntries.Count == 0 && _installOutcomeSuccessEntries.Count == 0)
+            return;
         _installOutcomeBlinkTimer.Stop();
         _installOutcomeSuccess = null;
         _installOutcomeFailures = null;
+        _installOutcomeFailureEntries.Clear();
+        _installOutcomeSuccessEntries.Clear();
         _installOutcomeBlinkOn = false;
         RefreshHealthSummary();
     }
@@ -930,6 +1024,9 @@ public partial class MainWindow : Window
     private int? _installOutcomeSuccess;
     private int? _installOutcomeFailures;
     private bool _installOutcomeBlinkOn;
+    /// <summary>Last Installation Manager failed rows (WinGet/WUA/driver) shown under Failures until the next scan clears the highlight.</summary>
+    private readonly List<UpdateEntry> _installOutcomeFailureEntries = new();
+    private readonly List<UpdateEntry> _installOutcomeSuccessEntries = new();
 
     private string RebootBannerText()
     {
@@ -2297,7 +2394,7 @@ public partial class MainWindow : Window
                     ? catalogLagGuidance
                     : null;
             var outcome = manager.Finish(norwegian, guidance, verifyTimedOut ? timedOutLabel : notVerifiedLabel);
-            SetInstallOutcome(outcome.Completed, outcome.Failed);
+            SetInstallOutcome(outcome.Completed, outcome.Failed, queue);
             StatusText.Text = norwegian
                 ? "Installasjon ferdig. Installation Manager lukkes automatisk om ca. 60 sekunder."
                 : "Installation finished. Installation Manager closes automatically in about 60 seconds.";
@@ -2307,7 +2404,7 @@ public partial class MainWindow : Window
             Log("InstallationManager", "Failed", ex.ToString());
             manager.SetStage("Installation interrupted: " + ex.Message);
             var outcome = manager.Finish(norwegian, retryGuidance, notVerifiedLabel);
-            SetInstallOutcome(outcome.Completed, outcome.Failed);
+            SetInstallOutcome(outcome.Completed, outcome.Failed, queue);
             MessageBox.Show(this, ex.Message, "Installation Manager", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -2549,14 +2646,14 @@ public partial class MainWindow : Window
                         manager.CompleteItem(i, itemState, itemState.StartsWith("Failed", StringComparison.Ordinal));
                     }
                     var outcome = manager.Finish(norwegian);
-                    SetInstallOutcome(outcome.Completed, outcome.Failed);
+                    SetInstallOutcome(outcome.Completed, outcome.Failed, queue);
                 }
                 catch (Exception ex)
                 {
                     try
                     {
                         var outcome = manager.Finish();
-                        SetInstallOutcome(outcome.Completed, outcome.Failed);
+                        SetInstallOutcome(outcome.Completed, outcome.Failed, queue);
                         manager.SetStage(ex.Message);
                     }
                     catch { }
