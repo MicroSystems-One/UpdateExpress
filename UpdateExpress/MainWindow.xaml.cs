@@ -2094,7 +2094,15 @@ public partial class MainWindow : Window
                             result.Status is "Installert" or "Already up to date" ? verifyingLabel :
                             result.Status is "Delvis fullført" ? notVerifiedLabel :
                             "Failed" + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " " + result.ErrorCode);
-                        manager.CompleteItem(start + i, state, state.StartsWith("Failed", StringComparison.Ordinal));
+                        string? tip = null;
+                        if (state.StartsWith("Failed", StringComparison.Ordinal) && result is not null && !string.IsNullOrWhiteSpace(result.ErrorCode))
+                        {
+                            var info = WindowsUpdateErrorCatalog.Lookup(result.ErrorCode);
+                            tip = string.IsNullOrWhiteSpace(info.Summary)
+                                ? result.ErrorCode
+                                : $"{info.Code} — {info.Name}. {info.Summary} {info.Guidance}".Trim();
+                        }
+                        manager.CompleteItem(start + i, state, state.StartsWith("Failed", StringComparison.Ordinal), tip);
                     }
                 }
                 catch (Exception ex) { for (int i = 0; i < software.Count; i++) manager.CompleteItem(start + i, "Failed", true); Log("WUA", "Failed", ex.ToString()); }
@@ -2129,12 +2137,28 @@ public partial class MainWindow : Window
                         driverResult.Status == "Installert" ? verifyingLabel :
                         driverResult.Status == "Delvis fullført" ? notVerifiedLabel :
                         "Failed" + (string.IsNullOrWhiteSpace(driverResult.ErrorCode) ? "" : " " + driverResult.ErrorCode);
-                    manager.CompleteItem(idx, driverState, driverState.StartsWith("Failed", StringComparison.Ordinal));
+                    string? driverTip = null;
+                    if (driverState.StartsWith("Failed", StringComparison.Ordinal) && driverResult is not null && !string.IsNullOrWhiteSpace(driverResult.ErrorCode))
+                    {
+                        var info = WindowsUpdateErrorCatalog.Lookup(driverResult.ErrorCode);
+                        driverTip = string.IsNullOrWhiteSpace(info.Summary)
+                            ? driverResult.ErrorCode
+                            : $"{info.Code} — {info.Name}. {info.Summary} {info.Guidance}".Trim();
+                    }
+                    manager.CompleteItem(idx, driverState, driverState.StartsWith("Failed", StringComparison.Ordinal), driverTip);
                 }
                 catch (Exception ex)
                 {
                     string hresult = ex.HResult < 0 ? $" 0x{unchecked((uint)ex.HResult):X8}" : "";
-                    manager.CompleteItem(idx, "Failed" + hresult, true);
+                    string? tip = null;
+                    if (!string.IsNullOrWhiteSpace(hresult))
+                    {
+                        var info = WindowsUpdateErrorCatalog.Lookup(hresult.Trim());
+                        tip = string.IsNullOrWhiteSpace(info.Summary)
+                            ? hresult.Trim()
+                            : $"{info.Code} — {info.Name}. {info.Summary} {info.Guidance}".Trim();
+                    }
+                    manager.CompleteItem(idx, "Failed" + hresult, true, tip);
                     Log("Driver", "Failed", new { d.Title, d.UpdateId, d.DriverHardwareId, Exception = ex.ToString(), InnerException = ex.InnerException?.ToString() });
                     manager.SetStage("Driver failed: " + ex.Message);
                 }

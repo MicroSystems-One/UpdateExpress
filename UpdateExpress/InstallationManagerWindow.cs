@@ -1,6 +1,8 @@
 ﻿using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using UpdateExpress.Services;
@@ -12,9 +14,29 @@ public sealed class InstallationQueueItem(string source, string name) : System.C
     public string Source { get; } = source;
     public string Name { get; } = name;
     private string _state = "Pending";
-    public string State { get => _state; set { _state = value; PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(State))); } }
+    public string State
+    {
+        get => _state;
+        set
+        {
+            _state = value;
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(State)));
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsClickableStatus)));
+        }
+    }
     private string? _tip;
-    public string? Tip { get => _tip; set { _tip = value; PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Tip))); } }
+    public string? Tip
+    {
+        get => _tip;
+        set
+        {
+            _tip = value;
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Tip)));
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsClickableStatus)));
+        }
+    }
+    /// <summary>Non-success terminal statuses can open installation help.</summary>
+    public bool IsClickableStatus => InstallationManagerWindow.IsHelpfulStatus(_state);
     public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 }
 
@@ -84,24 +106,114 @@ public sealed class InstallationManagerWindow : Window
         var view = new GridView();
         view.Columns.Add(new GridViewColumn { Header = "Source", Width = 125, DisplayMemberBinding = new System.Windows.Data.Binding("Source") });
         view.Columns.Add(new GridViewColumn { Header = "Update", Width = 410, DisplayMemberBinding = new System.Windows.Data.Binding("Name") });
-        // Status ~30% wider than previous 140; centered Installing/Pending/Completed text.
+        // Status ~30% wider than previous 140; non-success terminal states are clickable for help.
         var statusColumn = new GridViewColumn { Header = "Status", Width = 182 };
         var statusFactory = new FrameworkElementFactory(typeof(TextBlock));
-        statusFactory.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding("State"));
-        statusFactory.SetBinding(FrameworkElement.ToolTipProperty, new System.Windows.Data.Binding("Tip"));
+        statusFactory.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(InstallationQueueItem.State)));
+        statusFactory.SetBinding(FrameworkElement.ToolTipProperty, new System.Windows.Data.Binding(nameof(InstallationQueueItem.Tip)));
         statusFactory.SetValue(TextBlock.TextAlignmentProperty, TextAlignment.Center);
         statusFactory.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
         statusFactory.SetValue(FrameworkElement.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Stretch);
         statusFactory.SetValue(FrameworkElement.VerticalAlignmentProperty, System.Windows.VerticalAlignment.Center);
+        statusFactory.AddHandler(UIElement.MouseLeftButtonUpEvent, new MouseButtonEventHandler(StatusCell_Click));
         statusColumn.CellTemplate = new DataTemplate { VisualTree = statusFactory };
         view.Columns.Add(statusColumn);
         list.View = view;
+        list.MouseDoubleClick += List_MouseDoubleClick;
         var frame = new Border { CornerRadius = new CornerRadius(10), BorderBrush = new SolidColorBrush(Color.FromRgb(211, 221, 234)), BorderThickness = new Thickness(1), Background = Brushes.White, SnapsToDevicePixels = true, Child = list };
         root.Children.Add(frame);
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _clock.Tick += (_, _) => PulseElapsed();
         Closing += (_, e) => { if (_running) e.Cancel = true; };
         Closed += (_, _) => _clock.Stop();
+    }
+
+    public static bool IsHelpfulStatus(string state)
+    {
+        if (string.IsNullOrWhiteSpace(state)) return false;
+        if (IsCompletedState(state)) return false;
+        if (IsStillRunning(state) || IsVerifyingState(state)) return false;
+        if (state is "Pending" or "Downloaded" or "Lastet ned") return false;
+        return state.StartsWith("Failed", StringComparison.OrdinalIgnoreCase)
+            || state.StartsWith("Feilet", StringComparison.OrdinalIgnoreCase)
+            || IsUnverifiedState(state)
+            || state.Contains("mismatch", StringComparison.OrdinalIgnoreCase)
+            || state.Contains("0x", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void StatusCell_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: InstallationQueueItem item } && item.IsClickableStatus)
+        {
+            e.Handled = true;
+            ShowStatusHelp(item);
+        }
+    }
+
+    private void List_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (_list.SelectedItem is InstallationQueueItem item && item.IsClickableStatus)
+            ShowStatusHelp(item);
+    }
+
+    private void ShowStatusHelp(InstallationQueueItem item)
+    {
+        bool norwegian = false;
+        try { norwegian = string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase); }
+        catch { /* default EN */ }
+        // Enrich empty tips from HRESULT in the status text when possible.
+        if (string.IsNullOrWhiteSpace(item.Tip))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(item.State, @"0x[0-9A-Fa-f]{8}");
+            if (match.Success)
+            {
+                var info = WindowsUpdateErrorCatalog.Lookup(match.Value);
+                item.Tip = string.IsNullOrWhiteSpace(info.Summary)
+                    ? match.Value
+                    : $"{info.Code} — {info.Name}. {info.Summary} {info.Guidance}".Trim();
+            }
+        }
+        new InstallStatusHelpWindow(item, norwegian) { Owner = this }.ShowDialog();
+    }
+
+    private void RefreshStatusCellVisuals()
+    {
+        bool norwegian = false;
+        try { norwegian = string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase); }
+        catch { /* EN */ }
+        foreach (var item in _items)
+        {
+            if (_list.ItemContainerGenerator.ContainerFromItem(item) is not System.Windows.Controls.ListViewItem container) continue;
+            if (FindStatusTextBlock(container, item.State) is not TextBlock tb) continue;
+            if (item.IsClickableStatus)
+            {
+                tb.Cursor = System.Windows.Input.Cursors.Hand;
+                tb.Foreground = new SolidColorBrush(Color.FromRgb(198, 40, 40));
+                tb.TextDecorations = TextDecorations.Underline;
+                string clickHint = norwegian ? "Klikk for forslag." : "Click for suggestions.";
+                tb.ToolTip = string.IsNullOrWhiteSpace(item.Tip) ? clickHint : item.Tip + "\n\n" + clickHint;
+            }
+            else
+            {
+                tb.Cursor = System.Windows.Input.Cursors.Arrow;
+                tb.ClearValue(TextBlock.ForegroundProperty);
+                tb.TextDecorations = null;
+            }
+        }
+    }
+
+    private static TextBlock? FindStatusTextBlock(DependencyObject root, string state)
+    {
+        if (root is TextBlock tb && tb.DataContext is InstallationQueueItem &&
+            string.Equals(tb.Text, state, StringComparison.Ordinal))
+            return tb;
+        int n = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < n; i++)
+        {
+            var found = FindStatusTextBlock(VisualTreeHelper.GetChild(root, i), state);
+            if (found is not null) return found;
+        }
+        return null;
     }
 
     /// <summary>Keep the elapsed label current even when the dispatcher is busy between ticks.</summary>
@@ -257,8 +369,10 @@ public sealed class InstallationManagerWindow : Window
         if (index >= 0 && index < _items.Count)
         {
             _items[index].State = state;
-            _items[index].Tip = tip;
+            if (!string.IsNullOrWhiteSpace(tip))
+                _items[index].Tip = tip;
             _list.ScrollIntoView(_items[index]);
+            Dispatcher.BeginInvoke(RefreshStatusCellVisuals, DispatcherPriority.Loaded);
         }
         PulseElapsed();
         _bar.IsIndeterminate = false;
@@ -313,8 +427,13 @@ public sealed class InstallationManagerWindow : Window
         // Show guidance for unverified rows and for soft notices (catalog lag after success).
         if (!string.IsNullOrWhiteSpace(guidance))
             _notice.Text = guidance;
+        else if (failed > 0)
+            _notice.Text = norwegian
+                ? "Klikk en feilet/ikke-vellykket Status for forslag (Fix/katalog/Store)."
+                : "Click a failed/non-success Status for suggestions (fix/catalog/Store).";
         _cancel.Content = norwegian ? "Lukk" : "Close";
         _cancel.IsEnabled = true;
+        Dispatcher.BeginInvoke(RefreshStatusCellVisuals, DispatcherPriority.Loaded);
         ScheduleAutoClose(TimeSpan.FromSeconds(60));
         return (completed, failed, unverified);
     }
