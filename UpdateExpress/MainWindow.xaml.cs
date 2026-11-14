@@ -18,7 +18,7 @@ public partial class MainWindow : Window
     public ObservableCollection<UpdateEntry> Entries { get; } = new();
     private ReminderSchedule _schedule = new();
     private readonly ICollectionView _entriesView;
-    private string _activeTab = "software";
+    private string _activeTab = "all";
     private bool _showingHistory;
     public ObservableCollection<AppUpdate> AppEntries { get; } = new();
     public bool AutomaticAppsEnabled => AutoApplications?.IsChecked == true;
@@ -1156,7 +1156,7 @@ public partial class MainWindow : Window
         _entriesView = CollectionViewSource.GetDefaultView(Entries);
         _entriesView.Filter = VisibleInTab;
         UpdatesGrid.ItemsSource = _entriesView;
-        SetTab("software");
+        SetTab("all");
         _schedule = ReminderSchedule.Load();
         DayChoice.SelectedIndex = _schedule.Weekday == 7 ? 0 : Math.Clamp(_schedule.Weekday, 0, 6) + 1;
         TimeChoice.Text = _schedule.Time;
@@ -1562,7 +1562,8 @@ public partial class MainWindow : Window
             var windows = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(includeOptional, allDrivers));
             ReplacePendingSnapshot(windows);
             _lastSuccessfulScan = DateTime.Now;
-            SetTab("software");
+            // Keep the user's current results tab (All is the startup default).
+            SetTab(_activeTab);
             int driverCount = windows.Count(e => e.Category == "Driver / firmware");
             try
             {
