@@ -1,0 +1,70 @@
+<Window x:Class="UpdateExpress.OutcomeOverviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Update outcomes"
+        Width="820" Height="480" MinWidth="640" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        Background="#F3F6FB" FontFamily="Segoe UI"
+        ShowInTaskbar="False">
+  <Window.Resources>
+    <Style x:Key="FixItRowButton" TargetType="Button">
+      <Setter Property="Padding" Value="8,2"/>
+      <Setter Property="Margin" Value="4,2"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Visibility" Value="Collapsed"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding HasFixableErrorCode}" Value="True">
+          <Setter Property="Visibility" Value="Visible"/>
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+  </Window.Resources>
+  <Border Margin="14" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="12" Padding="14">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <TextBlock x:Name="HeadingText" FontSize="18" FontWeight="SemiBold" Foreground="#152137"/>
+      <TextBlock x:Name="SubtitleText" Grid.Row="1" Margin="0,4,0,10" FontSize="12" Foreground="#52617A" TextWrapping="Wrap"/>
+      <DataGrid x:Name="EntriesGrid" Grid.Row="2"
+                AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                HeadersVisibility="Column" RowHeaderWidth="0" GridLinesVisibility="Horizontal"
+                SelectionMode="Single" FontSize="12" SelectionChanged="EntriesGrid_SelectionChanged"
+                MouseDoubleClick="EntriesGrid_MouseDoubleClick">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="KB" Binding="{Binding KB}" Width="90"/>
+          <DataGridTextColumn Header="Update" Binding="{Binding DisplayTitle}" Width="*"/>
+          <DataGridTextColumn Header="Status" Binding="{Binding DisplayStatus}" Width="110"/>
+          <DataGridTextColumn Header="Error" Binding="{Binding ErrorCode}" Width="120"/>
+          <DataGridTextColumn Header="Date / Time" Binding="{Binding DateShown}" Width="140"/>
+          <DataGridTemplateColumn x:Name="FixColumn" Header="" Width="90">
+            <DataGridTemplateColumn.CellTemplate>
+              <DataTemplate>
+                <Button Content="Fix it" Style="{StaticResource FixItRowButton}"
+                        Click="FixIt_Click" Tag="{Binding}"/>
+              </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+          </DataGridTemplateColumn>
+        </DataGrid.Columns>
+      </DataGrid>
+      <Grid Grid.Row="3" Height="27" MinHeight="27" MaxHeight="27" HorizontalAlignment="Right" Margin="0,12,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="100"/>
+          <ColumnDefinition Width="8"/>
+          <ColumnDefinition Width="90"/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="FixSelectedButton" Grid.Column="0" Content="Fix it"
+                Height="27" MinHeight="27" MaxHeight="27" Padding="10,0"
+                VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                Click="FixSelected_Click" IsEnabled="False"/>
+        <Button x:Name="CloseButton" Grid.Column="2" Content="Close"
+                Height="27" MinHeight="27" MaxHeight="27" Padding="10,0"
+                VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                IsCancel="True" Click="Close_Click"/>
+      </Grid>
+    </Grid>
+  </Border>
+</Window>

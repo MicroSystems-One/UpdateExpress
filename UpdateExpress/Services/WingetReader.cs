@@ -68,6 +68,32 @@ public static class WingetReader
         catch (OperationCanceledException) { try { proc.Kill(entireProcessTree: true); } catch { } throw; }
         return (proc.ExitCode, (await outputTask) + Environment.NewLine + (await errorTask));
     }
+
+    /// <summary>winget APPINSTALLER_CLI_ERROR_UPDATE_INSTALL_TECHNOLOGY_MISMATCH (0x8A15008E).</summary>
+    public const int ExitInstallTechnologyMismatch = unchecked((int)0x8A15008E); // -1978335090
+
+    public static bool IsInstallTechnologyMismatch(int exitCode) => exitCode == ExitInstallTechnologyMismatch;
+
+    /// <summary>
+    /// Status label + tooltip/notice for a failed winget upgrade.
+    /// Known codes get a clear EN/NO hint; others keep the raw exit code.
+    /// </summary>
+    public static (string State, string? Tip, string? Notice) DescribeUpgradeFailure(int exitCode, string packageLabel, bool norwegian)
+    {
+        if (IsInstallTechnologyMismatch(exitCode))
+        {
+            string state = norwegian ? "Feilet (teknologi-mismatch)" : "Failed (tech mismatch)";
+            string tip = norwegian
+                ? "WinGet exit -1978335090 (0x8A15008E): pakken er installert via en annen kanal (f.eks. Microsoft Store eller MSI) enn den WinGet vil oppgradere. Avinstaller og installer på nytt via winget, eller oppgrader i Store."
+                : "WinGet exit -1978335090 (0x8A15008E): package was installed via another channel (e.g. Microsoft Store or MSI) than the one WinGet uses to upgrade. Reinstall via winget, or upgrade in the Store.";
+            string notice = norwegian
+                ? $"{packageLabel}: installert via annen kanal — reinstaller via winget eller oppgrader i Store."
+                : $"{packageLabel}: installed via another channel — reinstall via winget or upgrade in the Store.";
+            return (state, tip, notice);
+        }
+
+        return ($"Failed (exit {exitCode})", null, null);
+    }
     private static List<AppUpdate> ParseTable(string output)
     {
         var result = new List<AppUpdate>();
