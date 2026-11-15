@@ -385,7 +385,7 @@
     <Border Background="#F4FBF7" BorderBrush="#C9E8D6" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
       <StackPanel>
         <DockPanel LastChildFill="True" Margin="0,0,0,6">
-          <Button DockPanel.Dock="Right" Content="Change setup…" Click="ChangeSetup_Click" Padding="10,4" MinHeight="29" Margin="8,0,0,0"/>
+          <Button DockPanel.Dock="Right" Content="Change setup…" Click="ChangeSetup_Click" Padding="10,0" Height="27" MinHeight="27" MaxHeight="27" Margin="8,0,0,0" VerticalAlignment="Center"/>
           <TextBlock Text="Maintenance window" FontWeight="SemiBold" VerticalAlignment="Center"/>
         </DockPanel>
         <TextBlock x:Name="MaintenanceSummaryText" FontSize="12" Foreground="#52617A" TextWrapping="Wrap" Margin="0,0,0,8"/>
@@ -396,8 +396,10 @@
           <TextBox x:Name="SharedInstallTime" Text="18:00" Width="72" Height="28" Padding="6,3" Margin="0,0,16,0"/>
           <CheckBox x:Name="RemindersEnabled" Content="Enable Reminders" IsChecked="False" VerticalAlignment="Center"/>
         </WrapPanel>
-        <WrapPanel>
-          <Button Content="▣  Save Schedule" Click="SaveSchedule_Click"/><Button Content="♧  Test Notification" Click="TestReminder_Click"/><Button Content="☷  Notification History" Click="ReminderHistory_Click"/>
+        <WrapPanel VerticalAlignment="Center">
+          <Button Content="▣  Save Schedule" Click="SaveSchedule_Click" Height="27" MinHeight="27" MaxHeight="27" Padding="10,0" Margin="0,0,8,0" VerticalAlignment="Center"/>
+          <Button Content="♧  Test Notification" Click="TestReminder_Click" Height="27" MinHeight="27" MaxHeight="27" Padding="10,0" Margin="0,0,8,0" VerticalAlignment="Center"/>
+          <Button Content="☷  Notification History" Click="ReminderHistory_Click" Height="27" MinHeight="27" MaxHeight="27" Padding="10,0" VerticalAlignment="Center"/>
         </WrapPanel>
         <TextBlock x:Name="ScheduleStatus" Foreground="#52617A" Margin="0,8,0,0" TextWrapping="Wrap"/>
       </StackPanel>

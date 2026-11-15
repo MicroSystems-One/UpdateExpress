@@ -38,7 +38,7 @@ internal static class InstallationManager
         if (dialog.ShowDialog() != true) return;
         if (repair && IsInstalled && dialog.AllUsers != (RunningMachineCopy || (!File.Exists(UserExe) && File.Exists(MachineExe))))
             throw new InvalidOperationException("Repair must use the existing installation scope. Use Install to change scope.");
-        LaunchMaintenance(repair ? "repair" : "install", dialog.AllUsers, dialog.DesktopShortcut, dialog.StartMenuShortcut, dialog.BackgroundAgent);
+        LaunchMaintenance(repair ? "repair" : "install", dialog.AllUsers, dialog.DesktopShortcut, dialog.StartMenuShortcut, dialog.BackgroundAgent, dialog.TaskbarPin);
     }
 
     internal static void Uninstall()
@@ -67,17 +67,18 @@ internal static class InstallationManager
             ShortcutFileName);
         bool desktop = HasAppShortcut(EnumerateDesktopFolders()) || File.Exists(desktopShortcut);
         bool startMenu = HasAppShortcut(EnumerateStartMenuFolders()) || File.Exists(menuShortcut);
+        bool taskbar = HasAppShortcut(EnumerateTaskbarFolders());
         bool agent = false;
         if (!machine)
         {
             using var key = Registry.CurrentUser.OpenSubKey(RunKey, false);
             agent = key?.GetValue(RunName) is string;
         }
-        AgentLog.Write($"Launching self-update: package={verifiedPackagePath}; scope={(machine ? "machine" : "user")}; agent={agent}");
-        LaunchMaintenance("upgrade", machine, desktop, startMenu, agent, verifiedPackagePath);
+        AgentLog.Write($"Launching self-update: package={verifiedPackagePath}; scope={(machine ? "machine" : "user")}; agent={agent}; taskbar={taskbar}");
+        LaunchMaintenance("upgrade", machine, desktop, startMenu, agent, taskbar, verifiedPackagePath);
     }
 
-    private static void LaunchMaintenance(string operation, bool allUsers, bool desktop, bool startMenu, bool agent, string? packageSource = null)
+    private static void LaunchMaintenance(string operation, bool allUsers, bool desktop, bool startMenu, bool agent, bool taskbar = false, string? packageSource = null)
     {
         string running = Environment.ProcessPath ?? throw new InvalidOperationException("Fant ikke programfilen.");
         string source = packageSource ?? running;
@@ -88,7 +89,7 @@ internal static class InstallationManager
         string helper = Path.Combine(helperDir, "UpdateExpress-Maintenance.exe");
         File.Copy(running, helper);
         int parentPid = Environment.ProcessId;
-        string arguments = $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers ? "machine" : "user")} {(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)}";
+        string arguments = $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers ? "machine" : "user")} {(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)} {(taskbar ? 1 : 0)}";
         AgentLog.Write($"Launching detached maintenance: {operation} (parent {parentPid})");
         using var maintenanceProcess = Process.Start(new ProcessStartInfo(helper, arguments) { UseShellExecute = true, WorkingDirectory = helperDir, Verb = allUsers ? "runas" : "open" })
             ?? throw new InvalidOperationException("Kunne ikke starte vedlikeholdsprosessen.");
@@ -123,14 +124,15 @@ internal static class InstallationManager
 
     internal static void ApplyMaintenance(string[] args)
     {
-        // Arguments: --apply-maintenance <install|repair|uninstall|upgrade> <parentPID> <sourceEXE>
-        if (args.Length != 8 || !new[] { "install", "repair", "uninstall", "upgrade" }.Contains(args[1], StringComparer.OrdinalIgnoreCase)
+        // Arguments: --apply-maintenance <op> <parentPID> <sourceEXE> <scope> <desktop> <startMenu> <agent> [taskbar]
+        if ((args.Length != 8 && args.Length != 9) || !new[] { "install", "repair", "uninstall", "upgrade" }.Contains(args[1], StringComparer.OrdinalIgnoreCase)
             || !int.TryParse(args[2], out int parentPid))
             throw new ArgumentException("Ugyldige parametere for vedlikehold.");
         string operation = args[1].ToLowerInvariant();
         string source = Path.GetFullPath(args[3]);
         bool machine = args[4] == "machine";
         bool desktop = args[5] == "1", startMenu = args[6] == "1", agent = args[7] == "1";
+        bool taskbar = args.Length >= 9 && args[8] == "1";
         // Machine-wide auto-start needs a separate per-user registration flow; not supported in this preview.
         if (machine) agent = false;
         string targetDir = machine ? MachineInstallDir : UserInstallDir;
@@ -138,6 +140,8 @@ internal static class InstallationManager
         string menuDir = machine ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems") : StartMenuDir;
         string menuShortcut = Path.Combine(menuDir, ShortcutFileName);
         string desktopShortcut = Path.Combine(Environment.GetFolderPath(machine ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory), ShortcutFileName);
+        string taskbarDir = TaskbarPinFolder;
+        string taskbarShortcut = Path.Combine(taskbarDir, ShortcutFileName);
         var hive = machine ? Registry.LocalMachine : Registry.CurrentUser;
         string iconPath = Path.Combine(targetDir, DesktopIconName);
         if (!File.Exists(source) && operation != "uninstall")
@@ -158,6 +162,7 @@ internal static class InstallationManager
                 hive.DeleteSubKeyTree(UninstallKey, false);
                 RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
                 RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: null);
+                RemoveAppShortcuts(EnumerateTaskbarFolders(), keepPath: null);
                 if (File.Exists(targetExe)) RetryFileOperation(() => File.Delete(targetExe), targetExe);
                 if (File.Exists(iconPath)) RetryFileOperation(() => File.Delete(iconPath), iconPath);
                 TryDeleteLegacyVersionedIcons(targetDir);
@@ -175,7 +180,8 @@ internal static class InstallationManager
                     throw new FileNotFoundException("Programfilen mangler. Kjør Installer fra den nye Publisert-mappen.");
                 RetryFileOperation(() => WriteInstalledIcon(iconPath), iconPath);
                 TryDeleteLegacyVersionedIcons(targetDir);
-                // Always strip duplicate/orphan Update Express shortcuts first so upgrades leave one icon.
+                // Always strip duplicate/orphan Update Express shortcuts first so upgrades leave one icon
+                // with the current install path and U icon.
                 if (startMenu)
                 {
                     Directory.CreateDirectory(menuDir);
@@ -191,6 +197,17 @@ internal static class InstallationManager
                 }
                 else
                     RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
+                // Taskbar: create when requested; always refresh an existing pin so path/icon stay current (no duplicates).
+                bool hadTaskbarPin = HasAppShortcut(EnumerateTaskbarFolders()) || File.Exists(taskbarShortcut);
+                if (taskbar || hadTaskbarPin)
+                {
+                    Directory.CreateDirectory(taskbarDir);
+                    RemoveAppShortcuts(EnumerateTaskbarFolders(), keepPath: taskbarShortcut);
+                    CreateShortcut(taskbarShortcut, targetExe, "--installed", targetDir, iconPath);
+                    AgentLog.Write(taskbar
+                        ? "Taskbar pin created/updated: " + taskbarShortcut
+                        : "Existing taskbar pin refreshed: " + taskbarShortcut);
+                }
                 string displayVersion = ReadDisplayVersion(targetExe);
                 using (var key = hive.CreateSubKey(UninstallKey))
                 {
@@ -429,6 +446,16 @@ internal static class InstallationManager
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems");
     }
 
+    private static string TaskbarPinFolder =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Microsoft", "Internet Explorer", "Quick Launch", "User Pinned", "TaskBar");
+
+    private static IEnumerable<string> EnumerateTaskbarFolders()
+    {
+        yield return TaskbarPinFolder;
+    }
+
     private static bool HasAppShortcut(IEnumerable<string> folders) =>
         EnumerateAppShortcuts(folders).Any();
 
@@ -531,9 +558,11 @@ internal static class InstallationManager
             shortcut.TargetPath = target;
             shortcut.Arguments = arguments;
             shortcut.WorkingDirectory = workingDirectory;
-            shortcut.IconLocation = iconPath + ",0";
+            // Prefer the installed U icon file; fall back to the EXE so Explorer never shows a blank icon.
+            shortcut.IconLocation = (File.Exists(iconPath) ? iconPath : target) + ",0";
             shortcut.Description = "Update Express fra MicroSystems";
             shortcut.Save();
+            AgentLog.Write($"Shortcut written: {shortcutPath} → {target} (icon={(File.Exists(iconPath) ? iconPath : target)})");
         }
         finally { if (System.Runtime.InteropServices.Marshal.IsComObject(shell)) System.Runtime.InteropServices.Marshal.ReleaseComObject(shell); }
     }

@@ -48,43 +48,70 @@ public sealed class SetupWizardWindow : Window
         var root = new DockPanel { Margin = new Thickness(22) };
         Content = root;
 
-        var footer = new DockPanel { Margin = new Thickness(0, 16, 0, 0), LastChildFill = false };
+        // Fixed 27px footer row: Skip left, Back+Next/Finish right — same line on every step.
+        var footer = new Grid
+        {
+            Height = 27,
+            MinHeight = 27,
+            MaxHeight = 27,
+            Margin = new Thickness(0, 16, 0, 0),
+            VerticalAlignment = System.Windows.VerticalAlignment.Bottom
+        };
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         DockPanel.SetDock(footer, Dock.Bottom);
         root.Children.Add(footer);
 
+        var footerStyle = CreateFooterButtonStyle();
         _skip = new Button
         {
             Content = _norwegian ? "Hopp over" : "Skip",
-            Padding = new Thickness(12, 6, 12, 6),
-            MinHeight = 29,
-            Margin = new Thickness(0, 0, 8, 0)
+            Style = footerStyle,
+            Height = 27,
+            MinHeight = 27,
+            MaxHeight = 27,
+            MinWidth = 88,
+            Padding = new Thickness(10, 0, 10, 0),
+            VerticalAlignment = System.Windows.VerticalAlignment.Stretch
         };
         _skip.Click += (_, _) => Skip();
-        DockPanel.SetDock(_skip, Dock.Left);
+        Grid.SetColumn(_skip, 0);
         footer.Children.Add(_skip);
-
-        _next = new Button
-        {
-            Content = _norwegian ? "Neste" : "Next",
-            Padding = new Thickness(14, 6, 14, 6),
-            MinHeight = 29,
-            Margin = new Thickness(8, 0, 0, 0),
-            FontWeight = FontWeights.SemiBold
-        };
-        _next.Click += (_, _) => GoNext();
-        DockPanel.SetDock(_next, Dock.Right);
-        footer.Children.Add(_next);
 
         _back = new Button
         {
             Content = _norwegian ? "Tilbake" : "Back",
-            Padding = new Thickness(12, 6, 12, 6),
-            MinHeight = 29,
+            Style = footerStyle,
+            Height = 27,
+            MinHeight = 27,
+            MaxHeight = 27,
+            MinWidth = 88,
+            Padding = new Thickness(10, 0, 10, 0),
+            VerticalAlignment = System.Windows.VerticalAlignment.Stretch,
             IsEnabled = false
         };
         _back.Click += (_, _) => { _step = Math.Max(0, _step - 1); Render(); };
-        DockPanel.SetDock(_back, Dock.Right);
+        Grid.SetColumn(_back, 2);
         footer.Children.Add(_back);
+
+        _next = new Button
+        {
+            Content = _norwegian ? "Neste" : "Next",
+            Style = footerStyle,
+            Height = 27,
+            MinHeight = 27,
+            MaxHeight = 27,
+            MinWidth = 88,
+            Padding = new Thickness(10, 0, 10, 0),
+            VerticalAlignment = System.Windows.VerticalAlignment.Stretch,
+            FontWeight = FontWeights.SemiBold
+        };
+        _next.Click += (_, _) => GoNext();
+        Grid.SetColumn(_next, 4);
+        footer.Children.Add(_next);
 
         var header = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
         DockPanel.SetDock(header, Dock.Top);
@@ -300,11 +327,11 @@ public sealed class SetupWizardWindow : Window
                     ? "I denne perioden unngår vi omstart når det er mulig. Oppdateringer kan lastes ned uansett."
                     : "We avoid restarts in this period when possible. Updates may still download anytime.";
                 var hours = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
-                hours.Children.Add(new TextBlock { Text = _norwegian ? "Fra" : "From", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+                hours.Children.Add(new TextBlock { Text = _norwegian ? "Fra" : "From", VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
                 hours.Children.Add(new System.Windows.Controls.TextBox { Text = _activeStart.ToString(), Width = 48, Height = 28, Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 0, 12, 0) });
-                hours.Children.Add(new TextBlock { Text = _norwegian ? "til" : "to", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+                hours.Children.Add(new TextBlock { Text = _norwegian ? "til" : "to", VerticalAlignment = System.Windows.VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
                 hours.Children.Add(new System.Windows.Controls.TextBox { Text = _activeEnd.ToString(), Width = 48, Height = 28, Padding = new Thickness(6, 3, 6, 3) });
-                hours.Children.Add(new TextBlock { Text = _norwegian ? " (time 0–23)" : " (hour 0–23)", VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Gray, Margin = new Thickness(8, 0, 0, 0) });
+                hours.Children.Add(new TextBlock { Text = _norwegian ? " (time 0–23)" : " (hour 0–23)", VerticalAlignment = System.Windows.VerticalAlignment.Center, Foreground = Brushes.Gray, Margin = new Thickness(8, 0, 0, 0) });
                 _content.Children.Add(hours);
                 break;
 
@@ -323,7 +350,7 @@ public sealed class SetupWizardWindow : Window
                         Content = labels[i],
                         IsChecked = MaintenanceSetup.HasDay(_daysMask, i),
                         Margin = new Thickness(0, 0, 12, 8),
-                        VerticalContentAlignment = VerticalAlignment.Center
+                        VerticalContentAlignment = System.Windows.VerticalAlignment.Center
                     };
                     _dayBoxes[i] = box;
                     days.Children.Add(box);
@@ -353,7 +380,7 @@ public sealed class SetupWizardWindow : Window
                 timeRow.Children.Add(new TextBlock
                 {
                     Text = _norwegian ? "Klokkeslett" : "Time",
-                    VerticalAlignment = VerticalAlignment.Center,
+                    VerticalAlignment = System.Windows.VerticalAlignment.Center,
                     Margin = new Thickness(0, 0, 8, 0)
                 });
                 timeRow.Children.Add(new System.Windows.Controls.TextBox
@@ -479,11 +506,48 @@ public sealed class SetupWizardWindow : Window
         var b = new Button
         {
             Content = label,
-            Padding = new Thickness(10, 4, 10, 4),
-            MinHeight = 28,
-            Margin = new Thickness(0, 0, 8, 6)
+            Style = CreateFooterButtonStyle(),
+            Height = 27,
+            MinHeight = 27,
+            MaxHeight = 27,
+            Padding = new Thickness(10, 0, 10, 0),
+            Margin = new Thickness(0, 0, 8, 6),
+            VerticalAlignment = System.Windows.VerticalAlignment.Center
         };
         b.Click += (_, _) => apply();
         return b;
+    }
+
+    private static Style CreateFooterButtonStyle()
+    {
+        var style = new Style(typeof(Button));
+        style.Setters.Add(new Setter(System.Windows.Controls.Control.BackgroundProperty, Brushes.White));
+        style.Setters.Add(new Setter(System.Windows.Controls.Control.ForegroundProperty, new SolidColorBrush(Color.FromRgb(35, 48, 65))));
+        style.Setters.Add(new Setter(System.Windows.Controls.Control.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(175, 190, 208))));
+        style.Setters.Add(new Setter(System.Windows.Controls.Control.BorderThicknessProperty, new Thickness(1)));
+        style.Setters.Add(new Setter(FrameworkElement.HeightProperty, 27.0));
+        style.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 27.0));
+        style.Setters.Add(new Setter(FrameworkElement.MaxHeightProperty, 27.0));
+        var template = new ControlTemplate(typeof(Button));
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.Name = "ButtonBorder";
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(System.Windows.Controls.Control.BackgroundProperty));
+        border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(System.Windows.Controls.Control.BorderBrushProperty));
+        border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(System.Windows.Controls.Control.BorderThicknessProperty));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(5));
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(ContentControl.ContentProperty));
+        presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Center);
+        presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, System.Windows.VerticalAlignment.Center);
+        border.AppendChild(presenter);
+        template.VisualTree = border;
+        var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(235, 242, 250)), "ButtonBorder"));
+        template.Triggers.Add(hover);
+        var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+        disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 0.5));
+        template.Triggers.Add(disabled);
+        style.Setters.Add(new Setter(System.Windows.Controls.Control.TemplateProperty, template));
+        return style;
     }
 }
