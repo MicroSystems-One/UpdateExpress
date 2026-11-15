@@ -29,7 +29,7 @@ public partial class WuaDeepCheckDialog : Window
         if (_running) return;
 
         string estimate = $"{(int)WuaDeepCheckService.EstimatedDuration.TotalMinutes:00}:00";
-        var choice = MessageBox.Show(this,
+        var choice = AppDialog.Show(this,
             "WUA deep check can take a while (network probes + Windows Update Agent query).\n\n" +
             $"Estimated time: about {estimate} (often 02:00–04:00).\n\n" +
             "This is read-only: it does not repair or install anything.\n\n" +
