@@ -71,6 +71,43 @@
     </Setter>
   </Style>
   <Style x:Key="CompactActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Height" Value="30"/><Setter Property="MinHeight" Value="30"/><Setter Property="Padding" Value="9,3"/><Setter Property="Margin" Value="0"/><Setter Property="FontSize" Value="11"/><Setter Property="MinWidth" Value="0"/></Style>
+  <!-- Fixed 27px row buttons (Pilot schedule actions) — same baseline, no WrapPanel drift. -->
+  <Style x:Key="PilotRowButton" TargetType="Button">
+    <Setter Property="Height" Value="27"/>
+    <Setter Property="MinHeight" Value="27"/>
+    <Setter Property="MaxHeight" Value="27"/>
+    <Setter Property="Padding" Value="10,0"/>
+    <Setter Property="Margin" Value="0"/>
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="VerticalAlignment" Value="Stretch"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    <Setter Property="Background" Value="White"/>
+    <Setter Property="Foreground" Value="#233041"/>
+    <Setter Property="BorderBrush" Value="#AFBED0"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5"
+                  Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                              RecognizesAccessKey="True" SnapsToDevicePixels="True"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="#EBF2FA"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.5"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
   <Style x:Key="IdentityValue" TargetType="TextBox">
    <Setter Property="IsReadOnly" Value="True"/>
    <Setter Property="IsReadOnlyCaretVisible" Value="True"/>
@@ -385,7 +422,7 @@
     <Border Background="#F4FBF7" BorderBrush="#C9E8D6" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
       <StackPanel>
         <DockPanel LastChildFill="True" Margin="0,0,0,6">
-          <Button DockPanel.Dock="Right" Content="Change setup…" Click="ChangeSetup_Click" Padding="10,0" Height="27" MinHeight="27" MaxHeight="27" Margin="8,0,0,0" VerticalAlignment="Center"/>
+          <Button DockPanel.Dock="Right" Content="Change setup…" Style="{StaticResource PilotRowButton}" Click="ChangeSetup_Click" Margin="8,0,0,0"/>
           <TextBlock Text="Maintenance window" FontWeight="SemiBold" VerticalAlignment="Center"/>
         </DockPanel>
         <TextBlock x:Name="MaintenanceSummaryText" FontSize="12" Foreground="#52617A" TextWrapping="Wrap" Margin="0,0,0,8"/>
@@ -396,11 +433,18 @@
           <TextBox x:Name="SharedInstallTime" Text="18:00" Width="72" Height="28" Padding="6,3" Margin="0,0,16,0"/>
           <CheckBox x:Name="RemindersEnabled" Content="Enable Reminders" IsChecked="False" VerticalAlignment="Center"/>
         </WrapPanel>
-        <WrapPanel VerticalAlignment="Center">
-          <Button Content="▣  Save Schedule" Click="SaveSchedule_Click" Height="27" MinHeight="27" MaxHeight="27" Padding="10,0" Margin="0,0,8,0" VerticalAlignment="Center"/>
-          <Button Content="♧  Test Notification" Click="TestReminder_Click" Height="27" MinHeight="27" MaxHeight="27" Padding="10,0" Margin="0,0,8,0" VerticalAlignment="Center"/>
-          <Button Content="☷  Notification History" Click="ReminderHistory_Click" Height="27" MinHeight="27" MaxHeight="27" Padding="10,0" VerticalAlignment="Center"/>
-        </WrapPanel>
+        <Grid Height="27" MinHeight="27" MaxHeight="27" Margin="0,0,0,0" HorizontalAlignment="Left">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="8"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="8"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <Button Grid.Column="0" Content="▣  Save Schedule" Style="{StaticResource PilotRowButton}" Click="SaveSchedule_Click"/>
+          <Button Grid.Column="2" Content="♧  Test Notification" Style="{StaticResource PilotRowButton}" Click="TestReminder_Click"/>
+          <Button Grid.Column="4" Content="☷  Notification History" Style="{StaticResource PilotRowButton}" Click="ReminderHistory_Click"/>
+        </Grid>
         <TextBlock x:Name="ScheduleStatus" Foreground="#52617A" Margin="0,8,0,0" TextWrapping="Wrap"/>
       </StackPanel>
     </Border>

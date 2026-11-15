@@ -7,10 +7,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>UpdateExpress</AssemblyName>
-    <Version>0.7.2.16</Version>
-    <InformationalVersion>0.7.2.16</InformationalVersion>
-    <FileVersion>0.7.2.16</FileVersion>
-    <AssemblyVersion>0.7.2.16</AssemblyVersion>
+    <Version>0.7.2.17</Version>
+    <InformationalVersion>0.7.2.17</InformationalVersion>
+    <FileVersion>0.7.2.17</FileVersion>
+    <AssemblyVersion>0.7.2.17</AssemblyVersion>
     <Product>Update Express</Product>
     <ApplicationIcon>Assets\UpdateExpress-U.ico</ApplicationIcon>
   </PropertyGroup>
