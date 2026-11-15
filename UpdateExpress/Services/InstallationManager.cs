@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Linq;
 using System.Windows;
 using Microsoft.Win32;
+using UpdateExpress;
 
 namespace UpdateExpress.Services;
 
@@ -19,9 +20,9 @@ internal static class InstallationManager
     internal static string MachineExe => Path.Combine(MachineInstallDir, "UpdateExpress.exe");
     internal static string UserExe => Path.Combine(UserInstallDir, "UpdateExpress.exe");
     private static readonly string StartMenuDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "MicroSystems");
-    private static readonly string Shortcut = Path.Combine(StartMenuDir, "Update Express.lnk");
-    private const string DesktopIconName = "UpdateExpress-U-v0.7.2.6.60.ico";
+    private const string DesktopIconName = "UpdateExpress-U.ico";
     private const string DesktopIconResource = "UpdateExpress.Assets.UpdateExpress.ico";
+    private const string ShortcutFileName = "Update Express.lnk";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\MicroSystems.UpdateExpress";
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunName = "MicroSystems Update Express Agent";
@@ -37,7 +38,7 @@ internal static class InstallationManager
         if (dialog.ShowDialog() != true) return;
         if (repair && IsInstalled && dialog.AllUsers != (RunningMachineCopy || (!File.Exists(UserExe) && File.Exists(MachineExe))))
             throw new InvalidOperationException("Repair must use the existing installation scope. Use Install to change scope.");
-        LaunchMaintenance(repair ? "repair" : "install", dialog.AllUsers, dialog.DesktopShortcut, dialog.StartMenuShortcut, dialog.BackgroundAgent);
+        LaunchMaintenance(repair ? "repair" : "install", dialog.AllUsers, dialog.DesktopShortcut, dialog.StartMenuShortcut, dialog.BackgroundAgent, dialog.TaskbarPin);
     }
 
     internal static void Uninstall()
@@ -60,23 +61,24 @@ internal static class InstallationManager
         string menuDir = machine
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems")
             : StartMenuDir;
-        string menuShortcut = Path.Combine(menuDir, "Update Express.lnk");
+        string menuShortcut = Path.Combine(menuDir, ShortcutFileName);
         string desktopShortcut = Path.Combine(
             Environment.GetFolderPath(machine ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory),
-            "Update Express.lnk");
-        bool desktop = File.Exists(desktopShortcut);
-        bool startMenu = File.Exists(menuShortcut);
+            ShortcutFileName);
+        bool desktop = HasAppShortcut(EnumerateDesktopFolders()) || File.Exists(desktopShortcut);
+        bool startMenu = HasAppShortcut(EnumerateStartMenuFolders()) || File.Exists(menuShortcut);
+        bool taskbar = HasAppShortcut(EnumerateTaskbarFolders());
         bool agent = false;
         if (!machine)
         {
             using var key = Registry.CurrentUser.OpenSubKey(RunKey, false);
             agent = key?.GetValue(RunName) is string;
         }
-        AgentLog.Write($"Launching self-update: package={verifiedPackagePath}; scope={(machine ? "machine" : "user")}; agent={agent}");
-        LaunchMaintenance("upgrade", machine, desktop, startMenu, agent, verifiedPackagePath);
+        AgentLog.Write($"Launching self-update: package={verifiedPackagePath}; scope={(machine ? "machine" : "user")}; agent={agent}; taskbar={taskbar}");
+        LaunchMaintenance("upgrade", machine, desktop, startMenu, agent, taskbar, verifiedPackagePath);
     }
 
-    private static void LaunchMaintenance(string operation, bool allUsers, bool desktop, bool startMenu, bool agent, string? packageSource = null)
+    private static void LaunchMaintenance(string operation, bool allUsers, bool desktop, bool startMenu, bool agent, bool taskbar = false, string? packageSource = null)
     {
         string running = Environment.ProcessPath ?? throw new InvalidOperationException("Fant ikke programfilen.");
         string source = packageSource ?? running;
@@ -87,7 +89,10 @@ internal static class InstallationManager
         string helper = Path.Combine(helperDir, "UpdateExpress-Maintenance.exe");
         File.Copy(running, helper);
         int parentPid = Environment.ProcessId;
-        string arguments = $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers ? "machine" : "user")} {(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)}";
+        string silentFlag = string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase)
+            ? " --silent"
+            : "";
+        string arguments = $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers ? "machine" : "user")} {(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)} {(taskbar ? 1 : 0)}{silentFlag}";
         AgentLog.Write($"Launching detached maintenance: {operation} (parent {parentPid})");
         using var maintenanceProcess = Process.Start(new ProcessStartInfo(helper, arguments) { UseShellExecute = true, WorkingDirectory = helperDir, Verb = allUsers ? "runas" : "open" })
             ?? throw new InvalidOperationException("Kunne ikke starte vedlikeholdsprosessen.");
@@ -122,21 +127,27 @@ internal static class InstallationManager
 
     internal static void ApplyMaintenance(string[] args)
     {
-        // Arguments: --apply-maintenance <install|repair|uninstall|upgrade> <parentPID> <sourceEXE>
-        if (args.Length != 8 || !new[] { "install", "repair", "uninstall", "upgrade" }.Contains(args[1], StringComparer.OrdinalIgnoreCase)
-            || !int.TryParse(args[2], out int parentPid))
+        // Arguments: --apply-maintenance <op> <parentPID> <sourceEXE> <scope> <desktop> <startMenu> <agent> [taskbar] [--silent]
+        bool silent = args.Any(a => string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase);
+        string[] positional = args.Where(a => !string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if ((positional.Length != 8 && positional.Length != 9) || !new[] { "install", "repair", "uninstall", "upgrade" }.Contains(positional[1], StringComparer.OrdinalIgnoreCase)
+            || !int.TryParse(positional[2], out int parentPid))
             throw new ArgumentException("Ugyldige parametere for vedlikehold.");
-        string operation = args[1].ToLowerInvariant();
-        string source = Path.GetFullPath(args[3]);
-        bool machine = args[4] == "machine";
-        bool desktop = args[5] == "1", startMenu = args[6] == "1", agent = args[7] == "1";
+        string operation = positional[1].ToLowerInvariant();
+        string source = Path.GetFullPath(positional[3]);
+        bool machine = positional[4] == "machine";
+        bool desktop = positional[5] == "1", startMenu = positional[6] == "1", agent = positional[7] == "1";
+        bool taskbar = positional.Length >= 9 && positional[8] == "1";
         // Machine-wide auto-start needs a separate per-user registration flow; not supported in this preview.
         if (machine) agent = false;
         string targetDir = machine ? MachineInstallDir : UserInstallDir;
         string targetExe = Path.Combine(targetDir, "UpdateExpress.exe");
         string menuDir = machine ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems") : StartMenuDir;
-        string menuShortcut = Path.Combine(menuDir, "Update Express.lnk");
-        string desktopShortcut = Path.Combine(Environment.GetFolderPath(machine ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory), "Update Express.lnk");
+        string menuShortcut = Path.Combine(menuDir, ShortcutFileName);
+        string desktopShortcut = Path.Combine(Environment.GetFolderPath(machine ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory), ShortcutFileName);
+        string taskbarDir = TaskbarPinFolder;
+        string taskbarShortcut = Path.Combine(taskbarDir, ShortcutFileName);
         var hive = machine ? Registry.LocalMachine : Registry.CurrentUser;
         string iconPath = Path.Combine(targetDir, DesktopIconName);
         if (!File.Exists(source) && operation != "uninstall")
@@ -144,9 +155,12 @@ internal static class InstallationManager
         AgentLog.Write($"Maintenance helper started: {operation}, source={source}");
         try
         {
-            // Wait for the launcher that started us to close.
-            try { using var parent = Process.GetProcessById(parentPid); parent.WaitForExit(30000); }
-            catch (ArgumentException) { /* Parent has exited already. */ }
+            // Wait for the launcher that started us to close (parentPid 0 = script/RMM, skip wait).
+            if (parentPid > 0)
+            {
+                try { using var parent = Process.GetProcessById(parentPid); parent.WaitForExit(30000); }
+                catch (ArgumentException) { /* Parent has exited already. */ }
+            }
             if (operation == "upgrade")
                 StopInstalledProcesses(targetExe);
             else if (operation == "uninstall" || operation == "install" || operation == "repair")
@@ -155,12 +169,15 @@ internal static class InstallationManager
             {
                 if (!machine) using (var key = Registry.CurrentUser.OpenSubKey(RunKey, true)) key?.DeleteValue(RunName, false);
                 hive.DeleteSubKeyTree(UninstallKey, false);
-                if (File.Exists(menuShortcut)) File.Delete(menuShortcut);
-                if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
-                if (File.Exists(targetExe)) RetryFileOperation(() => File.Delete(targetExe));
-                if (File.Exists(iconPath)) RetryFileOperation(() => File.Delete(iconPath));
+                RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
+                RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: null);
+                RemoveAppShortcuts(EnumerateTaskbarFolders(), keepPath: null);
+                if (File.Exists(targetExe)) RetryFileOperation(() => File.Delete(targetExe), targetExe);
+                if (File.Exists(iconPath)) RetryFileOperation(() => File.Delete(iconPath), iconPath);
+                TryDeleteLegacyVersionedIcons(targetDir);
                 AgentLog.Write("Uninstall completed.");
-                MessageBox.Show("Update Express er avinstallert. Historikk og innstillinger er beholdt.", "Update Express");
+                if (!silent)
+                    MessageBox.Show("Update Express er avinstallert. Historikk og innstillinger er beholdt.", "Update Express");
             }
             else
             {
@@ -168,14 +185,39 @@ internal static class InstallationManager
                 // The staged helper must not be copied over itself; source can be an installed or published EXE.
                 // For repair from installed EXE, existing program file is left unchanged.
                 if (!string.Equals(source, targetExe, StringComparison.OrdinalIgnoreCase))
-                    RetryFileOperation(() => File.Copy(source, targetExe, true));
+                    RetryFileOperation(() => File.Copy(source, targetExe, true), targetExe);
                 else if (!File.Exists(targetExe))
                     throw new FileNotFoundException("Programfilen mangler. Kjør Installer fra den nye Publisert-mappen.");
-                WriteInstalledIcon(iconPath);
-                if (startMenu) { Directory.CreateDirectory(menuDir); CreateShortcut(menuShortcut, targetExe, "--installed", targetDir, iconPath); }
-                else if (File.Exists(menuShortcut)) File.Delete(menuShortcut);
-                if (desktop) CreateShortcut(desktopShortcut, targetExe, "--installed", targetDir, iconPath);
-                else if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
+                RetryFileOperation(() => WriteInstalledIcon(iconPath), iconPath);
+                TryDeleteLegacyVersionedIcons(targetDir);
+                // Always strip duplicate/orphan Update Express shortcuts first so upgrades leave one icon
+                // with the current install path and U icon.
+                if (startMenu)
+                {
+                    Directory.CreateDirectory(menuDir);
+                    RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: menuShortcut);
+                    CreateShortcut(menuShortcut, targetExe, "--installed", targetDir, iconPath);
+                }
+                else
+                    RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: null);
+                if (desktop)
+                {
+                    RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: desktopShortcut);
+                    CreateShortcut(desktopShortcut, targetExe, "--installed", targetDir, iconPath);
+                }
+                else
+                    RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
+                // Taskbar: create when requested; always refresh an existing pin so path/icon stay current (no duplicates).
+                bool hadTaskbarPin = HasAppShortcut(EnumerateTaskbarFolders()) || File.Exists(taskbarShortcut);
+                if (taskbar || hadTaskbarPin)
+                {
+                    Directory.CreateDirectory(taskbarDir);
+                    RemoveAppShortcuts(EnumerateTaskbarFolders(), keepPath: taskbarShortcut);
+                    CreateShortcut(taskbarShortcut, targetExe, "--installed", targetDir, iconPath);
+                    AgentLog.Write(taskbar
+                        ? "Taskbar pin created/updated: " + taskbarShortcut
+                        : "Existing taskbar pin refreshed: " + taskbarShortcut);
+                }
                 string displayVersion = ReadDisplayVersion(targetExe);
                 using (var key = hive.CreateSubKey(UninstallKey))
                 {
@@ -194,26 +236,81 @@ internal static class InstallationManager
                 }
                 if (agent) Process.Start(new ProcessStartInfo(targetExe, "--agent")
                     { UseShellExecute = true, WorkingDirectory = targetDir });
-                if (operation == "upgrade")
+                if (operation == "upgrade" && !silent)
                     Process.Start(new ProcessStartInfo(targetExe, "--installed")
                     { UseShellExecute = true, WorkingDirectory = targetDir });
-                AgentLog.Write($"{operation} completed: scope={(machine ? "machine" : "user")}, agent={agent}, version={displayVersion}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
+                AgentLog.Write($"{operation} completed: scope={(machine ? "machine" : "user")}, agent={agent}, silent={silent}, version={displayVersion}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
                 string completedAction = operation == "repair" ? "repaired" : operation == "upgrade" ? "updated" : "installed";
                 string scopeText = machine ? "all users" : "the current user";
-                MessageBox.Show($"Update Express was {completedAction} successfully for {scopeText}.\n\n"
-                    + $"Version: {displayVersion}\n"
-                    + (agent ? "Background monitoring is enabled for this user." : "Background monitoring is disabled.")
-                    + (operation == "upgrade" ? "\n\nUpdate Express will open now." : "\n\nYou can pin Update Express to the taskbar from the Start menu."),
-                    "Update Express", MessageBoxButton.OK, MessageBoxImage.Information);
+                if (!silent)
+                {
+                    AutoCloseInfoDialog.Show(
+                        $"Update Express was {completedAction} successfully for {scopeText}.\n\n"
+                        + $"Version: {displayVersion}\n"
+                        + (agent ? "Background monitoring is enabled for this user." : "Background monitoring is disabled.")
+                        + (operation == "upgrade" ? "\n\nUpdate Express will open now." : "\n\nYou can pin Update Express to the taskbar from the Start menu."),
+                        "Update Express",
+                        autoCloseSeconds: 10);
+                }
                 TryDeleteTree(Path.GetDirectoryName(source));
             }
         }
         catch (Exception ex)
         {
             AgentLog.Write("Maintenance FAILED: " + ex);
-            MessageBox.Show("Vedlikehold mislyktes: " + ex.Message + "\n\nSe agent.log for detaljer.",
-                "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
+            bool silentFail = args.Any(a => string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase);
+            if (!silentFail)
+            {
+                MessageBox.Show("Vedlikehold mislyktes:\n\n" + FormatMaintenanceError(ex) + "\n\nSe agent.log for detaljer.",
+                    "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            else
+            {
+                Environment.ExitCode = 1;
+                throw;
+            }
         }
+    }
+
+    private static string FormatMaintenanceError(Exception ex)
+    {
+        // RetryFileOperation already emits a path-specific antivirus/quarantine message.
+        if (ex.Message.Contains("Bitdefender", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("karantene", StringComparison.OrdinalIgnoreCase))
+            return ex.Message;
+
+        if (!IsAccessDenied(ex))
+            return ex.Message;
+
+        return "Tilgang nektet til installasjonsfilen. Dette skjer ofte når antivirus "
+            + "(f.eks. Bitdefender Advanced Threat Control) har karantenesatt eller låst "
+            + "UpdateExpress.exe midt i en kjøring.\n\n"
+            + "1) Sjekk Managed Antivirus / karantene og gjenopprett UpdateExpress.exe om den ligger der.\n"
+            + "2) Legg inn mappeunntak for:\n"
+            + @"   %LOCALAPPDATA%\MicroSystems\Update Express\" + "\n"
+            + @"   C:\Program Files\MicroSystems\Update Express\" + " (ved alle-brukere-installasjon)\n"
+            + "3) Bruk full sti / mappe / prosess-unntak — ikke bare filnavnet UpdateExpress.exe.\n"
+            + "4) Lukk Update Express og prøv Vedlikehold / oppdatering på nytt.\n\n"
+            + "Teknisk: " + ex.Message;
+    }
+
+    private static bool IsAccessDenied(Exception ex)
+    {
+        for (Exception? current = ex; current != null; current = current.InnerException)
+        {
+            if (current is UnauthorizedAccessException)
+                return true;
+            if (current is IOException && (current.HResult & 0xFFFF) == 5)
+                return true;
+            string message = current.Message ?? "";
+            if (message.Contains("access denied", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (message.Contains("Access to the path", StringComparison.OrdinalIgnoreCase)
+                && message.Contains("denied", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     private static string ReadDisplayVersion(string exePath)
@@ -311,15 +408,32 @@ internal static class InstallationManager
 
     internal static readonly string AgentPidFile = Path.Combine(UserInstallDir, "agent.pid");
 
-    private static void RetryFileOperation(Action action)
+    private static void RetryFileOperation(Action action, string? pathHint = null)
     {
-        IOException? last = null;
-        for (int attempt = 0; attempt < 12; attempt++)
+        Exception? last = null;
+        for (int attempt = 0; attempt < 16; attempt++)
         {
             try { action(); return; }
-            catch (IOException ex) { last = ex; System.Threading.Thread.Sleep(500); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                last = ex;
+                // ATC disinfection / quarantine can hold the file briefly; back off a bit longer than a normal lock.
+                System.Threading.Thread.Sleep(attempt < 4 ? 500 : 1000);
+            }
         }
-        throw new IOException("Programfilen er fortsatt låst. Lukk Update Express og prøv igjen.", last);
+        throw CreateLockedFileException(pathHint, last);
+    }
+
+    private static IOException CreateLockedFileException(string? pathHint, Exception? inner)
+    {
+        string subject = string.IsNullOrWhiteSpace(pathHint)
+            ? "Programfilen"
+            : "Filen «" + pathHint + "»";
+        return new IOException(
+            subject + " er fortsatt låst eller sperret (ofte antivirus/karantene, f.eks. Bitdefender ATC). "
+            + "Gjenopprett filen fra karantene hvis den er der, legg inn mappe-/prosessunntak for "
+            + @"%LOCALAPPDATA%\MicroSystems\Update Express\, lukk Update Express, og prøv igjen.",
+            inner);
     }
 
     private static void WriteInstalledIcon(string destination)
@@ -330,19 +444,148 @@ internal static class InstallationManager
         resource.CopyTo(output);
     }
 
+    private static void TryDeleteLegacyVersionedIcons(string targetDir)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(targetDir, "UpdateExpress-U-v*.ico"))
+            {
+                try { File.Delete(file); }
+                catch (Exception ex) { AgentLog.Write("Could not delete legacy icon " + file + ": " + ex.Message); }
+            }
+        }
+        catch (Exception ex) { AgentLog.Write("Legacy icon cleanup skipped: " + ex.Message); }
+    }
+
+    private static IEnumerable<string> EnumerateDesktopFolders()
+    {
+        yield return Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        yield return Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
+    }
+
+    private static IEnumerable<string> EnumerateStartMenuFolders()
+    {
+        yield return StartMenuDir;
+        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems");
+    }
+
+    private static string TaskbarPinFolder =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Microsoft", "Internet Explorer", "Quick Launch", "User Pinned", "TaskBar");
+
+    private static IEnumerable<string> EnumerateTaskbarFolders()
+    {
+        yield return TaskbarPinFolder;
+    }
+
+    private static bool HasAppShortcut(IEnumerable<string> folders) =>
+        EnumerateAppShortcuts(folders).Any();
+
+    private static IEnumerable<string> EnumerateAppShortcuts(IEnumerable<string> folders)
+    {
+        foreach (string folder in folders.Where(f => !string.IsNullOrWhiteSpace(f)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!Directory.Exists(folder)) continue;
+            string[] files;
+            try { files = Directory.GetFiles(folder, "*.lnk"); }
+            catch { continue; }
+            foreach (string path in files)
+            {
+                if (IsAppShortcut(path))
+                    yield return path;
+            }
+        }
+    }
+
+    private static bool IsAppShortcut(string shortcutPath)
+    {
+        string name = Path.GetFileNameWithoutExtension(shortcutPath) ?? "";
+        bool nameLooksLikeOurs =
+            name.Equals("Update Express", StringComparison.OrdinalIgnoreCase) ||
+            name.StartsWith("Update Express (", StringComparison.OrdinalIgnoreCase) ||
+            name.StartsWith("UpdateExpress", StringComparison.OrdinalIgnoreCase);
+        string? target = TryReadShortcutTarget(shortcutPath);
+        if (!string.IsNullOrWhiteSpace(target))
+        {
+            string full = Path.GetFullPath(target);
+            bool pointsAtApp =
+                full.EndsWith("UpdateExpress.exe", StringComparison.OrdinalIgnoreCase) &&
+                full.Contains(Path.Combine("MicroSystems", "Update Express"), StringComparison.OrdinalIgnoreCase);
+            if (pointsAtApp) return true;
+            // Name match alone is not enough if the .lnk points elsewhere.
+            return false;
+        }
+        return nameLooksLikeOurs;
+    }
+
+    private static string? TryReadShortcutTarget(string shortcutPath)
+    {
+        try
+        {
+            Type? shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType is null) return null;
+            object shell = Activator.CreateInstance(shellType)!;
+            try
+            {
+                dynamic shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { shortcutPath })!;
+                string? target = shortcut.TargetPath as string;
+                return string.IsNullOrWhiteSpace(target) ? null : target;
+            }
+            finally
+            {
+                if (System.Runtime.InteropServices.Marshal.IsComObject(shell))
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(shell);
+            }
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Removes Update Express desktop/Start Menu shortcuts, optionally keeping one canonical path.
+    /// Prevents duplicate icons after repeated installs/upgrades (OneDrive/sync renames, scope changes).
+    /// </summary>
+    private static void RemoveAppShortcuts(IEnumerable<string> folders, string? keepPath)
+    {
+        string? keepFull = string.IsNullOrWhiteSpace(keepPath) ? null : Path.GetFullPath(keepPath);
+        foreach (string path in EnumerateAppShortcuts(folders))
+        {
+            try
+            {
+                string full = Path.GetFullPath(path);
+                if (keepFull is not null && string.Equals(full, keepFull, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                File.Delete(full);
+                AgentLog.Write("Removed duplicate/orphan shortcut: " + full);
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Write("Could not remove shortcut " + path + ": " + ex.Message);
+            }
+        }
+    }
+
     private static void CreateShortcut(string shortcutPath, string target, string arguments, string workingDirectory, string iconPath)
     {
         Type shellType = Type.GetTypeFromProgID("WScript.Shell") ?? throw new InvalidOperationException("Windows Script Host mangler.");
         object shell = Activator.CreateInstance(shellType)!;
         try
         {
+            // Rewrite the same path in place; callers remove numbered duplicates first.
+            if (File.Exists(shortcutPath))
+            {
+                try { File.Delete(shortcutPath); }
+                catch (Exception ex) { AgentLog.Write("Could not replace existing shortcut before recreate: " + ex.Message); }
+            }
             dynamic shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { shortcutPath })!;
             shortcut.TargetPath = target;
             shortcut.Arguments = arguments;
             shortcut.WorkingDirectory = workingDirectory;
-            shortcut.IconLocation = iconPath + ",0";
+            // Prefer the installed U icon file; fall back to the EXE so Explorer never shows a blank icon.
+            shortcut.IconLocation = (File.Exists(iconPath) ? iconPath : target) + ",0";
             shortcut.Description = "Update Express fra MicroSystems";
             shortcut.Save();
+            AgentLog.Write($"Shortcut written: {shortcutPath} → {target} (icon={(File.Exists(iconPath) ? iconPath : target)})");
         }
         finally { if (System.Runtime.InteropServices.Marshal.IsComObject(shell)) System.Runtime.InteropServices.Marshal.ReleaseComObject(shell); }
     }

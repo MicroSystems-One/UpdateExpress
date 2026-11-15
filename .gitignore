@@ -55,3 +55,6 @@ Desktop.ini
 .env.*
 secrets.json
 credentials.json
+**/azure-signing.metadata.json
+**/metadata.signing.json
+!tools/azure-signing.metadata.sample.json

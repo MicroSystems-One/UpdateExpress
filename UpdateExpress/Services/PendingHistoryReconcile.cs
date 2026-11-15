@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.RegularExpressions;
 using UpdateExpress.Models;
 
@@ -89,11 +88,5 @@ internal static class PendingHistoryReconcile
     private static DateTime TruncateToSeconds(DateTime value) =>
         new(value.Year, value.Month, value.Day, value.Hour, value.Minute, value.Second, value.Kind);
 
-    private static DateTime? ParseDate(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        if (DateTime.TryParseExact(value.Trim(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
-            return exact;
-        return DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var parsed) ? parsed : null;
-    }
+    private static DateTime? ParseDate(string? value) => ReminderSchedule.TryParseDate(value);
 }
