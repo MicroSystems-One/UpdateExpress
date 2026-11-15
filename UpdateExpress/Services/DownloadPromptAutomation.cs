@@ -77,7 +77,7 @@ internal static class DownloadPromptAutomation
             }
 
             string preferred = AutomationSchedule.PreferredOrDefault(cat.PreferredInstallTime);
-            var prompt = CategoryPromptState.Load(category);
+            var prompt = CategoryPromptState.LoadAndReconcile(category);
 
             if (prompt.State == "installing")
                 return;
@@ -321,7 +321,7 @@ internal static class DownloadPromptAutomation
             return Task.CompletedTask;
         }
 
-        prompt.State = "installing";
+        prompt.MarkInstalling();
         prompt.Save();
         prompt.WriteInstallQueue(ids);
         ActivityLog.TryWrite(displayName + "Automation", "InstallRequested", new { Count = ids.Count }, mode: "Automatic", source: "TrayAgent");
@@ -329,7 +329,7 @@ internal static class DownloadPromptAutomation
 
         try
         {
-            ElevationHelper.RestartElevated(elevateArg);
+            ElevationHelper.RestartElevated(AutomationStatePaths.ElevateArguments(elevateArg));
             WindowsAutomationStatus.WriteCategory(
                 prompt.Category, "Installing",
                 "Elevated installer started. Update Express will not reboot Windows.",
@@ -338,6 +338,7 @@ internal static class DownloadPromptAutomation
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
             prompt.State = "awaitingPrompt";
+            prompt.InstallingStartedAt = null;
             prompt.Save();
             WindowsAutomationStatus.WriteCategory(prompt.Category, "UAC cancelled", "Administrator approval was cancelled.", DateTime.Now.AddHours(1));
             AgentLog.Write($"{displayName} automation: UAC cancelled for install.");
@@ -345,6 +346,7 @@ internal static class DownloadPromptAutomation
         catch (Exception ex)
         {
             prompt.State = "awaitingPrompt";
+            prompt.InstallingStartedAt = null;
             prompt.Save();
             WindowsAutomationStatus.WriteCategory(prompt.Category, "Failed", "Could not start elevated install: " + ex.Message, DateTime.Now.AddHours(1));
             AgentLog.Write($"{displayName} automation elevated launch failed: " + ex);
@@ -397,28 +399,32 @@ internal static class DownloadPromptAutomation
         manager.Loaded += async (_, _) =>
         {
             manager.PrepareRunning();
-            manager.BeginItem(0, $"Downloading / installing {displayName.ToLowerInvariant()} updates…");
+            bool norwegian = string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase);
+            manager.SetNotice(WuaProgressText.PleaseWait(norwegian));
+            manager.SetStage(norwegian ? "Forbereder nedlasting…" : "Preparing download…");
             try
             {
                 var selected = ids.Select(id => new UpdateEntry { UpdateId = id }).ToList();
-                IProgress<string> progress = new Progress<string>(stage =>
+                IProgress<WuaActivity> activity = new Progress<WuaActivity>(update =>
                 {
-                    try { manager.Dispatcher.BeginInvoke(new Action(() => manager.SetStage(stage))); }
+                    try { manager.ApplyActivity(update, norwegian); }
                     catch { }
-                    AgentLog.Write($"{displayName} install: " + stage);
+                    AgentLog.Write($"{displayName} install: " + WuaProgressText.Stage(norwegian, update.Phase, update.Kb, update.Number, update.Total, update.Percent));
                 });
+                IProgress<string> progress = new Progress<string>(stage => AgentLog.Write($"{displayName} install: " + stage));
 
                 var results = await WindowsUpdateReader.RunStaAsync(() =>
-                        WindowsUpdateReader.InstallSelected(selected, stage => ((IProgress<string>)progress).Report(stage)))
+                        WindowsUpdateReader.InstallSelected(selected, progress.Report, activity.Report))
                     .ConfigureAwait(true);
 
                 for (int i = 0; i < ids.Count; i++)
                 {
                     string id = ids[i];
-                    var result = results.FirstOrDefault(x =>
-                                    !string.IsNullOrWhiteSpace(x.UpdateId) &&
-                                    x.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase))
-                                ?? (i < results.Count ? results[i] : null);
+                    var requested = selected[i];
+                    var result = WindowsUpdateReader.MatchInstallResult(results, requested, i, ids.Count)
+                                 ?? results.FirstOrDefault(x =>
+                                     !string.IsNullOrWhiteSpace(x.UpdateId) &&
+                                     x.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase));
                     string state = result == null ? "Not verified" :
                         result.Status is "Installert" or "Already up to date" ? "Completed" :
                         result.Status is "Delvis fullført" ? "Not verified" :
@@ -463,6 +469,7 @@ internal static class DownloadPromptAutomation
                 WindowsAutomationStatus.WriteCategory(category, "Failed", ex.Message, DateTime.Now.AddHours(1));
                 var retry = CategoryPromptState.Load(category);
                 retry.State = "awaitingPrompt";
+                retry.InstallingStartedAt = null;
                 retry.Save();
                 for (int i = 0; i < queue.Count; i++)
                     manager.CompleteItem(i, "Failed", true);

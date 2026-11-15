@@ -238,4 +238,25 @@ internal static class RebootCoordinator
                 MessageBoxIcon.Error);
         }
     }
+
+    /// <summary>Abort a pending <c>shutdown /r /t …</c> countdown if one is active (no-op otherwise).</summary>
+    internal static void CancelCountdownReboot(string reason = "")
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "shutdown.exe",
+                Arguments = "/a",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            AgentLog.Write("Cancelled reboot countdown." + (string.IsNullOrWhiteSpace(reason) ? "" : " " + reason));
+            ActivityLog.TryWrite("AutoReboot", "CountdownCancelled", reason, mode: "Manual", source: "RebootCoordinator");
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Failed to cancel reboot countdown: " + ex);
+        }
+    }
 }

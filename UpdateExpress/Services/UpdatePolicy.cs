@@ -50,10 +50,14 @@ public sealed class UpdatePolicy
 {
     public WindowsAutomationPolicy WindowsAutomation { get; set; } = WindowsAutomationPolicy.CreateDefault();
 
-    // Legacy / not yet automated preferences (drivers & WinGet).
+    /// <summary>When true, tray agent downloads assigned WUA drivers and asks before install (firmware stays manual).</summary>
     public bool AutomaticDrivers { get; set; } = false;
     public bool AutomaticFirmware { get; set; } = false;
+    /// <summary>When true, tray agent scans WinGet upgrades and asks before install.</summary>
     public bool AutomaticApplications { get; set; } = false;
+    /// <summary>Minutes between automatic WinGet application scans. Default 240; floor 60.</summary>
+    public int ApplicationsIntervalMinutes { get; set; } = ApplicationAutomation.DefaultIntervalMinutes;
+    /// <summary>Optional WinGet package-ID whitelist. Empty = all pending upgrades when AutomaticApplications is on.</summary>
     public HashSet<string> AutomaticApplicationIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Legacy field from older builds; mapped into WindowsAutomation on load.</summary>
@@ -133,6 +137,10 @@ public sealed class UpdatePolicy
         if (WindowsAutomation.Defender.IntervalMinutes < 15) WindowsAutomation.Defender.IntervalMinutes = 15;
         if (WindowsAutomation.Critical.IntervalMinutes < 60) WindowsAutomation.Critical.IntervalMinutes = 60;
         if (WindowsAutomation.General.IntervalMinutes < 1440) WindowsAutomation.General.IntervalMinutes = 1440;
+        if (ApplicationsIntervalMinutes < ApplicationAutomation.AbsoluteFloorMinutes)
+            ApplicationsIntervalMinutes = ApplicationAutomation.AbsoluteFloorMinutes;
+        if (ApplicationsIntervalMinutes <= 0)
+            ApplicationsIntervalMinutes = ApplicationAutomation.DefaultIntervalMinutes;
 
         AutomaticApplicationIds ??= new(StringComparer.OrdinalIgnoreCase);
     }
