@@ -476,12 +476,14 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "General interval must be at least 1440 minutes (1 day).", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        if (!TimeSpan.TryParseExact(CriticalPreferredTime.Text.Trim(), @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out _) ||
-            !TimeSpan.TryParseExact(GeneralPreferredTime.Text.Trim(), @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out _))
+        string sharedTime = (SharedInstallTime?.Text ?? CriticalPreferredTime.Text).Trim();
+        if (!TimeSpan.TryParseExact(sharedTime, @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out _))
         {
-            MessageBox.Show(this, "Preferred times must be HH:mm, for example 12:00.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Install time must be HH:mm, for example 18:00.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
+        CriticalPreferredTime.Text = sharedTime;
+        GeneralPreferredTime.Text = sharedTime;
         if (!int.TryParse(ActiveHoursStart.Text.Trim(), out int activeStart) || activeStart < 0 || activeStart > 23 ||
             !int.TryParse(ActiveHoursEnd.Text.Trim(), out int activeEnd) || activeEnd < 0 || activeEnd > 23)
         {
@@ -500,11 +502,11 @@ public partial class MainWindow : Window
         _policy.WindowsAutomation.Defender.Mode = "autoInstall";
         _policy.WindowsAutomation.Critical.Enabled = CriticalAutoEnabled.IsChecked == true;
         _policy.WindowsAutomation.Critical.IntervalMinutes = criticalMinutes;
-        _policy.WindowsAutomation.Critical.PreferredInstallTime = CriticalPreferredTime.Text.Trim();
+        _policy.WindowsAutomation.Critical.PreferredInstallTime = sharedTime;
         _policy.WindowsAutomation.Critical.Mode = "downloadAndPrompt";
         _policy.WindowsAutomation.General.Enabled = GeneralAutoEnabled.IsChecked == true;
         _policy.WindowsAutomation.General.IntervalMinutes = generalMinutes;
-        _policy.WindowsAutomation.General.PreferredInstallTime = GeneralPreferredTime.Text.Trim();
+        _policy.WindowsAutomation.General.PreferredInstallTime = sharedTime;
         _policy.WindowsAutomation.General.Mode = "downloadAndPrompt";
         _policy.WindowsAutomation.AutoReboot.Enabled = AutoRebootEnabled.IsChecked == true;
         _policy.WindowsAutomation.AutoReboot.Mode = AutoRebootOutsideOption.IsChecked == true ? "outsideActiveHours" : "confirm";
@@ -512,6 +514,11 @@ public partial class MainWindow : Window
         _policy.WindowsAutomation.AutoReboot.ActiveHoursEnd = activeEnd;
         _policy.WindowsAutomation.AutoReboot.CountdownSeconds = countdown;
         _policy.WindowsAutomation.NeverAutoReboot = !_policy.WindowsAutomation.AutoReboot.Enabled;
+
+        int daysMask = ReadInstallDaysMaskFromUi();
+        if (daysMask == 0) daysMask = MaintenanceSetup.AllDaysMask;
+        MaintenanceSetup.ApplyToPolicy(_policy, daysMask, sharedTime);
+        _policy.SetupCompleted = true;
 
         _policy.AutomaticDrivers = AutoDrivers.IsChecked == true;
         _policy.AutomaticApplications = AutoApplications.IsChecked == true;
@@ -522,6 +529,11 @@ public partial class MainWindow : Window
             else _policy.AutomaticApplicationIds.Remove(app.Id);
         }
         _policy.Save();
+        MaintenanceSetup.SyncReminderFromPolicy(_policy);
+        _schedule = ReminderSchedule.Load();
+        RemindersEnabled.IsChecked = _schedule.Enabled;
+        RefreshMaintenanceSummary();
+        RefreshScheduleStatus();
         RefreshAutomationStatusTexts();
         MessageBox.Show(this,
             "Windows automation policy saved.\n\n" +
@@ -546,10 +558,14 @@ public partial class MainWindow : Window
         DefenderIntervalMinutes.Text = wa.Defender.IntervalMinutes.ToString();
         CriticalAutoEnabled.IsChecked = wa.Critical.Enabled;
         CriticalIntervalMinutes.Text = wa.Critical.IntervalMinutes.ToString();
-        CriticalPreferredTime.Text = string.IsNullOrWhiteSpace(wa.Critical.PreferredInstallTime) ? AutomationSchedule.DefaultPreferredTime : wa.Critical.PreferredInstallTime;
+        string installTime = string.IsNullOrWhiteSpace(_policy.InstallTime)
+            ? (string.IsNullOrWhiteSpace(wa.Critical.PreferredInstallTime) ? AutomationSchedule.DefaultPreferredTime : wa.Critical.PreferredInstallTime)
+            : _policy.InstallTime;
+        CriticalPreferredTime.Text = installTime;
+        if (SharedInstallTime is not null) SharedInstallTime.Text = installTime;
         GeneralAutoEnabled.IsChecked = wa.General.Enabled;
         GeneralIntervalMinutes.Text = wa.General.IntervalMinutes.ToString();
-        GeneralPreferredTime.Text = string.IsNullOrWhiteSpace(wa.General.PreferredInstallTime) ? AutomationSchedule.DefaultPreferredTime : wa.General.PreferredInstallTime;
+        GeneralPreferredTime.Text = installTime;
         AutoRebootEnabled.IsChecked = wa.AutoReboot.Enabled;
         if (string.Equals(wa.AutoReboot.Mode, "outsideActiveHours", StringComparison.OrdinalIgnoreCase))
             AutoRebootOutsideOption.IsChecked = true;
@@ -560,7 +576,87 @@ public partial class MainWindow : Window
         RebootCountdownSeconds.Text = wa.AutoReboot.CountdownSeconds.ToString();
         AutoDrivers.IsChecked = _policy.AutomaticDrivers;
         AutoApplications.IsChecked = _policy.AutomaticApplications;
+        BuildInstallDayChips();
+        RefreshMaintenanceSummary();
         RefreshAutomationStatusTexts();
+    }
+
+    private void MaybeShowSetupWizard()
+    {
+        try
+        {
+            _policy = UpdatePolicy.Load();
+            _policy.Normalize();
+            if (_policy.SetupCompleted) return;
+            var wizard = new SetupWizardWindow(this) { Owner = this };
+            wizard.ShowDialog();
+            _policy = UpdatePolicy.Load();
+            LoadAutomationPolicyIntoUi();
+            _schedule = ReminderSchedule.Load();
+            RemindersEnabled.IsChecked = _schedule.Enabled;
+            TimeChoice.Text = _schedule.Time;
+            DayChoice.SelectedIndex = _schedule.Weekday == 7 ? 0 : Math.Clamp(_schedule.Weekday, 0, 6) + 1;
+            RefreshScheduleStatus();
+            if (MaintenanceExpander is not null)
+                MaintenanceExpander.IsExpanded = true;
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Setup wizard failed: " + ex);
+        }
+    }
+
+    private void ChangeSetup_Click(object sender, RoutedEventArgs e)
+    {
+        var wizard = new SetupWizardWindow(this) { Owner = this };
+        if (wizard.ShowDialog() == true)
+        {
+            _policy = UpdatePolicy.Load();
+            LoadAutomationPolicyIntoUi();
+            _schedule = ReminderSchedule.Load();
+            RemindersEnabled.IsChecked = _schedule.Enabled;
+            RefreshScheduleStatus();
+        }
+    }
+
+    private readonly System.Windows.Controls.CheckBox[] _installDayBoxes = new System.Windows.Controls.CheckBox[7];
+
+    private void BuildInstallDayChips()
+    {
+        if (InstallDayChips is null) return;
+        InstallDayChips.Children.Clear();
+        bool no = _schedule.Language == "no";
+        var labels = no ? MaintenanceSetup.DayLabelsNo : MaintenanceSetup.DayLabelsEn;
+        int mask = MaintenanceSetup.ClampMask(_policy.InstallDaysMask);
+        if (mask == 0) mask = MaintenanceSetup.AllDaysMask;
+        for (int i = 0; i < 7; i++)
+        {
+            var box = new System.Windows.Controls.CheckBox
+            {
+                Content = labels[i],
+                IsChecked = MaintenanceSetup.HasDay(mask, i),
+                Margin = new Thickness(0, 0, 10, 4),
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            _installDayBoxes[i] = box;
+            InstallDayChips.Children.Add(box);
+        }
+    }
+
+    private int ReadInstallDaysMaskFromUi()
+    {
+        int mask = 0;
+        for (int i = 0; i < 7; i++)
+            if (_installDayBoxes[i]?.IsChecked == true) mask |= 1 << i;
+        return mask;
+    }
+
+    private void RefreshMaintenanceSummary()
+    {
+        if (MaintenanceSummaryText is null) return;
+        _policy.Normalize();
+        bool no = _schedule.Language == "no";
+        MaintenanceSummaryText.Text = MaintenanceSetup.SummaryText(_policy, no);
     }
 
     private void RefreshAutomationStatusTexts()
@@ -1310,6 +1406,8 @@ public partial class MainWindow : Window
         ApplyLanguage();
         RemindersEnabled.IsChecked = _schedule.Enabled;
         LoadAutomationPolicyIntoUi();
+        BuildInstallDayChips();
+        RefreshMaintenanceSummary();
         RefreshScheduleStatus();
         _reminderTimer.Tick += (_, _) => CheckReminder();
         _reminderTimer.Start();
@@ -1358,6 +1456,7 @@ public partial class MainWindow : Window
                 automatic: true,
                 onUpdateInstallRequested: StartAppSelfUpdateInstall,
                 balloon: null);
+            MaybeShowSetupWizard();
             if (UpdateUntilCurrent.Load().Active)
                 await RunUpdateUntilCurrentAsync();
         };
@@ -1569,19 +1668,36 @@ public partial class MainWindow : Window
     }
     private void SaveSchedule_Click(object sender, RoutedEventArgs e)
     {
-        if (!TimeSpan.TryParseExact(TimeChoice.Text.Trim(), @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out var at) || at >= TimeSpan.FromDays(1))
+        string timeText = (SharedInstallTime?.Text ?? TimeChoice.Text).Trim();
+        if (!TimeSpan.TryParseExact(timeText, @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out var at) || at >= TimeSpan.FromDays(1))
         {
-            MessageBox.Show(this, "Enter time as HH:mm, for example 20:00.", "Invalid time", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Enter time as HH:mm, for example 18:00.", "Invalid time", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        _schedule.Weekday = DayChoice.SelectedIndex == 0 ? 7 : DayChoice.SelectedIndex - 1;
-        _schedule.Time = TimeChoice.Text.Trim();
+        int mask = ReadInstallDaysMaskFromUi();
+        if (mask == 0)
+        {
+            MessageBox.Show(this, _schedule.Language == "no" ? "Velg minst én dag." : "Select at least one day.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        _policy = UpdatePolicy.Load();
+        MaintenanceSetup.ApplyToPolicy(_policy, mask, timeText);
+        _policy.SetupCompleted = true;
+        _policy.Save();
+        TimeChoice.Text = timeText;
+        if (SharedInstallTime is not null) SharedInstallTime.Text = timeText;
+        CriticalPreferredTime.Text = timeText;
+        GeneralPreferredTime.Text = timeText;
+        DayChoice.SelectedIndex = mask == MaintenanceSetup.AllDaysMask ? 0 : MaintenanceSetup.FirstSelectedWeekday(mask) + 1;
+        _schedule.Weekday = mask == MaintenanceSetup.AllDaysMask ? 7 : MaintenanceSetup.FirstSelectedWeekday(mask);
+        _schedule.Time = timeText;
         _schedule.Enabled = RemindersEnabled.IsChecked == true;
         _schedule.LastPromptedOccurrence = null;
         _schedule.ConfirmedOccurrence = null;
         _schedule.SnoozedUntil = null;
         _schedule.Save();
-        ReminderSchedule.Log("schedule_saved", $"Day={_schedule.Weekday}; Time={_schedule.Time}; Enabled={_schedule.Enabled}");
+        ReminderSchedule.Log("schedule_saved", $"Mask={mask}; Time={_schedule.Time}; Enabled={_schedule.Enabled}");
+        RefreshMaintenanceSummary();
         RefreshScheduleStatus();
     }
     private void TestReminder_Click(object sender, RoutedEventArgs e) => ShowReminder(true, DateTime.Now);
@@ -1599,7 +1715,12 @@ public partial class MainWindow : Window
         var now = DateTime.Now;
         if (_schedule.SnoozedUntil is DateTime snooze && now < snooze) return;
         var todayIndex = ((int)now.DayOfWeek + 6) % 7;
-        if (_schedule.Weekday != 7 && todayIndex != _schedule.Weekday) return;
+        int mask = MaintenanceSetup.ClampMask(_policy.InstallDaysMask);
+        if (mask != 0)
+        {
+            if (!MaintenanceSetup.HasDay(mask, todayIndex)) return;
+        }
+        else if (_schedule.Weekday != 7 && todayIndex != _schedule.Weekday) return;
         if (!TimeSpan.TryParseExact(_schedule.Time, @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out var at)) return;
         var due = now.Date.Add(at);
         if (now < due || now >= due.AddHours(2)) return;

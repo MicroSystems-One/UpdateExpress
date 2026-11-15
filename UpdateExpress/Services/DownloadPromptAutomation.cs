@@ -87,8 +87,9 @@ internal static class DownloadPromptAutomation
                 scheduled <= DateTime.Now &&
                 prompt.Updates.Count > 0)
             {
-                await PresentPromptAsync(dispatcher, prompt, preferred, displayName, balloonTitle,
-                    $"Scheduled {displayName.ToLowerInvariant()} updates are due.", elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
+                // Install window reached: start elevated install (reboot still follows AutoReboot policy).
+                AgentLog.Write($"{displayName} automation: scheduled install window reached — starting install.");
+                await StartElevatedInstallAsync(prompt, preferred, displayName, elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
                     .ConfigureAwait(false);
                 return;
             }
@@ -98,7 +99,7 @@ internal static class DownloadPromptAutomation
 
             if (prompt.State == "awaitingPrompt" && prompt.Updates.Count > 0)
             {
-                await PresentPromptAsync(dispatcher, prompt, preferred, displayName, balloonTitle,
+                await MaybeDeferOrPresentAsync(dispatcher, policy, prompt, preferred, displayName, balloonTitle,
                     $"{displayName} updates are waiting for confirmation.", elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
                     .ConfigureAwait(false);
                 return;
@@ -180,9 +181,9 @@ internal static class DownloadPromptAutomation
                 category,
                 "Awaiting confirmation",
                 $"{matches.Count} update(s) ready · downloaded={downloaded}",
-                NextDue(DateTime.Now, cat, preferred, useWeeklySchedule, minIntervalMinutes));
+                NextDue(DateTime.Now, cat, preferred, useWeeklySchedule, minIntervalMinutes, policy));
 
-            await PresentPromptAsync(dispatcher, prompt, preferred, displayName, balloonTitle,
+            await MaybeDeferOrPresentAsync(dispatcher, policy, prompt, preferred, displayName, balloonTitle,
                 $"{matches.Count} {displayName.ToLowerInvariant()} Windows update(s) available.",
                 elevateArg, cat, useWeeklySchedule, minIntervalMinutes).ConfigureAwait(false);
         }
@@ -198,10 +199,89 @@ internal static class DownloadPromptAutomation
         CategoryAutomationPolicy cat,
         string preferred,
         bool useWeeklySchedule,
-        int minIntervalMinutes) =>
-        useWeeklySchedule
+        int minIntervalMinutes,
+        UpdatePolicy? policy = null)
+    {
+        policy ??= UpdatePolicy.Load();
+        int mask = MaintenanceSetup.ClampMask(policy.InstallDaysMask);
+        string time = MaintenanceSetup.NormalizeTime(
+            string.IsNullOrWhiteSpace(policy.InstallTime) ? preferred : policy.InstallTime,
+            preferred);
+        if (mask != 0 && mask != MaintenanceSetup.AllDaysMask)
+            return AutomationSchedule.ComputeNextInstallWindowDue(from, cat.IntervalMinutes, time, mask, minIntervalMinutes);
+        return useWeeklySchedule
             ? AutomationSchedule.ComputeNextWeeklyDue(from, cat.IntervalMinutes, preferred, cat.Weekday)
             : AutomationSchedule.ComputeNextDue(from, cat.IntervalMinutes, preferred, minIntervalMinutes);
+    }
+
+    /// <summary>
+    /// Outside the install window: schedule + evening notice. Inside window: normal confirmation dialog.
+    /// </summary>
+    private static async Task MaybeDeferOrPresentAsync(
+        Dispatcher dispatcher,
+        UpdatePolicy policy,
+        CategoryPromptState prompt,
+        string preferred,
+        string displayName,
+        string balloonTitle,
+        string balloonText,
+        string elevateArg,
+        CategoryAutomationPolicy cat,
+        bool useWeeklySchedule,
+        int minIntervalMinutes)
+    {
+        policy.Normalize();
+        int mask = MaintenanceSetup.ClampMask(policy.InstallDaysMask);
+        string time = MaintenanceSetup.NormalizeTime(
+            string.IsNullOrWhiteSpace(policy.InstallTime) ? preferred : policy.InstallTime,
+            preferred);
+        bool norwegian = MaintenanceSetup.IsNorwegian();
+        bool autoReboot = policy.WindowsAutomation.AutoReboot.Enabled;
+
+        if (mask != 0 &&
+            !MaintenanceSetup.IsWithinInstallWindow(mask, time, DateTime.Now) &&
+            MaintenanceSetup.NextInstallOccurrence(mask, time, DateTime.Now) is DateTime when &&
+            when > DateTime.Now.AddMinutes(5))
+        {
+            prompt.State = "scheduled";
+            prompt.ScheduledInstallAt = when;
+            prompt.SnoozeUntil = when;
+            prompt.Save();
+            WindowsAutomationStatus.WriteCategory(
+                prompt.Category, "Scheduled",
+                norwegian
+                    ? $"Installasjon satt til {when:dd.MM HH:mm}. Lagre åpne filer før du går."
+                    : $"Install scheduled for {when:dd.MM HH:mm}. Save open files before you leave.",
+                when);
+            ActivityLog.TryWrite(displayName + "Automation", "ScheduledWindow", new { At = when }, mode: "Automatic", source: "TrayAgent");
+
+            string title = MaintenanceSetup.EveningNoticeTitle(norwegian);
+            string body = when.Date == DateTime.Today
+                ? MaintenanceSetup.EveningNoticeBody(when, norwegian, autoReboot)
+                : (norwegian
+                    ? $"Nye Windows-oppdateringer er lastet ned og klare.\nInstallasjon er satt til {when:ddd dd.MM} kl. {when:HH:mm}.\n\nTips: Lagre åpne dokumenter før PC-en installerer og eventuelt restarter."
+                    : $"New Windows updates are downloaded and ready.\nInstallation is set for {when:ddd dd MMM} at {when:HH:mm}.\n\nTip: Save open files before the PC installs and possibly restarts.");
+
+            try { _balloon?.Invoke(title, MaintenanceSetup.EveningBalloon(when, norwegian)); }
+            catch { }
+
+            try
+            {
+                await dispatcher.InvokeAsync(() =>
+                {
+                    System.Windows.MessageBox.Show(body, title, System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                }).Task.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Write($"{displayName} automation scheduled notice failed: " + ex.Message);
+            }
+            return;
+        }
+
+        await PresentPromptAsync(dispatcher, prompt, preferred, displayName, balloonTitle, balloonText,
+            elevateArg, cat, useWeeklySchedule, minIntervalMinutes).ConfigureAwait(false);
+    }
 
     private static async Task PresentPromptAsync(
         Dispatcher dispatcher,
@@ -255,7 +335,10 @@ internal static class DownloadPromptAutomation
 
             case SoftwareUpdatesDialog.PromptDecision.InstallAtPreferred:
             {
-                DateTime when = AutomationSchedule.NextPreferredOccurrence(preferred);
+                var pol = UpdatePolicy.Load();
+                pol.Normalize();
+                DateTime when = MaintenanceSetup.NextInstallOccurrence(pol.InstallDaysMask, pol.InstallTime, DateTime.Now)
+                    ?? AutomationSchedule.NextPreferredOccurrence(preferred);
                 prompt.State = "scheduled";
                 prompt.ScheduledInstallAt = when;
                 prompt.SnoozeUntil = when;

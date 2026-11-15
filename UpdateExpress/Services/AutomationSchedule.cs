@@ -61,4 +61,16 @@ internal static class AutomationSchedule
             candidate = candidate.AddDays(1).Date + preferred;
         return candidate;
     }
+
+    /// <summary>Next due using a multi-day install mask (Mon=bit0 … Sun=bit6).</summary>
+    internal static DateTime ComputeNextInstallWindowDue(DateTime from, int intervalMinutes, string preferredHhMm, int daysMask, int minIntervalMinutes = 60)
+    {
+        daysMask = MaintenanceSetup.ClampMask(daysMask);
+        if (daysMask == 0 || daysMask == MaintenanceSetup.AllDaysMask)
+            return ComputeNextDue(from, intervalMinutes, preferredHhMm, minIntervalMinutes);
+
+        DateTime earliest = from.AddMinutes(Math.Max(minIntervalMinutes, intervalMinutes));
+        return MaintenanceSetup.NextInstallOccurrence(daysMask, preferredHhMm, earliest, graceMinutes: 0)
+               ?? ComputeNextDue(from, intervalMinutes, preferredHhMm, minIntervalMinutes);
+    }
 }

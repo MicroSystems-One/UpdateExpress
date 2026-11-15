@@ -63,6 +63,15 @@ public sealed class UpdatePolicy
     /// <summary>Legacy field from older builds; mapped into WindowsAutomation on load.</summary>
     public bool AutomaticWindows { get; set; } = true;
 
+    /// <summary>First-run / setup wizard completed.</summary>
+    public bool SetupCompleted { get; set; }
+    /// <summary>private | business | both</summary>
+    public string SetupProfile { get; set; } = "";
+    /// <summary>Mon=bit0 … Sun=bit6. Shared install days for Critical/General.</summary>
+    public int InstallDaysMask { get; set; }
+    /// <summary>Shared HH:mm install clock for Critical/General (and reminders).</summary>
+    public string InstallTime { get; set; } = "";
+
     private static string PathName => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "UpdateExpress", "update-policy.json");
@@ -124,6 +133,25 @@ public sealed class UpdatePolicy
         if (string.IsNullOrWhiteSpace(WindowsAutomation.General.PreferredInstallTime) ||
             WindowsAutomation.General.PreferredInstallTime.Trim() == "20:00")
             WindowsAutomation.General.PreferredInstallTime = AutomationSchedule.DefaultPreferredTime;
+
+        // Shared maintenance window (wizard / simplified Pilot).
+        if (InstallDaysMask == 0)
+        {
+            int wd = WindowsAutomation.General.Weekday;
+            InstallDaysMask = wd is >= 0 and <= 6 ? (1 << wd) : MaintenanceSetup.AllDaysMask;
+        }
+        InstallDaysMask &= MaintenanceSetup.AllDaysMask;
+        if (string.IsNullOrWhiteSpace(InstallTime))
+            InstallTime = WindowsAutomation.Critical.PreferredInstallTime;
+        InstallTime = MaintenanceSetup.NormalizeTime(InstallTime, AutomationSchedule.DefaultPreferredTime);
+        if (SetupCompleted)
+        {
+            WindowsAutomation.Critical.PreferredInstallTime = InstallTime;
+            WindowsAutomation.General.PreferredInstallTime = InstallTime;
+            WindowsAutomation.General.Weekday = InstallDaysMask == MaintenanceSetup.AllDaysMask
+                ? 7
+                : MaintenanceSetup.FirstSelectedWeekday(InstallDaysMask);
+        }
 
         // Hard rules for v1 (B+C): only Defender may auto-install.
         if (!string.Equals(WindowsAutomation.Defender.Mode, "autoInstall", StringComparison.OrdinalIgnoreCase) &&
