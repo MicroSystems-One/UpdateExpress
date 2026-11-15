@@ -2283,111 +2283,142 @@ public partial class MainWindow : Window
             }
             // Terminal install outcomes are on screen — unlock Close before the long rescan.
             manager.AllowClose(norwegian);
-            manager.SetStage(norwegian ? "Oppdaterer Windows Update- og WinGet-resultater…" : "Refreshing Windows Update and WinGet results…");
             bool verifyTimedOut = false;
             bool stillOfferedAfterSuccess = false;
             string catalogLagGuidance = norwegian
                 ? "Installasjonen lyktes, men Windows kan fortsatt vise oppdateringen til katalogen er oppdatert eller PC-en er startet på nytt."
                 : "Install succeeded, but Windows may still offer the update until its catalog refreshes or the PC is restarted.";
-            try
+
+            bool needWuaVerify = software.Count + drivers.Count > 0 &&
+                queue.Take(software.Count + drivers.Count).Any(q =>
+                    !q.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase) &&
+                    !q.State.StartsWith("Feilet", StringComparison.OrdinalIgnoreCase));
+            // WinGet often locks while Microsoft Store is installing the same package (tech-mismatch path).
+            // Skip a blocking rescan when every WinGet row already failed — refresh in the background later.
+            bool allWingetFailed = apps.Count > 0 && apps.Select((_, i) => queue[software.Count + drivers.Count + i])
+                .All(q => q.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase)
+                       || q.State.StartsWith("Feilet", StringComparison.OrdinalIgnoreCase));
+            bool needWingetVerify = apps.Count > 0 && !allWingetFailed;
+
+            if (needWuaVerify || needWingetVerify)
+                manager.SetStage(norwegian ? "Oppdaterer Windows Update- og WinGet-resultater…" : "Refreshing Windows Update and WinGet results…");
+            else
+                manager.SetStage(norwegian
+                    ? "Hopper over WinGet-rescan (alle WinGet-rader feilet — Store/winget kan være opptatt)."
+                    : "Skipping WinGet rescan (all WinGet rows failed — Store/winget may be busy).");
+
+            if (needWuaVerify)
             {
-                var pendingTask = WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(true, true));
-                outstandingWork.Add(pendingTask);
-                var pending = await AwaitInstallationTaskAsync(
-                    pendingTask,
-                    manager,
-                    softTimeout: TimeSpan.FromMinutes(5),
-                    timeoutMessage: norwegian ? "Verifisering (WUA-rescan) tidsavbrutt." : "Verification (WUA rescan) timed out.",
-                    abandonOnTimeout: true);
-                outstandingWork.Remove(pendingTask);
-                ReplacePendingSnapshot(pending);
-                var historyTask = WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
-                outstandingWork.Add(historyTask);
-                _historySnapshot = await AwaitInstallationTaskAsync(
-                    historyTask,
-                    manager,
-                    softTimeout: TimeSpan.FromMinutes(3),
-                    timeoutMessage: norwegian ? "Verifisering (historikk) tidsavbrutt." : "Verification (history) timed out.",
-                    abandonOnTimeout: true);
-                outstandingWork.Remove(historyTask);
-                HidePendingAlreadyInHistory(_historySnapshot);
-                foreach (var item in software.Select((update, i) => new { update, i }))
+                try
                 {
-                    if (queue[item.i].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
-                    bool remains = pending.Any(x => x.UpdateId.Equals(item.update.UpdateId, StringComparison.OrdinalIgnoreCase));
-                    bool historyOk = HistoryConfirmsInstall(_historySnapshot, item.update);
-                    string next = ResolveVerifiedState(queue[item.i].State, remains, historyOk, completedLabel, notVerifiedLabel);
-                    if (InstallationManagerWindow.IsCompletedState(next) && remains)
-                        stillOfferedAfterSuccess = true;
-                    manager.CompleteItem(item.i, next, InstallationManagerWindow.IsUnverifiedState(next));
-                    Log("WUA", next, new { item.update.UpdateId, item.update.Title, remains, historyOk });
+                    var pendingTask = WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(true, true));
+                    outstandingWork.Add(pendingTask);
+                    var pending = await AwaitInstallationTaskAsync(
+                        pendingTask,
+                        manager,
+                        softTimeout: TimeSpan.FromMinutes(3),
+                        timeoutMessage: norwegian ? "Verifisering (WUA-rescan) tidsavbrutt." : "Verification (WUA rescan) timed out.",
+                        abandonOnTimeout: true);
+                    outstandingWork.Remove(pendingTask);
+                    ReplacePendingSnapshot(pending);
+                    var historyTask = WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
+                    outstandingWork.Add(historyTask);
+                    _historySnapshot = await AwaitInstallationTaskAsync(
+                        historyTask,
+                        manager,
+                        softTimeout: TimeSpan.FromMinutes(2),
+                        timeoutMessage: norwegian ? "Verifisering (historikk) tidsavbrutt." : "Verification (history) timed out.",
+                        abandonOnTimeout: true);
+                    outstandingWork.Remove(historyTask);
+                    HidePendingAlreadyInHistory(_historySnapshot);
+                    foreach (var item in software.Select((update, i) => new { update, i }))
+                    {
+                        if (queue[item.i].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
+                        bool remains = pending.Any(x => x.UpdateId.Equals(item.update.UpdateId, StringComparison.OrdinalIgnoreCase));
+                        bool historyOk = HistoryConfirmsInstall(_historySnapshot, item.update);
+                        string next = ResolveVerifiedState(queue[item.i].State, remains, historyOk, completedLabel, notVerifiedLabel);
+                        if (InstallationManagerWindow.IsCompletedState(next) && remains)
+                            stillOfferedAfterSuccess = true;
+                        manager.CompleteItem(item.i, next, InstallationManagerWindow.IsUnverifiedState(next));
+                        Log("WUA", next, new { item.update.UpdateId, item.update.Title, remains, historyOk });
+                    }
+                    for (int i = 0; i < drivers.Count; i++)
+                    {
+                        int driverIndex = software.Count + i;
+                        if (queue[driverIndex].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
+                        bool remains = pending.Any(x => x.UpdateId.Equals(drivers[i].UpdateId, StringComparison.OrdinalIgnoreCase));
+                        bool historyOk = HistoryConfirmsInstall(_historySnapshot, drivers[i]);
+                        string next = ResolveVerifiedState(queue[driverIndex].State, remains, historyOk, completedLabel, notVerifiedLabel);
+                        if (InstallationManagerWindow.IsCompletedState(next) && remains)
+                            stillOfferedAfterSuccess = true;
+                        manager.CompleteItem(driverIndex, next, InstallationManagerWindow.IsUnverifiedState(next));
+                        Log("Driver", next, new { drivers[i].UpdateId, drivers[i].Title, remains, historyOk });
+                    }
+                    Log("WUA", "Rescan completed", new { Count = pending.Count });
                 }
-                for (int i = 0; i < drivers.Count; i++)
+                catch (TimeoutException tex)
                 {
-                    int driverIndex = software.Count + i;
-                    if (queue[driverIndex].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
-                    bool remains = pending.Any(x => x.UpdateId.Equals(drivers[i].UpdateId, StringComparison.OrdinalIgnoreCase));
-                    bool historyOk = HistoryConfirmsInstall(_historySnapshot, drivers[i]);
-                    string next = ResolveVerifiedState(queue[driverIndex].State, remains, historyOk, completedLabel, notVerifiedLabel);
-                    if (InstallationManagerWindow.IsCompletedState(next) && remains)
-                        stillOfferedAfterSuccess = true;
-                    manager.CompleteItem(driverIndex, next, InstallationManagerWindow.IsUnverifiedState(next));
-                    Log("Driver", next, new { drivers[i].UpdateId, drivers[i].Title, remains, historyOk });
+                    verifyTimedOut = true;
+                    Log("WUA", "Rescan timed out", tex.Message);
+                    manager.SetStage(tex.Message + " " + retryGuidance);
+                    for (int i = 0; i < software.Count + drivers.Count; i++)
+                        if (InstallationManagerWindow.IsVerifyingState(queue[i].State))
+                            manager.CompleteItem(i, completedLabel, false);
                 }
-                Log("WUA", "Rescan completed", new { Count = pending.Count });
+                catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage("Windows Update rescan failed: " + ex.Message); }
             }
-            catch (TimeoutException tex)
+
+            if (needWingetVerify)
             {
-                verifyTimedOut = true;
-                Log("WUA", "Rescan timed out", tex.Message);
-                manager.SetStage(tex.Message + " " + retryGuidance);
-                // Installer already reported success (Verifying) — do not demote to timed out.
-                for (int i = 0; i < software.Count + drivers.Count; i++)
-                    if (InstallationManagerWindow.IsVerifyingState(queue[i].State))
-                        manager.CompleteItem(i, completedLabel, false);
-            }
-            catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage("Windows Update rescan failed: " + ex.Message); }
-            try
-            {
-                var scanTask = WingetReader.ScanAsync();
-                outstandingWork.Add(scanTask);
-                var scan = await AwaitInstallationTaskAsync(
-                    scanTask,
-                    manager,
-                    softTimeout: TimeSpan.FromMinutes(5),
-                    timeoutMessage: norwegian ? "Verifisering (WinGet-rescan) tidsavbrutt." : "Verification (WinGet rescan) timed out.",
-                    abandonOnTimeout: true);
-                outstandingWork.Remove(scanTask);
-                WingetAvailableCache.Write(scan.Updates, scan.Raw);
-                ApplyAppScanResult(scan.Updates, scan.Raw);
-                ReconcileApplicationsPromptWithScan(scan.Updates);
-                foreach (var item in apps.Select((app, i) => new { app, i }))
+                try
                 {
-                    int qi = software.Count + drivers.Count + item.i;
-                    if (queue[qi].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
-                    bool remains = scan.Updates.Any(x => x.Id.Equals(item.app.Id, StringComparison.OrdinalIgnoreCase));
-                    string next = remains ? notVerifiedLabel :
-                        InstallationManagerWindow.IsVerifyingState(queue[qi].State) ? completedLabel : notVerifiedLabel;
-                    manager.CompleteItem(qi, next, InstallationManagerWindow.IsUnverifiedState(next));
-                    Log("WinGet", remains ? "Not verified" : "Verified absent from upgrade list", new { item.app.Id, item.app.Available });
+                    var scanTask = WingetReader.ScanAsync();
+                    outstandingWork.Add(scanTask);
+                    // Keep this short: Store installs often block winget for a long time.
+                    var scan = await AwaitInstallationTaskAsync(
+                        scanTask,
+                        manager,
+                        softTimeout: TimeSpan.FromSeconds(90),
+                        timeoutMessage: norwegian ? "Verifisering (WinGet-rescan) tidsavbrutt." : "Verification (WinGet rescan) timed out.",
+                        abandonOnTimeout: true);
+                    outstandingWork.Remove(scanTask);
+                    WingetAvailableCache.Write(scan.Updates, scan.Raw);
+                    ApplyAppScanResult(scan.Updates, scan.Raw);
+                    ReconcileApplicationsPromptWithScan(scan.Updates);
+                    foreach (var item in apps.Select((app, i) => new { app, i }))
+                    {
+                        int qi = software.Count + drivers.Count + item.i;
+                        if (queue[qi].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
+                        bool remains = scan.Updates.Any(x => x.Id.Equals(item.app.Id, StringComparison.OrdinalIgnoreCase));
+                        string next = remains ? notVerifiedLabel :
+                            InstallationManagerWindow.IsVerifyingState(queue[qi].State) ? completedLabel : notVerifiedLabel;
+                        manager.CompleteItem(qi, next, InstallationManagerWindow.IsUnverifiedState(next));
+                        Log("WinGet", remains ? "Not verified" : "Verified absent from upgrade list", new { item.app.Id, item.app.Available });
+                    }
                 }
-            }
-            catch (TimeoutException tex)
-            {
-                verifyTimedOut = true;
-                Log("WinGet", "Rescan timed out", tex.Message);
-                manager.SetStage(tex.Message + " " + retryGuidance);
-                for (int i = 0; i < apps.Count; i++)
+                catch (TimeoutException tex)
                 {
-                    int qi = software.Count + drivers.Count + i;
-                    if (InstallationManagerWindow.IsVerifyingState(queue[qi].State))
-                        manager.CompleteItem(qi, timedOutLabel, true);
+                    verifyTimedOut = true;
+                    Log("WinGet", "Rescan timed out", tex.Message);
+                    manager.SetStage(tex.Message + " " + retryGuidance);
+                    for (int i = 0; i < apps.Count; i++)
+                    {
+                        int qi = software.Count + drivers.Count + i;
+                        if (InstallationManagerWindow.IsVerifyingState(queue[qi].State))
+                            manager.CompleteItem(qi, timedOutLabel, true);
+                    }
                 }
+                catch (Exception ex) { Log("WinGet", "Rescan failed", ex.Message); manager.SetStage("WinGet rescan failed: " + ex.Message); }
             }
-            catch (Exception ex) { Log("WinGet", "Rescan failed", ex.Message); manager.SetStage("WinGet rescan failed: " + ex.Message); }
+            else if (apps.Count > 0)
+            {
+                // Deferred refresh so Store/winget contention cannot freeze the main window.
+                ScheduleBackgroundWingetRefresh();
+            }
+
             SetTab(_activeTab);
             RefreshHealthSummary();
-            Log("InstallationManager", "Finished", new { Total = queue.Count, verifyTimedOut, stillOfferedAfterSuccess });
+            Log("InstallationManager", "Finished", new { Total = queue.Count, verifyTimedOut, stillOfferedAfterSuccess, needWuaVerify, needWingetVerify, allWingetFailed });
             string? guidance = queue.Any(q => InstallationManagerWindow.IsUnverifiedState(q.State))
                 ? retryGuidance
                 : stillOfferedAfterSuccess || verifyTimedOut
@@ -2409,13 +2440,20 @@ public partial class MainWindow : Window
         }
         finally
         {
+            // Never wait forever — hung winget/WUA (e.g. Store install) used to keep _busy true.
             if (outstandingWork.Count > 0)
             {
-                manager.SetStage(norwegian
-                    ? "Venter på at bakgrunns-WUA/WinGet skal bli ferdig før ny installasjon tillates…"
-                    : "Waiting for background WUA/WinGet work to finish before allowing another install…");
-                try { await Task.WhenAll(outstandingWork.Select(DrainTaskAsync)); }
-                catch { /* logged inside DrainTaskAsync */ }
+                try
+                {
+                    await DrainOutstandingWithTimeoutAsync(
+                        outstandingWork,
+                        TimeSpan.FromSeconds(20),
+                        manager,
+                        norwegian
+                            ? "Bakgrunnsjobb tidsavbrutt — UI låses opp. Kjør Check for Updates senere."
+                            : "Background work timed out — unlocking UI. Run Check for Updates later.");
+                }
+                catch { /* never block unlock */ }
             }
             _busy = false;
             InstallButtonActive = false;
@@ -2425,6 +2463,57 @@ public partial class MainWindow : Window
             UpdateSelectionControls();
             RefreshRebootNeededBanner();
         }
+    }
+
+    private void ScheduleBackgroundWingetRefresh()
+    {
+        _ = RefreshWingetInBackgroundAsync();
+    }
+
+    private async Task RefreshWingetInBackgroundAsync()
+    {
+        try
+        {
+            var scan = await WingetReader.ScanAsync().ConfigureAwait(false);
+            await Dispatcher.InvokeAsync(() =>
+            {
+                try
+                {
+                    if (_busy) return;
+                    WingetAvailableCache.Write(scan.Updates, scan.Raw);
+                    ApplyAppScanResult(scan.Updates, scan.Raw);
+                    ReconcileApplicationsPromptWithScan(scan.Updates);
+                    if (_activeTab is "all" or "apps") SetTab(_activeTab);
+                    RefreshHealthSummary();
+                }
+                catch (Exception ex) { LogStatic("WinGet", "Background refresh apply failed", ex.Message); }
+            });
+        }
+        catch (Exception ex) { LogStatic("WinGet", "Background refresh failed", ex.Message); }
+    }
+
+    private static async Task DrainOutstandingWithTimeoutAsync(
+        IReadOnlyList<Task> tasks,
+        TimeSpan limit,
+        InstallationManagerWindow manager,
+        string timeoutStage)
+    {
+        var drain = Task.WhenAll(tasks.Select(DrainTaskAsync));
+        var winner = await Task.WhenAny(drain, Task.Delay(limit)).ConfigureAwait(true);
+        if (winner != drain)
+        {
+            try { manager.SetStage(timeoutStage); } catch { /* window may be closed */ }
+            LogStatic("InstallationManager", "Drain timed out", new { Seconds = limit.TotalSeconds, Count = tasks.Count });
+        }
+        else
+        {
+            try { await drain.ConfigureAwait(true); } catch { /* individual drains log */ }
+        }
+    }
+
+    private static void LogStatic(string source, string status, object detail)
+    {
+        try { ActivityLog.TryWrite(source, status, detail); } catch { /* ignore */ }
     }
 
     private void ResultsExpander_Expanded(object sender, RoutedEventArgs e)
