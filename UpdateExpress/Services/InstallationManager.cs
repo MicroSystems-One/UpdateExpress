@@ -89,7 +89,10 @@ internal static class InstallationManager
         string helper = Path.Combine(helperDir, "UpdateExpress-Maintenance.exe");
         File.Copy(running, helper);
         int parentPid = Environment.ProcessId;
-        string arguments = $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers ? "machine" : "user")} {(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)} {(taskbar ? 1 : 0)}";
+        string silentFlag = string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase)
+            ? " --silent"
+            : "";
+        string arguments = $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers ? "machine" : "user")} {(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)} {(taskbar ? 1 : 0)}{silentFlag}";
         AgentLog.Write($"Launching detached maintenance: {operation} (parent {parentPid})");
         using var maintenanceProcess = Process.Start(new ProcessStartInfo(helper, arguments) { UseShellExecute = true, WorkingDirectory = helperDir, Verb = allUsers ? "runas" : "open" })
             ?? throw new InvalidOperationException("Kunne ikke starte vedlikeholdsprosessen.");
@@ -124,15 +127,18 @@ internal static class InstallationManager
 
     internal static void ApplyMaintenance(string[] args)
     {
-        // Arguments: --apply-maintenance <op> <parentPID> <sourceEXE> <scope> <desktop> <startMenu> <agent> [taskbar]
-        if ((args.Length != 8 && args.Length != 9) || !new[] { "install", "repair", "uninstall", "upgrade" }.Contains(args[1], StringComparer.OrdinalIgnoreCase)
-            || !int.TryParse(args[2], out int parentPid))
+        // Arguments: --apply-maintenance <op> <parentPID> <sourceEXE> <scope> <desktop> <startMenu> <agent> [taskbar] [--silent]
+        bool silent = args.Any(a => string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase);
+        string[] positional = args.Where(a => !string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if ((positional.Length != 8 && positional.Length != 9) || !new[] { "install", "repair", "uninstall", "upgrade" }.Contains(positional[1], StringComparer.OrdinalIgnoreCase)
+            || !int.TryParse(positional[2], out int parentPid))
             throw new ArgumentException("Ugyldige parametere for vedlikehold.");
-        string operation = args[1].ToLowerInvariant();
-        string source = Path.GetFullPath(args[3]);
-        bool machine = args[4] == "machine";
-        bool desktop = args[5] == "1", startMenu = args[6] == "1", agent = args[7] == "1";
-        bool taskbar = args.Length >= 9 && args[8] == "1";
+        string operation = positional[1].ToLowerInvariant();
+        string source = Path.GetFullPath(positional[3]);
+        bool machine = positional[4] == "machine";
+        bool desktop = positional[5] == "1", startMenu = positional[6] == "1", agent = positional[7] == "1";
+        bool taskbar = positional.Length >= 9 && positional[8] == "1";
         // Machine-wide auto-start needs a separate per-user registration flow; not supported in this preview.
         if (machine) agent = false;
         string targetDir = machine ? MachineInstallDir : UserInstallDir;
@@ -149,9 +155,12 @@ internal static class InstallationManager
         AgentLog.Write($"Maintenance helper started: {operation}, source={source}");
         try
         {
-            // Wait for the launcher that started us to close.
-            try { using var parent = Process.GetProcessById(parentPid); parent.WaitForExit(30000); }
-            catch (ArgumentException) { /* Parent has exited already. */ }
+            // Wait for the launcher that started us to close (parentPid 0 = script/RMM, skip wait).
+            if (parentPid > 0)
+            {
+                try { using var parent = Process.GetProcessById(parentPid); parent.WaitForExit(30000); }
+                catch (ArgumentException) { /* Parent has exited already. */ }
+            }
             if (operation == "upgrade")
                 StopInstalledProcesses(targetExe);
             else if (operation == "uninstall" || operation == "install" || operation == "repair")
@@ -167,7 +176,8 @@ internal static class InstallationManager
                 if (File.Exists(iconPath)) RetryFileOperation(() => File.Delete(iconPath), iconPath);
                 TryDeleteLegacyVersionedIcons(targetDir);
                 AgentLog.Write("Uninstall completed.");
-                MessageBox.Show("Update Express er avinstallert. Historikk og innstillinger er beholdt.", "Update Express");
+                if (!silent)
+                    MessageBox.Show("Update Express er avinstallert. Historikk og innstillinger er beholdt.", "Update Express");
             }
             else
             {
@@ -226,27 +236,40 @@ internal static class InstallationManager
                 }
                 if (agent) Process.Start(new ProcessStartInfo(targetExe, "--agent")
                     { UseShellExecute = true, WorkingDirectory = targetDir });
-                if (operation == "upgrade")
+                if (operation == "upgrade" && !silent)
                     Process.Start(new ProcessStartInfo(targetExe, "--installed")
                     { UseShellExecute = true, WorkingDirectory = targetDir });
-                AgentLog.Write($"{operation} completed: scope={(machine ? "machine" : "user")}, agent={agent}, version={displayVersion}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
+                AgentLog.Write($"{operation} completed: scope={(machine ? "machine" : "user")}, agent={agent}, silent={silent}, version={displayVersion}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
                 string completedAction = operation == "repair" ? "repaired" : operation == "upgrade" ? "updated" : "installed";
                 string scopeText = machine ? "all users" : "the current user";
-                AutoCloseInfoDialog.Show(
-                    $"Update Express was {completedAction} successfully for {scopeText}.\n\n"
-                    + $"Version: {displayVersion}\n"
-                    + (agent ? "Background monitoring is enabled for this user." : "Background monitoring is disabled.")
-                    + (operation == "upgrade" ? "\n\nUpdate Express will open now." : "\n\nYou can pin Update Express to the taskbar from the Start menu."),
-                    "Update Express",
-                    autoCloseSeconds: 10);
+                if (!silent)
+                {
+                    AutoCloseInfoDialog.Show(
+                        $"Update Express was {completedAction} successfully for {scopeText}.\n\n"
+                        + $"Version: {displayVersion}\n"
+                        + (agent ? "Background monitoring is enabled for this user." : "Background monitoring is disabled.")
+                        + (operation == "upgrade" ? "\n\nUpdate Express will open now." : "\n\nYou can pin Update Express to the taskbar from the Start menu."),
+                        "Update Express",
+                        autoCloseSeconds: 10);
+                }
                 TryDeleteTree(Path.GetDirectoryName(source));
             }
         }
         catch (Exception ex)
         {
             AgentLog.Write("Maintenance FAILED: " + ex);
-            MessageBox.Show("Vedlikehold mislyktes:\n\n" + FormatMaintenanceError(ex) + "\n\nSe agent.log for detaljer.",
-                "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
+            bool silentFail = args.Any(a => string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase);
+            if (!silentFail)
+            {
+                MessageBox.Show("Vedlikehold mislyktes:\n\n" + FormatMaintenanceError(ex) + "\n\nSe agent.log for detaljer.",
+                    "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            else
+            {
+                Environment.ExitCode = 1;
+                throw;
+            }
         }
     }
 
