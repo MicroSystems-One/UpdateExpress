@@ -17,6 +17,7 @@
   <ItemGroup>
     <Resource Include="Assets\MicroSystemsBanner.png" />
     <Resource Include="Assets\UpdateExpress-U.png" />
+    <Resource Include="Assets\HelpRowTools.png" />
     <Resource Include="Assets\UpdateExpress-U.ico" />
     <Resource Include="Assets\UpdateExpressWindow.ico" />
     <EmbeddedResource Include="Assets\UpdateExpress-U.ico" LogicalName="UpdateExpress.Assets.UpdateExpress.ico" />
