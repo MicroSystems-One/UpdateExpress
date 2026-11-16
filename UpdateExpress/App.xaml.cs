@@ -21,6 +21,14 @@ public partial class App : System.Windows.Application
             Shutdown();
             return;
         }
+        if (args.Contains("--apply-defender-exclusions", StringComparer.OrdinalIgnoreCase) ||
+            args.Contains("--remove-defender-exclusions", StringComparer.OrdinalIgnoreCase))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            DefenderExclusions.ApplyFromArgs(args);
+            Shutdown();
+            return;
+        }
         if (args.Contains("--apply-critical-install", StringComparer.OrdinalIgnoreCase) ||
             args.Contains("--apply-general-install", StringComparer.OrdinalIgnoreCase) ||
             args.Contains("--apply-drivers-install", StringComparer.OrdinalIgnoreCase) ||

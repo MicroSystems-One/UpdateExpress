@@ -167,6 +167,8 @@ internal static class InstallationManager
                 StopInstalledAgent(targetExe);
             if (operation == "uninstall")
             {
+                try { DefenderExclusions.RemoveRegistered(targetDir, targetExe, machine, silent); }
+                catch (Exception ex) { AgentLog.Write("Defender exclusions uninstall step failed: " + ex.Message); }
                 if (!machine) using (var key = Registry.CurrentUser.OpenSubKey(RunKey, true)) key?.DeleteValue(RunName, false);
                 hive.DeleteSubKeyTree(UninstallKey, false);
                 RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
@@ -234,6 +236,8 @@ internal static class InstallationManager
                     if (agent) key.SetValue(RunName, $"\"{targetExe}\" --agent");
                     else key.DeleteValue(RunName, false);
                 }
+                try { DefenderExclusions.EnsureRegistered(targetDir, targetExe, machine, silent); }
+                catch (Exception ex) { AgentLog.Write("Defender exclusions register step failed: " + ex.Message); }
                 if (agent) Process.Start(new ProcessStartInfo(targetExe, "--agent")
                     { UseShellExecute = true, WorkingDirectory = targetDir });
                 if (operation == "upgrade" && !silent)
