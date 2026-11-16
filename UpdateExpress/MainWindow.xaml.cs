@@ -2960,6 +2960,31 @@ public partial class MainWindow : Window
         btn.ContextMenu.IsOpen = true;
     }
 
+    private void MonitorDetailsToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (MonitorDetailsPanel is null || MonitorDetailsToggle is null) return;
+        bool open = MonitorDetailsToggle.IsChecked == true;
+        MonitorDetailsPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        MonitorDetailsToggle.ToolTip = open ? "Hide monitoring details" : "Show monitoring details";
+    }
+
+    private void BrandSiteLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "https://www.microsystems.one",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Open website", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     /// <summary>
     /// Await install/verify work while pulsing the Installation Manager elapsed clock.
     /// When <paramref name="abandonOnTimeout"/> is false (installs), soft timeout only updates

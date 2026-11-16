@@ -1,11 +1,11 @@
-﻿<#
+<#
 .SYNOPSIS
   Silent Update Express install for N-able RMM, with business maintenance policy
   matching the Pilot UI (profile business, active hours 07–17, install daily 17:00,
   reboot outside active hours) and local N-able PME service disabled.
 
 .NOTES
-  - Requires Update Express v0.7.2.18+ (--silent on --apply-maintenance).
+  - Requires Update Express v0.7.2.19+ (--silent on --apply-maintenance).
   - Stopping PME.Agent.PmeService is LOCAL only. Also disable Windows patching for
     the device in the N-able console / patch profile, or RMM may re-enable PME.
   - Policy files are written per Windows user profile under
@@ -13,17 +13,17 @@
   - Run elevated (N-able Automation / SYSTEM is fine).
 
 .EXAMPLE
-  .\Install-UpdateExpress-Nable.ps1 -Version 0.7.2.18
+  .\Install-UpdateExpress-Nable.ps1 -Version 0.7.2.19
 
 .EXAMPLE
-  .\Install-UpdateExpress-Nable.ps1 -ExePath 'C:\Temp\UpdateExpress_v0.7.2.18.exe' -Scope machine
+  .\Install-UpdateExpress-Nable.ps1 -ExePath 'C:\Temp\UpdateExpress_v0.7.2.19.exe' -Scope machine
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('user', 'machine')]
     [string]$Scope = 'user',
 
-    [string]$Version = '0.7.2.18',
+    [string]$Version = '0.7.2.19',
 
     [string]$ExePath,
 
@@ -223,7 +223,7 @@ if ($DisablePme) {
 }
 
 # --- Silent install via Update Express maintenance CLI ---
-# parentPid 0 = no wait (RMM/script). --silent suppresses UI dialogs (0.7.2.18+).
+# parentPid 0 = no wait (RMM/script). --silent suppresses UI dialogs (0.7.2.19+).
 $env:UE_SILENT = '1'
 $desktopFlag = if ($Desktop) { '1' } else { '0' }
 $menuFlag = if ($StartMenu) { '1' } else { '0' }

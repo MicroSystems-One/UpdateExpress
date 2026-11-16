@@ -37,7 +37,7 @@
                       <!-- Thin black chevron (stroke only), same language as Win11 Help accordion. -->
                       <Path x:Name="Chevron" Grid.Column="1"
                             Data="M1,3.5 L6.5,9 L12,3.5"
-                            Stroke="#1C1C1C" StrokeThickness="1.35"
+                            Stroke="#0067C0" StrokeThickness="1.35"
                             StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                             Fill="Transparent" Stretch="Uniform" Width="12" Height="7"
                             HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -148,17 +148,17 @@
       <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" CornerRadius="4">
        <Viewbox Width="14" Height="14" Stretch="Uniform">
         <Canvas Width="24" Height="24">
-         <Path Fill="#F3F3F3" Stroke="#5D5D5D" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+         <Path Fill="#F3F3F3" Stroke="#0067C0" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                Data="M3,4 H12 L15.2,7.2 V16.2 H3 Z"/>
-         <Path Stroke="#5D5D5D" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+         <Path Stroke="#0067C0" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                Data="M12,4 V7.2 H15.2"/>
-         <Path Stroke="#5D5D5D" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+         <Path Stroke="#0067C0" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                Data="M5.2,8.2 H10.2 M5.2,10.6 H10.2 M5.2,13 H10.2"/>
-         <Path Fill="#F3F3F3" Stroke="#5D5D5D" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+         <Path Fill="#F3F3F3" Stroke="#0067C0" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                Data="M8.2,8 H16.4 L20,11.6 V21 H8.2 Z"/>
-         <Path Stroke="#5D5D5D" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+         <Path Stroke="#0067C0" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                Data="M16.4,8 V11.6 H20"/>
-         <Path Stroke="#5D5D5D" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+         <Path Stroke="#0067C0" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                Data="M10.4,13.4 H17.2 M10.4,16 H17.2 M10.4,18.6 H17.2"/>
         </Canvas>
        </Viewbox>
@@ -319,7 +319,10 @@
              Opacity="0" RenderOptions.BitmapScalingMode="HighQuality"/>
      </Grid>
     </Button>
-    <Image Source="Assets/MicroSystemsBanner.png" Height="75" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0" RenderOptions.BitmapScalingMode="HighQuality"/>
+    <TextBlock x:Name="BrandSiteLink" Text="www.microsystems.one" FontSize="14" FontWeight="SemiBold"
+               Foreground="#0067C0" Cursor="Hand" VerticalAlignment="Center" Margin="0,0,4,0"
+               TextDecorations="Underline" ToolTip="https://www.microsystems.one"
+               MouseLeftButtonUp="BrandSiteLink_Click"/>
    </StackPanel>
   </Grid>
   <Border Grid.Row="1" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="WindowsUpdateControlExpander" Style="{StaticResource SectionExpander}" IsExpanded="True"><Expander.Header><Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="↻" Foreground="#0067C0" FontSize="20" FontWeight="Bold" Margin="0,-3,12,0"/><TextBlock Text="Windows Update Status – Health Check" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,16,0"/><TextBlock x:Name="OsSupportIcon" Text="?" FontSize="14" FontWeight="Bold" Foreground="#B7791F" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock x:Name="OsVersionLabel" Text="Checking Windows…" FontSize="12" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center"/><Button x:Name="OsSupportInfo" Content="ⓘ" Click="OsSupportInfo_Click" ToolTip="Windows lifecycle and security support" FontSize="12" Padding="3,0" Margin="3,0,0,0" Height="20" MinHeight="20" MinWidth="20" VerticalAlignment="Center"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0"><Viewbox Width="22" Height="22" Margin="0,0,8,0" ToolTip="Antivirus protection status"><Canvas Width="96" Height="96"><Path x:Name="DefenderShield" Fill="#9099A6" Data="M48,5 L83,18 L83,43 C83,67 68,82 48,91 C28,82 13,67 13,43 L13,18 Z"/><Path Stroke="White" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M31,48 L43,60 L66,35"/></Canvas></Viewbox><TextBlock Text="Microsoft Defender" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderLabel" Text="Checking…" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderChecked" Text="Not checked" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,10,0"/><Button x:Name="DefenderRefreshButton" Content="↻  Refresh" Click="DefenderRefresh_Click" FontSize="12" Padding="8,3" MinHeight="26" Height="26" Margin="0" VerticalAlignment="Center"/></StackPanel></Grid></Expander.Header><StackPanel Margin="0,8,0,0">
@@ -373,7 +376,7 @@
     <Button Click="ProxyDetails_Click" ToolTip="Proxy Settings" Width="22" Height="22" Padding="2" Margin="0,0,8,0" Background="Transparent" BorderThickness="0" VerticalAlignment="Center" Cursor="Hand" Focusable="True" AutomationProperties.Name="View proxy details">
      <Viewbox Width="14" Height="14" Stretch="Uniform">
       <Canvas Width="24" Height="24">
-       <Path Stroke="#5D5D5D" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M12,2 A10,10 0 1 1 11.99,2 Z M2,12 L22,12 M12,2 C5,7 5,17 12,22 M12,2 C19,7 19,17 12,22"/>
+       <Path Stroke="#0067C0" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M12,2 A10,10 0 1 1 11.99,2 Z M2,12 L22,12 M12,2 C5,7 5,17 12,22 M12,2 C19,7 19,17 12,22"/>
       </Canvas>
      </Viewbox>
     </Button>
@@ -388,17 +391,58 @@
      </StackPanel>
    </StackPanel>
    </Grid>
-   <!-- Agent status is read from a local read-only JSON snapshot; no scan is triggered by this panel. -->
+   <!-- Agent status: one summary line (state + timer) with chevron for details; details default collapsed. -->
    <Border Background="#F3F3F3" CornerRadius="8" BorderBrush="#E5E5E5" BorderThickness="1" Padding="9,6" Margin="0,2,0,8">
-    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <StackPanel>
-      <TextBlock x:Name="MonitorStateText" Text="Background monitoring: waiting for agent" FontSize="18" FontWeight="SemiBold" Foreground="#1C1C1C"/>
-      <TextBlock x:Name="MonitorDetailsText" Text="Last check: —  |  Available: —  |  New: —" FontSize="12" Foreground="#5D5D5D" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
-      <TextBlock x:Name="MonitorUpdatesText" Text="Updates: —" FontSize="12" Foreground="#5D5D5D" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" ToolTip="Last available updates"/>
-      <TextBlock x:Name="AutomationStatusText" Text="Windows automation: —" FontSize="12" Foreground="#5D5D5D" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" ToolTip="Category automation status"/>
+    <StackPanel>
+     <Grid>
+      <Grid.ColumnDefinitions>
+       <ColumnDefinition Width="*"/>
+       <ColumnDefinition Width="Auto"/>
+       <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <TextBlock x:Name="MonitorStateText" Text="Background monitoring: waiting for agent"
+                 FontSize="14" FontWeight="SemiBold" Foreground="#1C1C1C"
+                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+      <TextBlock Grid.Column="1" x:Name="MonitorElapsedText" Text=""
+                 FontSize="13" FontWeight="SemiBold" Foreground="#B7791F"
+                 VerticalAlignment="Center" Margin="12,0,8,0"/>
+      <ToggleButton Grid.Column="2" x:Name="MonitorDetailsToggle" Width="28" Height="28"
+                    Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
+                    ToolTip="Show monitoring details" VerticalAlignment="Center"
+                    Checked="MonitorDetailsToggle_Changed" Unchecked="MonitorDetailsToggle_Changed"
+                    AutomationProperties.Name="Monitoring details">
+       <ToggleButton.Template>
+        <ControlTemplate TargetType="ToggleButton">
+         <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Width="28" Height="28">
+          <Path x:Name="Chevron" Data="M1,3.5 L6.5,9 L12,3.5"
+                Stroke="#0067C0" StrokeThickness="1.35"
+                StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                Fill="Transparent" Stretch="Uniform" Width="12" Height="7"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                RenderTransformOrigin="0.5,0.5">
+           <Path.RenderTransform>
+            <RotateTransform Angle="0"/>
+           </Path.RenderTransform>
+          </Path>
+         </Border>
+         <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/></Trigger>
+          <Trigger Property="IsChecked" Value="True">
+           <Setter TargetName="Chevron" Property="RenderTransform">
+            <Setter.Value><RotateTransform Angle="180"/></Setter.Value>
+           </Setter>
+          </Trigger>
+         </ControlTemplate.Triggers>
+        </ControlTemplate>
+       </ToggleButton.Template>
+      </ToggleButton>
+     </Grid>
+     <StackPanel x:Name="MonitorDetailsPanel" Visibility="Collapsed" Margin="0,8,0,0">
+      <TextBlock x:Name="MonitorDetailsText" Text="Last check: —  |  Available: —  |  New: —" FontSize="12" Foreground="#5D5D5D" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
+      <TextBlock x:Name="MonitorUpdatesText" Text="Updates: —" FontSize="12" Foreground="#5D5D5D" Margin="0,4,0,0" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" ToolTip="Last available updates"/>
+      <TextBlock x:Name="AutomationStatusText" Text="Windows automation: —" FontSize="12" Foreground="#5D5D5D" Margin="0,4,0,0" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" ToolTip="Category automation status"/>
      </StackPanel>
-     <TextBlock Grid.Column="1" x:Name="MonitorElapsedText" Text="" FontSize="12" Foreground="#0067C0" VerticalAlignment="Center" Margin="12,0,0,0"/>
-    </Grid>
+    </StackPanel>
    </Border>
    <TextBlock x:Name="RebootNeededBanner" Text="⚠  Reboot needed" Visibility="Collapsed"
               FontSize="15" FontWeight="Bold" Foreground="#C62828"
@@ -425,9 +469,9 @@
     <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Width="32" Height="32">
      <Viewbox Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
       <Canvas Width="24" Height="24">
-       <Path Stroke="#1C1C1C" StrokeThickness="1.5" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"
+       <Path Stroke="#0067C0" StrokeThickness="1.5" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"
              Data="M12,3 L13.1,6.2 C13.85,6.4 14.55,6.75 15.15,7.2 L18.3,5.95 L20.05,8.95 L17.2,10.55 C17.35,11.2 17.4,11.9 17.4,12.6 C17.4,13.3 17.35,14 17.2,14.65 L20.05,16.25 L18.3,19.25 L15.15,18 C14.55,18.45 13.85,18.8 13.1,19 L12,22.2 L9,22.2 L7.9,19 C7.15,18.8 6.45,18.45 5.85,18 L2.7,19.25 L0.95,16.25 L3.8,14.65 C3.65,14 3.6,13.3 3.6,12.6 C3.6,11.9 3.65,11.2 3.8,10.55 L0.95,8.95 L2.7,5.95 L5.85,7.2 C6.45,6.75 7.15,6.4 7.9,6.2 L9,3 Z"/>
-       <Ellipse Canvas.Left="8.6" Canvas.Top="9.2" Width="6.8" Height="6.8" Stroke="#1C1C1C" StrokeThickness="1.5" Fill="Transparent"/>
+       <Ellipse Canvas.Left="8.6" Canvas.Top="9.2" Width="6.8" Height="6.8" Stroke="#0067C0" StrokeThickness="1.5" Fill="Transparent"/>
       </Canvas>
      </Viewbox>
     </Border>
