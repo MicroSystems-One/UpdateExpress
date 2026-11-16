@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.23",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.23/UpdateExpress_v0.7.2.23.exe",
-  "sha256": "90e4d74066e30951fbb4e19f212f5529b91a7c8dd6a47b02bd6e55522d128cdd",
-  "publishedAt": "2026-11-16T16:21:01Z",
-  "releaseNotes": "Remove header CLICK IT remnant; blue U on FIX IT button. Tip 2bef423."
+  "version": "0.7.2.24",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.24/UpdateExpress_v0.7.2.24.exe",
+  "sha256": "46c7cb165704f8ca57311cc369591b524aa32f63ffcb8f933fdec5c5badfe76a",
+  "publishedAt": "2026-11-16T16:33:18Z",
+  "releaseNotes": "Help wrench 27px; auto-expand Results after scan; Check for Updates in header. Tip 47a0dce."
 }
