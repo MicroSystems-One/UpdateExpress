@@ -255,21 +255,37 @@ internal static class InstallationManager
                     if (agent) key.SetValue(RunName, $"\"{targetExe}\" --agent");
                     else key.DeleteValue(RunName, false);
                 }
-                try { DefenderExclusions.EnsureRegistered(targetDir, targetExe, machine, silent); }
-                catch (Exception ex) { AgentLog.WriteInstall("Defender exclusions register step failed: " + ex.Message); }
+                // Start agent + UI BEFORE Defender exclusions. UAC/timeout on Defender previously
+                // blocked tray restart after self-update (agent never launched; stale agent.pid).
                 if (agent)
                 {
-                    AgentLog.WriteInstall("Starting background agent: " + targetExe);
-                    Process.Start(new ProcessStartInfo(targetExe, "--agent")
-                    { UseShellExecute = true, WorkingDirectory = targetDir });
+                    AgentLog.WriteInstall("Starting background agent (before Defender exclusions): " + targetExe);
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(targetExe, "--agent")
+                        { UseShellExecute = true, WorkingDirectory = targetDir });
+                    }
+                    catch (Exception ex) { AgentLog.WriteInstall("Failed to start background agent: " + ex.Message); }
                 }
                 if (operation == "upgrade" && !silent)
                 {
                     AgentLog.WriteInstall("Starting UI after upgrade: " + targetExe);
-                    Process.Start(new ProcessStartInfo(targetExe, "--installed")
-                    { UseShellExecute = true, WorkingDirectory = targetDir });
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(targetExe, "--installed")
+                        { UseShellExecute = true, WorkingDirectory = targetDir });
+                    }
+                    catch (Exception ex) { AgentLog.WriteInstall("Failed to start UI after upgrade: " + ex.Message); }
                 }
-                AgentLog.WriteInstall($"{operation} completed: scope={(machine ? "machine" : "user")}, agent={agent}, silent={silent}, version={displayVersion}, path={targetDir}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
+                AgentLog.WriteInstall($"{operation} files ready: scope={(machine ? "machine" : "user")}, agent={agent}, silent={silent}, version={displayVersion}, path={targetDir}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
+                try { DefenderExclusions.EnsureRegistered(targetDir, targetExe, machine, silent); }
+                catch (Exception ex) { AgentLog.WriteInstall("Defender exclusions register step failed: " + ex.Message); }
+                // If Defender step took long / killed the fresh agent, ensure tray is up again.
+                if (agent)
+                {
+                    try { EnsureBackgroundAgentRunning(targetExe, waitForPid: true); }
+                    catch (Exception ex) { AgentLog.WriteInstall("Post-Defender agent ensure failed: " + ex.Message); }
+                }
                 AgentLog.PostInstallPresenceCheck(
                     targetExe,
                     desktop ? desktopShortcut : null,
@@ -446,6 +462,91 @@ internal static class InstallationManager
     }
 
     internal static readonly string AgentPidFile = Path.Combine(UserInstallDir, "agent.pid");
+
+    /// <summary>
+    /// True when HKCU Run is configured to start the tray agent for this user.
+    /// </summary>
+    internal static bool IsBackgroundAgentEnabled()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKey, false);
+            return key?.GetValue(RunName) is string value &&
+                   value.Contains("UpdateExpress", StringComparison.OrdinalIgnoreCase) &&
+                   value.Contains("--agent", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Returns true when a live Update Express process matches agent.pid or
+    /// is clearly the installed EXE running as tray (no main window) — best-effort.
+    /// </summary>
+    internal static bool IsBackgroundAgentAlive()
+    {
+        try
+        {
+            if (File.Exists(AgentPidFile) &&
+                int.TryParse(File.ReadAllText(AgentPidFile).Trim(), out int pid) &&
+                pid > 0)
+            {
+                try
+                {
+                    using var proc = Process.GetProcessById(pid);
+                    if (!proc.HasExited) return true;
+                }
+                catch (ArgumentException)
+                {
+                    try { File.Delete(AgentPidFile); } catch { /* ignore */ }
+                }
+            }
+        }
+        catch { /* ignore */ }
+        return false;
+    }
+
+    /// <summary>
+    /// If Run key says agent should run but it is not alive, start --agent.
+    /// Safe to call from UI startup after self-update when the helper stalled on Defender.
+    /// </summary>
+    internal static bool EnsureBackgroundAgentRunning(string? exePath = null, bool waitForPid = false)
+    {
+        if (!IsBackgroundAgentEnabled())
+        {
+            AgentLog.WriteInstall("Ensure agent: Run key not set — tray not required.");
+            return false;
+        }
+        if (IsBackgroundAgentAlive())
+        {
+            AgentLog.WriteInstall("Ensure agent: already alive (agent.pid).");
+            return true;
+        }
+
+        string exe = string.IsNullOrWhiteSpace(exePath)
+            ? (File.Exists(InstalledExe) ? InstalledExe : (Environment.ProcessPath ?? UserExe))
+            : exePath!;
+        if (!File.Exists(exe))
+        {
+            AgentLog.WriteInstall("Ensure agent: EXE missing at " + exe);
+            return false;
+        }
+
+        AgentLog.WriteInstall("Ensure agent: starting tray — " + exe);
+        Process.Start(new ProcessStartInfo(exe, "--agent")
+        {
+            UseShellExecute = true,
+            WorkingDirectory = Path.GetDirectoryName(exe) ?? UserInstallDir
+        });
+        if (!waitForPid)
+            return true;
+        for (int i = 0; i < 20; i++)
+        {
+            System.Threading.Thread.Sleep(150);
+            if (IsBackgroundAgentAlive()) return true;
+        }
+        AgentLog.WriteInstall("Ensure agent: started but agent.pid not confirmed yet.");
+        return false;
+    }
 
     private static void RetryFileOperation(Action action, string? pathHint = null)
     {

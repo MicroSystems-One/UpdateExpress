@@ -37,6 +37,62 @@ internal static class AgentLog
             Append(VerboseLogFile, line);
     }
 
+    /// <summary>
+    /// Always-on bootstrap so Logs\install-update.log exists even when the upgrade
+    /// helper was an older build (self-update copies the *running* EXE as helper).
+    /// Call from App startup for agent/UI/launcher — not for --apply-maintenance itself
+    /// (that path uses BeginInstallSession).
+    /// </summary>
+    internal static void WriteStartupDiagnostics(string mode)
+    {
+        try
+        {
+            EnsureLogsFolderReadme();
+            WriteInstall($"-------- STARTUP mode={mode} version={ProductVersion.Display} pid={Environment.ProcessId} --------");
+            WriteInstall($"Process={Environment.ProcessPath}");
+            WriteInstall($"UserInstallDir={InstallationManager.UserInstallDir}");
+            WritePathProbe("Installed EXE", InstallationManager.InstalledExe);
+            WritePathProbe("User EXE", InstallationManager.UserExe);
+            WritePathProbe("Machine EXE", InstallationManager.MachineExe);
+            bool agentEnabled = InstallationManager.IsBackgroundAgentEnabled();
+            bool agentAlive = InstallationManager.IsBackgroundAgentAlive();
+            WriteInstall($"Tray agent: RunKey={agentEnabled}; Alive={agentAlive}; agent.pid={(File.Exists(InstallationManager.AgentPidFile) ? File.ReadAllText(InstallationManager.AgentPidFile).Trim() : "(none)")}");
+            string desktop = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                "Update Express.lnk");
+            string startMenu = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Programs),
+                "MicroSystems", "Update Express.lnk");
+            WritePathProbe("Desktop shortcut", desktop);
+            WritePathProbe("Start Menu shortcut", startMenu);
+            WriteInstall($"LogsDir={LogsDir}");
+            // Keep last-install.log fresh enough that Settings → Open last log always finds something.
+            if (!File.Exists(LastInstallLogFile) && File.Exists(InstallUpdateLogFile))
+                FlushLastInstallLog();
+        }
+        catch { /* never block startup */ }
+    }
+
+    internal static void EnsureLogsFolderReadme()
+    {
+        try
+        {
+            Directory.CreateDirectory(LogsDir);
+            string readme = Path.Combine(LogsDir, "README.txt");
+            if (File.Exists(readme)) return;
+            File.WriteAllText(readme,
+                "Update Express diagnostic logs" + Environment.NewLine +
+                Environment.NewLine +
+                "install-update.log  — always-on install / upgrade / self-update / Defender / tray ensure" + Environment.NewLine +
+                "last-install.log    — copy of the newest install/upgrade session (upload this to SVHA)" + Environment.NewLine +
+                "verbose.log         — optional; enable in Settings → Install / update diagnostics" + Environment.NewLine +
+                "activity.jsonl      — Windows Update / automation activity" + Environment.NewLine +
+                Environment.NewLine +
+                "Also see: %LOCALAPPDATA%\\MicroSystems\\Update Express\\agent.log" + Environment.NewLine);
+        }
+        catch { /* ignore */ }
+    }
+
     /// <summary>Always-on install/upgrade/self-update/Defender pipeline log (SVHA upload target).</summary>
     internal static void WriteInstall(string message)
     {

@@ -460,9 +460,9 @@
     <Expander x:Name="WindowsHelpExpander" Style="{StaticResource SectionExpander}" IsExpanded="False">
      <Expander.Header>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-       <Image Source="Assets/ClickIt.png" Width="24" Height="24" Stretch="Uniform" Margin="0,0,10,0"
+       <Image Source="Assets/UpdateExpress-U.png" Width="24" Height="24" Stretch="Uniform" Margin="0,0,10,0"
               RenderOptions.BitmapScalingMode="HighQuality"/>
-       <TextBlock x:Name="WindowsHelpHeading" Text="Help with Windows Update" FontSize="15" FontWeight="Medium"
+       <TextBlock x:Name="WindowsHelpHeading" Text="Fix your Windows update issues here...." FontSize="15" FontWeight="Medium"
                   Foreground="#1C1C1C" VerticalAlignment="Center"/>
       </StackPanel>
      </Expander.Header>

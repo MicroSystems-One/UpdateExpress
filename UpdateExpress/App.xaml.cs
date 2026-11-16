@@ -53,22 +53,23 @@ public partial class App : System.Windows.Application
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             try
             {
+                AgentLog.WriteStartupDiagnostics("agent");
                 _agentMutex = new System.Threading.Mutex(true, @"Local\MicroSystems.UpdateExpress.TrayAgent", out bool createdNew);
                 _ownsAgentMutex = createdNew;
                 if (!createdNew)
                 {
-                    AgentLog.Write("Agent already running; second instance exits.");
+                    AgentLog.WriteInstall("Agent already running; second instance exits.");
                     Shutdown();
                     return;
                 }
                 _agent = new TrayAgent();
                 try { System.IO.File.WriteAllText(InstallationManager.AgentPidFile, Environment.ProcessId.ToString()); }
-                catch (Exception ex) { AgentLog.Write("Agent PID registration failed: " + ex.Message); }
-                AgentLog.Write("Agent started.");
+                catch (Exception ex) { AgentLog.WriteInstall("Agent PID registration failed: " + ex.Message); }
+                AgentLog.WriteInstall("Agent started (tray visible).");
             }
             catch (Exception ex)
             {
-                AgentLog.Write("Agent startup failed: " + ex);
+                AgentLog.WriteInstall("Agent startup failed: " + ex);
                 Shutdown();
             }
             return;
@@ -108,6 +109,11 @@ public partial class App : System.Windows.Application
         System.Windows.Window window = args.Contains("--maintenance", StringComparer.OrdinalIgnoreCase) ||
             (!args.Contains("--installed", StringComparer.OrdinalIgnoreCase) && !InstallationManager.RunningInstalledCopy)
             ? new LauncherWindow() : new MainWindow();
+        string mode = window is MainWindow ? "main-ui" : "launcher";
+        AgentLog.WriteStartupDiagnostics(mode);
+        // Self-update helper may have stalled on Defender UAC before restarting tray — heal here.
+        try { InstallationManager.EnsureBackgroundAgentRunning(); }
+        catch (Exception ex) { AgentLog.WriteInstall("Startup EnsureBackgroundAgentRunning failed: " + ex.Message); }
         MainWindow = window;
         window.Show();
         if (window is MainWindow)
@@ -119,11 +125,11 @@ public partial class App : System.Windows.Application
                 {
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        AgentLog.Write("Closing Update Express UI after upgrade confirmation.");
+                        AgentLog.WriteInstall("Closing Update Express UI after upgrade confirmation.");
                         Shutdown();
                     }));
                 }
-                catch (Exception ex) { AgentLog.Write("Could not schedule UI shutdown for upgrade: " + ex.Message); }
+                catch (Exception ex) { AgentLog.WriteInstall("Could not schedule UI shutdown for upgrade: " + ex.Message); }
             });
         }
         if (args.Contains("--proxy-settings", StringComparer.OrdinalIgnoreCase) && window is MainWindow main)

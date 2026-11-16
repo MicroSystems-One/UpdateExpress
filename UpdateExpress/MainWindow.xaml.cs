@@ -1548,7 +1548,7 @@ public partial class MainWindow : Window
     private static readonly Dictionary<string, string> Norwegian = new(StringComparer.Ordinal)
     {
         ["Windows Update Status – Health Check"] = "Windows Update-status – helsesjekk",
-        ["Help with Windows Update"] = "Hjelp med Windows Update",
+        ["Fix your Windows update issues here...."] = "Fiks Windows Update-problemene dine her....",
         ["Repair stuck updates, open Windows Settings, or review installation help."] =
             "Reparer fastlåste oppdateringer, åpne Windows-innstillinger, eller se installasjonshjelp.",
         ["Open FIX IT!"] = "Åpne FIX IT!",
