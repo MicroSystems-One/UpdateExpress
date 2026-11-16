@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.20",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.20/UpdateExpress_v0.7.2.20.exe",
-  "sha256": "4967e5599c4713895b1e3008e0708b8147acc2704a94a30b1fa893fcc0f35a2a",
-  "publishedAt": "2026-11-16T15:25:36Z",
-  "releaseNotes": "U-on-blue app icon, Defender exclusions, header icon cleanup. Tip 941e948."
+  "version": "0.7.2.21",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.21/UpdateExpress_v0.7.2.21.exe",
+  "sha256": "25d9a9a3b6bb86d90f3c1dc8fcf03f063b9ba2e82fd2b1e5d8994bd9d6799181",
+  "publishedAt": "2026-11-16T15:55:00Z",
+  "releaseNotes": "ClickIt help UI, header blue U, shortcut refresh, install diagnostic logs. Tip 26c58f9."
 }
