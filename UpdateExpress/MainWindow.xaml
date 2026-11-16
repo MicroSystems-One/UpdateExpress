@@ -4,7 +4,7 @@
   <local:HexToBrushConverter x:Key="HexToBrush"/>
   <!-- Win11 Settings card: flat white on gray, thin border, modest radius (no drop shadow). -->
   <Style x:Key="Card" TargetType="Border"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="BorderBrush" Value="#E5E5E5"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="12"/></Style>
-  <!-- Shared section Expander: fixed-width left toggle so chevrons share one vertical axis across stacked cards. -->
+  <!-- Win11 Settings accordion: header content left, thin stroke chevron far right (down=collapsed, up=expanded). -->
   <Style x:Key="SectionExpander" TargetType="Expander">
     <Setter Property="Background" Value="Transparent"/>
     <Setter Property="BorderThickness" Value="0"/>
@@ -23,31 +23,36 @@
                           IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
               <ToggleButton.Template>
                 <ControlTemplate TargetType="ToggleButton">
-                  <Border Background="Transparent" Padding="0">
+                  <Border Background="Transparent" Padding="0,2">
                     <Grid>
                       <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="20"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="28"/>
                       </Grid.ColumnDefinitions>
-                      <Path x:Name="Arrow" Grid.Column="0" Data="M 0,0 L 4,4 L 0,8 Z" Fill="#5D5D5D"
-                            HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0"
+                      <ContentPresenter Grid.Column="0" VerticalAlignment="Center" RecognizesAccessKey="True"
+                                        Content="{TemplateBinding Content}"
+                                        ContentTemplate="{TemplateBinding ContentTemplate}"
+                                        ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
+                                        Margin="0,0,8,0"/>
+                      <!-- Thin black chevron (stroke only), same language as Win11 Help accordion. -->
+                      <Path x:Name="Chevron" Grid.Column="1"
+                            Data="M1,3.5 L6.5,9 L12,3.5"
+                            Stroke="#1C1C1C" StrokeThickness="1.35"
+                            StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                            Fill="Transparent" Stretch="Uniform" Width="12" Height="7"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
                             RenderTransformOrigin="0.5,0.5">
                         <Path.RenderTransform>
                           <RotateTransform Angle="0"/>
                         </Path.RenderTransform>
                       </Path>
-                      <ContentPresenter Grid.Column="1" VerticalAlignment="Center" RecognizesAccessKey="True"
-                                        Content="{TemplateBinding Content}"
-                                        ContentTemplate="{TemplateBinding ContentTemplate}"
-                                        ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
-                                        Margin="6,0,0,0"/>
                     </Grid>
                   </Border>
                   <ControlTemplate.Triggers>
                     <Trigger Property="IsChecked" Value="True">
-                      <Setter TargetName="Arrow" Property="RenderTransform">
+                      <Setter TargetName="Chevron" Property="RenderTransform">
                         <Setter.Value>
-                          <RotateTransform Angle="90"/>
+                          <RotateTransform Angle="180"/>
                         </Setter.Value>
                       </Setter>
                     </Trigger>
@@ -411,7 +416,47 @@
     <ProgressBar x:Name="InstallProgressBar" Height="7" IsIndeterminate="True" Foreground="#0067C0"/>
    </StackPanel>
   </StackPanel></Expander></Border>
-  <Border Grid.Row="2" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Stretch"><Expander x:Name="ResultsExpander" Style="{StaticResource SectionExpander}" IsExpanded="True" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" Expanded="ResultsExpander_Expanded" Collapsed="ResultsExpander_Collapsed" SizeChanged="ResultsExpander_SizeChanged"><Expander.Header><Grid x:Name="ResultsHeaderBar" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid Margin="0,0,12,0" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="☷" Foreground="#0067C0" FontSize="14" FontWeight="Bold" Margin="0,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="ListHeading" Grid.Column="1" Text="Check for Updates &amp; Results" Foreground="#1C1C1C" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid><StackPanel x:Name="ResultsHeaderActions" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="PmeControlButton" Content="N-Able PME" Click="PmeControl_Click" ToolTip="Inspect or change N-able PME service on this PC" Padding="10,5" Height="30" MinHeight="30" Margin="0,0,6,0" VerticalAlignment="Center"/><Button x:Name="ActivityLogButton" Content="Activity Log" Click="ActivityLog_Click" Style="{StaticResource CompactActionButton}" Margin="0,0,6,0"/><Button x:Name="ActivityExportButton" Content="Export Log" Click="ActivityExport_Click" Style="{StaticResource CompactActionButton}" Margin="0"/><StackPanel x:Name="AppsToolbar" Orientation="Horizontal" Visibility="Collapsed" Margin="6,0,0,0"><Button x:Name="AppsScanButton" Content="Check WinGet" Click="AppsScan_Click" Style="{StaticResource CompactActionButton}" Margin="0,0,6,0"/><Button x:Name="AppsExportButton" Content="Export WinGet" Click="AppsRaw_Click" Style="{StaticResource CompactActionButton}"/></StackPanel></StackPanel></Grid></Expander.Header><Grid Margin="0,8,0,0" VerticalAlignment="Stretch"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+  <Border Grid.Row="2" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Stretch"><Expander x:Name="ResultsExpander" Style="{StaticResource SectionExpander}" IsExpanded="True" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" Expanded="ResultsExpander_Expanded" Collapsed="ResultsExpander_Collapsed" SizeChanged="ResultsExpander_SizeChanged"><Expander.Header><Grid x:Name="ResultsHeaderBar" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid Margin="0,0,12,0" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="☷" Foreground="#0067C0" FontSize="14" FontWeight="Bold" Margin="0,0,8,0" VerticalAlignment="Center"/><TextBlock x:Name="ListHeading" Grid.Column="1" Text="Check for Updates &amp; Results" Foreground="#1C1C1C" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></Grid><StackPanel x:Name="ResultsHeaderActions" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
+ <Button x:Name="ToolsGearButton" Click="ToolsGear_Click" PreviewMouseLeftButtonDown="ToolsGear_PreviewMouseDown" Width="32" Height="32" Padding="0" Margin="0,0,2,0"
+         Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
+         ToolTip="Tools" AutomationProperties.Name="Tools">
+  <Button.Template>
+   <ControlTemplate TargetType="Button">
+    <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Width="32" Height="32">
+     <Viewbox Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <Canvas Width="24" Height="24">
+       <Path Stroke="#1C1C1C" StrokeThickness="1.5" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"
+             Data="M12,3 L13.1,6.2 C13.85,6.4 14.55,6.75 15.15,7.2 L18.3,5.95 L20.05,8.95 L17.2,10.55 C17.35,11.2 17.4,11.9 17.4,12.6 C17.4,13.3 17.35,14 17.2,14.65 L20.05,16.25 L18.3,19.25 L15.15,18 C14.55,18.45 13.85,18.8 13.1,19 L12,22.2 L9,22.2 L7.9,19 C7.15,18.8 6.45,18.45 5.85,18 L2.7,19.25 L0.95,16.25 L3.8,14.65 C3.65,14 3.6,13.3 3.6,12.6 C3.6,11.9 3.65,11.2 3.8,10.55 L0.95,8.95 L2.7,5.95 L5.85,7.2 C6.45,6.75 7.15,6.4 7.9,6.2 L9,3 Z"/>
+       <Ellipse Canvas.Left="8.6" Canvas.Top="9.2" Width="6.8" Height="6.8" Stroke="#1C1C1C" StrokeThickness="1.5" Fill="Transparent"/>
+      </Canvas>
+     </Viewbox>
+    </Border>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Bd" Property="Background" Value="#D4D4D4"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate>
+  </Button.Template>
+  <Button.ContextMenu>
+   <ContextMenu>
+    <MenuItem Header="N-Able PME" Click="PmeControl_Click" ToolTip="Inspect or change N-able PME service on this PC" IsEnabled="{Binding IsEnabled, ElementName=PmeControlButton}"/>
+    <MenuItem Header="Activity Log" Click="ActivityLog_Click"/>
+    <MenuItem Header="Export Log" Click="ActivityExport_Click"/>
+    <MenuItem x:Name="AppsScanMenuItem" Header="Check WinGet" Click="AppsScan_Click" Visibility="Collapsed" IsEnabled="{Binding IsEnabled, ElementName=AppsScanButton}"/>
+    <MenuItem x:Name="AppsExportMenuItem" Header="Export WinGet" Click="AppsRaw_Click" Visibility="Collapsed" IsEnabled="{Binding IsEnabled, ElementName=AppsExportButton}"/>
+   </ContextMenu>
+  </Button.ContextMenu>
+ </Button>
+ <!-- Hidden hosts: keep names for IsEnabled / Click plumbing; actions live in the gear menu. -->
+ <Button x:Name="PmeControlButton" Content="N-Able PME" Click="PmeControl_Click" Visibility="Collapsed" Width="0" Height="0" Padding="0" Margin="0"/>
+ <Button x:Name="ActivityLogButton" Content="Activity Log" Click="ActivityLog_Click" Visibility="Collapsed" Width="0" Height="0" Padding="0" Margin="0"/>
+ <Button x:Name="ActivityExportButton" Content="Export Log" Click="ActivityExport_Click" Visibility="Collapsed" Width="0" Height="0" Padding="0" Margin="0"/>
+ <StackPanel x:Name="AppsToolbar" Orientation="Horizontal" Visibility="Collapsed" Width="0" Height="0">
+  <Button x:Name="AppsScanButton" Content="Check WinGet" Click="AppsScan_Click"/>
+  <Button x:Name="AppsExportButton" Content="Export WinGet" Click="AppsRaw_Click"/>
+ </StackPanel>
+</StackPanel>
+</Grid></Expander.Header><Grid Margin="0,8,0,0" VerticalAlignment="Stretch"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
     <Grid Grid.Row="0" Margin="0,0,0,7"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="HealthSummary" FontWeight="Medium" Text="Windows: —  |  Drivers: —  |  Applications: —" Foreground="#5D5D5D" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" FontSize="12"/><StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="12,0,0,0"><CheckBox x:Name="IncludeOptionalUpdates" Content="Include optional" ToolTip="Also query WUA browse-only software updates. Preview updates are never selected automatically." FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12" VerticalAlignment="Center" Margin="0,0,18,0" IsChecked="True"/><CheckBox x:Name="ShowAllDrivers" Content="All WUA drivers" ToolTip="Unchecked: WUA assigned drivers, plus every firmware offer. Checked: all WUA driver offers. Firmware is always listed and stays manual." Checked="DriverMode_Changed" Unchecked="DriverMode_Changed" FontSize="12" VerticalAlignment="Center" Margin="0" IsChecked="False"/></StackPanel></Grid>
     <Grid Grid.Row="1" x:Name="WindowsResultsPanel"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition x:Name="WindowsResultsRow" Height="*"/><RowDefinition x:Name="AppsResultsRow" Height="0"/></Grid.RowDefinitions><Grid Grid.Row="0" Margin="0,0,0,5"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,0,28,0"><CheckBox x:Name="SelectAllUpdates" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12" FontWeight="Normal" Foreground="#5D5D5D" Margin="0,0,8,0" VerticalAlignment="Center" VerticalContentAlignment="Center" Click="SelectAllUpdates_Click"/><TextBlock Text="Select All" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12" FontWeight="Normal" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,8,0"/><TextBlock x:Name="SelectedCountText" Text="0 selected" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12" FontWeight="Normal" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,8,0"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16,0,16,0"><Button x:Name="ScanButton" Content="⌕  Check for Updates" Style="{StaticResource RowPrimaryButton}" Click="Scan_Click"/><Button x:Name="InstallButton" Content="↓  Install Selected Updates" Style="{StaticResource InstallRowButton}" Click="Install_Click" IsEnabled="False" Margin="0,0,12,0"/><Button x:Name="AllTab" Content="All" Style="{StaticResource RowButton}" Click="AllTab_Click" ToolTip="Show all found Windows, application, and driver updates"/><Button x:Name="SoftwareTab" Content="Windows Updates" Style="{StaticResource RowButton}" Click="SoftwareTab_Click"/><Button x:Name="AppsTab" Content="Applications" Style="{StaticResource RowButton}" Click="AppsTab_Click"/><Button x:Name="DriversTab" Content="Drivers / Firmware" Style="{StaticResource RowButton}" Click="DriversTab_Click"/><Button x:Name="HistoryTab" Content="History" Style="{StaticResource RowButton}" Click="HistoryTab_Click"/></StackPanel><StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"><TextBlock x:Name="ScanProgressText" Text="" Visibility="Collapsed" Foreground="#0067C0" FontSize="12" FontWeight="SemiBold" Margin="0,0,8,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><Button x:Name="OpenWindowsUpdateButton" Content="Open Windows Update" Click="OpenWindowsUpdate_Click" Margin="8,0,0,0" Padding="7,4" Visibility="Collapsed" ToolTip="Install the feature update shown above in Windows Settings. Update Express cannot install it."/><Button x:Name="HistoryPdfButton" Content="Export PDF" Click="HistoryPdf_Click" Margin="8,0,0,0" Padding="7,4" Visibility="Collapsed"/></StackPanel></Grid>
     <Border x:Name="WindowsUpdatesTable" Grid.Row="1" MinHeight="90" CornerRadius="8" Background="White" BorderBrush="#E5E5E5" BorderThickness="1" ClipToBounds="True"><DataGrid Margin="1" BorderThickness="0" x:Name="UpdatesGrid" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12" FontWeight="Normal" CanUserAddRows="False" HeadersVisibility="Column" RowHeaderWidth="0" MouseDoubleClick="UpdateDetails_Click" ToolTip="Double-click an entry for update details" ItemsSource="{Binding Entries}" AutoGenerateColumns="False" IsReadOnly="False" SelectionMode="Extended" ColumnWidth="SizeToCells"><DataGrid.Columns><DataGridTemplateColumn Header="Select" Width="52" CellStyle="{StaticResource CenteredCheckCell}"><DataGridTemplateColumn.CellTemplate><DataTemplate><Grid VerticalAlignment="Stretch"><CheckBox HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0" IsEnabled="{Binding DataContext.CanSelectDisplayedEntry, RelativeSource={RelativeSource AncestorType=Window}}" IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Click="UpdateCheckbox_Click"/></Grid></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTextColumn IsReadOnly="True" x:Name="KbColumn" Header="KB" Binding="{Binding KB}" Width="86"><DataGridTextColumn.ElementStyle><Style TargetType="TextBlock" BasedOn="{StaticResource CenteredGridText}"/></DataGridTextColumn.ElementStyle></DataGridTextColumn><DataGridTextColumn IsReadOnly="True" x:Name="CategoryColumn" Header="Version" Binding="{Binding UnifiedVersion}" Width="110"><DataGridTextColumn.ElementStyle><Style TargetType="TextBlock" BasedOn="{StaticResource CenteredGridText}"/></DataGridTextColumn.ElementStyle></DataGridTextColumn><DataGridTemplateColumn IsReadOnly="True" Header="Update" Width="*"><DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel Orientation="Horizontal"><TextBlock Text="{Binding DisplayTitle}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12" FontWeight="Normal"/><Button Content="Open Windows Update to install" Margin="12,0,0,0" Padding="8,2" VerticalAlignment="Center" Click="OpenWindowsUpdate_Click" ToolTip="Opens Windows Update in Settings so this feature update can be downloaded and installed."><Button.Style><Style TargetType="Button"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding OpensWindowsUpdate}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Button.Style></Button></StackPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTemplateColumn IsReadOnly="True" Header="Status" Width="120" HeaderStyle="{StaticResource CenteredStatusHeader}"><DataGridTemplateColumn.CellTemplate><DataTemplate><Grid><TextBlock Text="{Binding DisplayStatus}" VerticalAlignment="Center" TextAlignment="Center" HorizontalAlignment="Stretch" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding StatusDetails}" Foreground="#344054"><TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding DisplayStatus}" Value="Newest"><Setter Property="Foreground" Value="#008B68"/><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger><DataTrigger Binding="{Binding DisplayStatus}" Value="Recommended"><Setter Property="Foreground" Value="#008B68"/><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger><DataTrigger Binding="{Binding IsHistoryFailed}" Value="True"><Setter Property="Foreground" Value="#C62828"/><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger><DataTrigger Binding="{Binding IsHistorySuccessful}" Value="True"><Setter Property="Foreground" Value="#008B68"/></DataTrigger><DataTrigger Binding="{Binding IsHistoryFixed}" Value="True"><Setter Property="Foreground" Value="#0F766E"/><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger><DataTrigger Binding="{Binding IsHistoryPartial}" Value="True"><Setter Property="Foreground" Value="#B7791F"/></DataTrigger><DataTrigger Binding="{Binding DisplayStatus}" Value="Firmware"><Setter Property="Foreground" Value="#B7791F"/></DataTrigger><DataTrigger Binding="{Binding HasFixableErrorCode}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock><local:ErrorCodeStatusControl ErrorCode="{Binding ErrorCode}" FixRequested="ErrorCodeFix_Click"><local:ErrorCodeStatusControl.Style><Style TargetType="local:ErrorCodeStatusControl"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasFixableErrorCode}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></local:ErrorCodeStatusControl.Style></local:ErrorCodeStatusControl></Grid></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTextColumn IsReadOnly="True" Header="Date / Time" Binding="{Binding DateShown}" SortMemberPath="Date" Width="140"><DataGridTextColumn.ElementStyle><Style TargetType="TextBlock" BasedOn="{StaticResource CenteredGridText}"/></DataGridTextColumn.ElementStyle></DataGridTextColumn><DataGridTemplateColumn x:Name="PriorityColumn" Header="Priority" Width="130" IsReadOnly="True"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding PriorityDisplay}" Foreground="{Binding PriorityColorHex, Converter={StaticResource HexToBrush}}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding PriorityExplanation}" Style="{StaticResource CenteredGridText}" FontWeight="SemiBold"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn></DataGrid.Columns></DataGrid></Border><Grid Grid.Row="2" x:Name="AppsActions" Visibility="Collapsed" Margin="0,3,0,0" MinHeight="0"><Grid.RowDefinitions><RowDefinition Height="0"/><RowDefinition Height="*"/></Grid.RowDefinitions>
@@ -457,7 +502,7 @@
     <TextBox x:Name="TimeChoice" Text="20:00" Width="76" Height="32" Visibility="Collapsed"/>
     <CheckBox x:Name="WindowsAutomationEnabled" Content="Enable Windows automation" Margin="0,0,0,8" IsChecked="True"/>
     <TextBlock Text="Defender signatures update continuously when enabled. Critical and general updates download in the background and install in your maintenance window." FontSize="12" Foreground="#5D5D5D" Margin="0,0,0,8" TextWrapping="Wrap"/>
-    <Expander Header="Advanced categories (intervals)" IsExpanded="False" Margin="0,0,0,8">
+    <Expander Style="{StaticResource SectionExpander}" Header="Advanced categories (intervals)" IsExpanded="False" Margin="0,0,0,8">
     <Grid Margin="0,8,0,0">
       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <Border Grid.Column="0" Background="#F9F9F9" BorderBrush="#E5E5E5" BorderThickness="1" CornerRadius="8" Padding="8">

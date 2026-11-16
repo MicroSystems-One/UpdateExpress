@@ -180,7 +180,11 @@ public partial class MainWindow : Window
         AppsActions.Visibility = showAppsGrid ? Visibility.Visible : Visibility.Collapsed;
         WindowsResultsRow.Height = showWindowsGrid ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         AppsResultsRow.Height = showAppsGrid ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        AppsToolbar.Visibility = showAppsToolbar ? Visibility.Visible : Visibility.Collapsed;
+        // Strip stays hidden; WinGet actions appear in the gear menu on apps/all tabs.
+        AppsToolbar.Visibility = Visibility.Collapsed;
+        var wingetMenu = showAppsToolbar ? Visibility.Visible : Visibility.Collapsed;
+        if (AppsScanMenuItem != null) AppsScanMenuItem.Visibility = wingetMenu;
+        if (AppsExportMenuItem != null) AppsExportMenuItem.Visibility = wingetMenu;
         SelectAllUpdates.Visibility = Visibility.Visible;
         SelectedCountText.Visibility = Visibility.Visible;
         HistoryPdfButton.Visibility = tab == "history" ? Visibility.Visible : Visibility.Collapsed;
@@ -2933,11 +2937,27 @@ public partial class MainWindow : Window
     private void StretchResultsHeader()
     {
         if (ResultsHeaderBar == null || ResultsExpander == null) return;
-        // The expander arrow sits in its own column, so the title row is a little narrower than the panel.
-        double width = ResultsExpander.ActualWidth - 26;
+        // Right-side Win11 chevron column (~28px) — keep title/actions from overlapping it.
+        double width = ResultsExpander.ActualWidth - 28;
         if (width < 240) return;
         if (double.IsNaN(ResultsHeaderBar.Width) || Math.Abs(ResultsHeaderBar.Width - width) > 0.5)
             ResultsHeaderBar.Width = width;
+    }
+
+    private void ToolsGear_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        // Keep the section Expander from toggling when opening the tools menu.
+        e.Handled = true;
+        ToolsGear_Click(sender, e);
+    }
+
+    private void ToolsGear_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not System.Windows.Controls.Button btn || btn.ContextMenu is null) return;
+        btn.ContextMenu.PlacementTarget = btn;
+        btn.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        btn.ContextMenu.IsOpen = true;
     }
 
     /// <summary>
