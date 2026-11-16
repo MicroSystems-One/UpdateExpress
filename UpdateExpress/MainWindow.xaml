@@ -24,19 +24,10 @@
               <ToggleButton.Template>
                 <ControlTemplate TargetType="ToggleButton">
                   <Border Background="Transparent" Padding="0,2">
-                    <Grid>
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <!-- Fixed chevron column — same width/padding expanded and collapsed (no rotate shift). -->
-                        <ColumnDefinition Width="28" MinWidth="28" MaxWidth="28"/>
-                      </Grid.ColumnDefinitions>
-                      <ContentPresenter Grid.Column="0" VerticalAlignment="Center" RecognizesAccessKey="True"
-                                        Content="{TemplateBinding Content}"
-                                        ContentTemplate="{TemplateBinding ContentTemplate}"
-                                        ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
-                                        Margin="0,0,8,0"/>
-                      <Grid Grid.Column="1" Width="28" Height="28" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <!-- Discrete down/up paths avoid RenderTransform horizontal drift. -->
+                    <!-- Dock chevron first so every section shares one trailing 28px column. -->
+                    <DockPanel LastChildFill="True">
+                      <Grid DockPanel.Dock="Right" Width="28" Height="28" Margin="0"
+                            HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Path x:Name="ChevronDown"
                               Data="M2,4 L7,9 L12,4"
                               Stroke="#0067C0" StrokeThickness="1.35"
@@ -51,7 +42,12 @@
                               HorizontalAlignment="Center" VerticalAlignment="Center"
                               Visibility="Collapsed"/>
                       </Grid>
-                    </Grid>
+                      <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True"
+                                        Content="{TemplateBinding Content}"
+                                        ContentTemplate="{TemplateBinding ContentTemplate}"
+                                        ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
+                                        Margin="0,0,8,0"/>
+                    </DockPanel>
                   </Border>
                   <ControlTemplate.Triggers>
                     <Trigger Property="IsChecked" Value="True">
@@ -387,23 +383,13 @@
    </StackPanel>
    </Grid>
    <!-- Agent status: one summary line (state + timer) with chevron for details; details default collapsed. -->
-   <Border Background="#F3F3F3" CornerRadius="8" BorderBrush="#E5E5E5" BorderThickness="1" Padding="9,6" Margin="0,2,0,8">
+   <!-- Right padding 0 so monitor chevron shares the section chevron column. -->
+   <Border Background="#F3F3F3" CornerRadius="8" BorderBrush="#E5E5E5" BorderThickness="1" Padding="9,6,0,6" Margin="0,2,0,8">
     <StackPanel>
-     <Grid>
-      <Grid.ColumnDefinitions>
-       <ColumnDefinition Width="*"/>
-       <ColumnDefinition Width="Auto"/>
-       <ColumnDefinition Width="Auto"/>
-      </Grid.ColumnDefinitions>
-      <TextBlock x:Name="MonitorStateText" Text="Background monitoring: waiting for agent"
-                 FontSize="14" FontWeight="SemiBold" Foreground="#1C1C1C"
-                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-      <TextBlock Grid.Column="1" x:Name="MonitorElapsedText" Text=""
-                 FontSize="13" FontWeight="SemiBold" Foreground="#B7791F"
-                 VerticalAlignment="Center" Margin="12,0,8,0"/>
-      <ToggleButton Grid.Column="2" x:Name="MonitorDetailsToggle" Width="28" Height="28"
+     <DockPanel LastChildFill="True">
+      <ToggleButton DockPanel.Dock="Right" x:Name="MonitorDetailsToggle" Width="28" Height="28"
                     Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
-                    ToolTip="Show monitoring details" VerticalAlignment="Center"
+                    ToolTip="Show monitoring details" VerticalAlignment="Center" Margin="0"
                     Checked="MonitorDetailsToggle_Changed" Unchecked="MonitorDetailsToggle_Changed"
                     AutomationProperties.Name="Monitoring details">
        <ToggleButton.Template>
@@ -433,7 +419,13 @@
         </ControlTemplate>
        </ToggleButton.Template>
       </ToggleButton>
-     </Grid>
+      <TextBlock x:Name="MonitorElapsedText" DockPanel.Dock="Right" Text=""
+                 FontSize="13" FontWeight="SemiBold" Foreground="#B7791F"
+                 VerticalAlignment="Center" Margin="12,0,8,0"/>
+      <TextBlock x:Name="MonitorStateText" Text="Background monitoring: waiting for agent"
+                 FontSize="14" FontWeight="SemiBold" Foreground="#1C1C1C"
+                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+     </DockPanel>
      <StackPanel x:Name="MonitorDetailsPanel" Visibility="Collapsed" Margin="0,8,0,0">
       <TextBlock x:Name="MonitorDetailsText" Text="Last check: —  |  Available: —  |  New: —" FontSize="12" Foreground="#5D5D5D" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
       <TextBlock x:Name="MonitorUpdatesText" Text="Updates: —" FontSize="12" Foreground="#5D5D5D" Margin="0,4,0,0" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" ToolTip="Last available updates"/>
@@ -457,7 +449,8 @@
     <ProgressBar x:Name="InstallProgressBar" Height="7" IsIndeterminate="True" Foreground="#0067C0"/>
    </StackPanel>
    <!-- Help accordion: blue U + heading + red crossed tools (24px). -->
-   <Border Background="#FFFFFF" BorderBrush="#E5E5E5" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,8,0,0">
+   <!-- Right padding 0 so help chevron aligns with outer section chevrons. -->
+   <Border Background="#FFFFFF" BorderBrush="#E5E5E5" BorderThickness="1" CornerRadius="8" Padding="10,8,0,8" Margin="0,8,0,0">
     <Expander x:Name="WindowsHelpExpander" Style="{StaticResource SectionExpander}" IsExpanded="False">
      <Expander.Header>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -483,8 +476,8 @@
     </Expander>
    </Border>
   </StackPanel></Expander></Border>
-  <Border Grid.Row="2" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="ResultsExpander" Style="{StaticResource SectionExpander}" IsExpanded="False" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" Expanded="ResultsExpander_Expanded" Collapsed="ResultsExpander_Collapsed" SizeChanged="ResultsExpander_SizeChanged"><Expander.Header><Grid x:Name="ResultsHeaderBar" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock x:Name="ListHeading" Text="Check for Updates &amp; Results" Foreground="#1C1C1C" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><Button x:Name="ScanButton" Content="⌕  Check for Updates" Style="{StaticResource RowPrimaryButton}" Click="Scan_Click" PreviewMouseLeftButtonDown="ScanButton_PreviewMouseDown" VerticalAlignment="Center" Height="32" MinHeight="32" MaxHeight="32" Margin="80,0,0,0" Padding="14,0" FontSize="14" ToolTip="Search Windows Update for available updates" AutomationProperties.Name="Check for Updates"/></StackPanel><StackPanel x:Name="ResultsHeaderActions" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,4,0">
- <Button x:Name="ToolsGearButton" Click="ToolsGear_Click" PreviewMouseLeftButtonDown="ToolsGear_PreviewMouseDown" Width="32" Height="32" Padding="0" Margin="0,0,2,0"
+  <Border Grid.Row="2" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="ResultsExpander" Style="{StaticResource SectionExpander}" IsExpanded="False" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" Expanded="ResultsExpander_Expanded" Collapsed="ResultsExpander_Collapsed" SizeChanged="ResultsExpander_SizeChanged"><Expander.Header><Grid x:Name="ResultsHeaderBar" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock x:Name="ListHeading" Text="Check for Updates &amp; Results" Foreground="#1C1C1C" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><Button x:Name="ScanButton" Content="⌕  Check for Updates" Style="{StaticResource RowPrimaryButton}" Click="Scan_Click" PreviewMouseLeftButtonDown="ScanButton_PreviewMouseDown" VerticalAlignment="Center" Height="32" MinHeight="32" MaxHeight="32" Margin="80,0,0,0" Padding="14,0" FontSize="14" ToolTip="Search Windows Update for available updates" AutomationProperties.Name="Check for Updates"/></StackPanel><StackPanel x:Name="ResultsHeaderActions" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0">
+ <Button x:Name="ToolsGearButton" Click="ToolsGear_Click" PreviewMouseLeftButtonDown="ToolsGear_PreviewMouseDown" Width="32" Height="32" Padding="0" Margin="0"
          Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
          ToolTip="Tools" AutomationProperties.Name="Tools">
   <Button.Template>

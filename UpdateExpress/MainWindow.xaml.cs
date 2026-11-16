@@ -2918,12 +2918,11 @@ public partial class MainWindow : Window
 
     private void StretchResultsHeader()
     {
-        if (ResultsHeaderBar == null || ResultsExpander == null) return;
-        // Right-side Win11 chevron column (~28px) — keep title/actions from overlapping it.
-        double width = ResultsExpander.ActualWidth - 28;
-        if (width < 240) return;
-        if (double.IsNaN(ResultsHeaderBar.Width) || Math.Abs(ResultsHeaderBar.Width - width) > 0.5)
-            ResultsHeaderBar.Width = width;
+        if (ResultsHeaderBar == null) return;
+        // Do not force an explicit Width — that overlapped the fixed 28px chevron column
+        // (gear appeared to push the Results chevron left). Let the header fill naturally.
+        if (!double.IsNaN(ResultsHeaderBar.Width))
+            ResultsHeaderBar.Width = double.NaN;
     }
 
     private void ToolsGear_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
