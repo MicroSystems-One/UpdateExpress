@@ -35,9 +35,9 @@ public sealed class SettingsWindow : Window
         Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x52, 0x61, 0x7A)),
         TextWrapping = TextWrapping.Wrap
     };
-    private readonly Button _openLogs = new() { Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 4, 10, 4) };
-    private readonly Button _openLastLog = new() { Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 4, 10, 4) };
-    private readonly Button _exportLog = new() { Padding = new Thickness(10, 4, 10, 4) };
+    private readonly Button _openLogs = CreateDiagButton(marginRight: 8);
+    private readonly Button _openLastLog = CreateDiagButton(marginRight: 8);
+    private readonly Button _exportLog = CreateDiagButton(marginRight: 0);
     private readonly TextBlock _note = new() { Margin = new Thickness(0, 16, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x52, 0x61, 0x7A)) };
     private readonly Button _close = new() { HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
     private bool _applying;
@@ -112,6 +112,7 @@ public sealed class SettingsWindow : Window
                     new StackPanel
                     {
                         Orientation = System.Windows.Controls.Orientation.Horizontal,
+                        VerticalAlignment = System.Windows.VerticalAlignment.Center,
                         Children = { _openLogs, _openLastLog, _exportLog }
                     },
                     _note,
@@ -121,6 +122,20 @@ public sealed class SettingsWindow : Window
         };
         Apply(save: false);
     }
+
+    private static Button CreateDiagButton(double marginRight) =>
+        new()
+        {
+            Height = 27,
+            MinHeight = 27,
+            MaxHeight = 27,
+            Padding = new Thickness(10, 0, 10, 0),
+            Margin = new Thickness(0, 0, marginRight, 0),
+            VerticalAlignment = System.Windows.VerticalAlignment.Center,
+            VerticalContentAlignment = System.Windows.VerticalAlignment.Center,
+            HorizontalContentAlignment = System.Windows.HorizontalAlignment.Center,
+            FontSize = 12
+        };
 
     private void ExportLastLog()
     {

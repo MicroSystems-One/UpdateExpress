@@ -27,34 +27,36 @@
                     <Grid>
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="28"/>
+                        <!-- Fixed chevron column — same width/padding expanded and collapsed (no rotate shift). -->
+                        <ColumnDefinition Width="28" MinWidth="28" MaxWidth="28"/>
                       </Grid.ColumnDefinitions>
                       <ContentPresenter Grid.Column="0" VerticalAlignment="Center" RecognizesAccessKey="True"
                                         Content="{TemplateBinding Content}"
                                         ContentTemplate="{TemplateBinding ContentTemplate}"
                                         ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
                                         Margin="0,0,8,0"/>
-                      <!-- Thin black chevron (stroke only), same language as Win11 Help accordion. -->
-                      <Path x:Name="Chevron" Grid.Column="1"
-                            Data="M1,3.5 L6.5,9 L12,3.5"
-                            Stroke="#0067C0" StrokeThickness="1.35"
-                            StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                            Fill="Transparent" Stretch="Uniform" Width="12" Height="7"
-                            HorizontalAlignment="Center" VerticalAlignment="Center"
-                            RenderTransformOrigin="0.5,0.5">
-                        <Path.RenderTransform>
-                          <RotateTransform Angle="0"/>
-                        </Path.RenderTransform>
-                      </Path>
+                      <Grid Grid.Column="1" Width="28" Height="28" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <!-- Discrete down/up paths avoid RenderTransform horizontal drift. -->
+                        <Path x:Name="ChevronDown"
+                              Data="M2,4 L7,9 L12,4"
+                              Stroke="#0067C0" StrokeThickness="1.35"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              Fill="Transparent" Stretch="None" Width="14" Height="12"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Path x:Name="ChevronUp"
+                              Data="M2,9 L7,4 L12,9"
+                              Stroke="#0067C0" StrokeThickness="1.35"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              Fill="Transparent" Stretch="None" Width="14" Height="12"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Visibility="Collapsed"/>
+                      </Grid>
                     </Grid>
                   </Border>
                   <ControlTemplate.Triggers>
                     <Trigger Property="IsChecked" Value="True">
-                      <Setter TargetName="Chevron" Property="RenderTransform">
-                        <Setter.Value>
-                          <RotateTransform Angle="180"/>
-                        </Setter.Value>
-                      </Setter>
+                      <Setter TargetName="ChevronDown" Property="Visibility" Value="Collapsed"/>
+                      <Setter TargetName="ChevronUp" Property="Visibility" Value="Visible"/>
                     </Trigger>
                   </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -407,23 +409,25 @@
        <ToggleButton.Template>
         <ControlTemplate TargetType="ToggleButton">
          <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Width="28" Height="28">
-          <Path x:Name="Chevron" Data="M1,3.5 L6.5,9 L12,3.5"
-                Stroke="#0067C0" StrokeThickness="1.35"
-                StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                Fill="Transparent" Stretch="Uniform" Width="12" Height="7"
-                HorizontalAlignment="Center" VerticalAlignment="Center"
-                RenderTransformOrigin="0.5,0.5">
-           <Path.RenderTransform>
-            <RotateTransform Angle="0"/>
-           </Path.RenderTransform>
-          </Path>
+          <Grid Width="28" Height="28">
+           <Path x:Name="ChevronDown" Data="M2,4 L7,9 L12,4"
+                 Stroke="#0067C0" StrokeThickness="1.35"
+                 StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                 Fill="Transparent" Stretch="None" Width="14" Height="12"
+                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
+           <Path x:Name="ChevronUp" Data="M2,9 L7,4 L12,9"
+                 Stroke="#0067C0" StrokeThickness="1.35"
+                 StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                 Fill="Transparent" Stretch="None" Width="14" Height="12"
+                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                 Visibility="Collapsed"/>
+          </Grid>
          </Border>
          <ControlTemplate.Triggers>
           <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/></Trigger>
           <Trigger Property="IsChecked" Value="True">
-           <Setter TargetName="Chevron" Property="RenderTransform">
-            <Setter.Value><RotateTransform Angle="180"/></Setter.Value>
-           </Setter>
+           <Setter TargetName="ChevronDown" Property="Visibility" Value="Collapsed"/>
+           <Setter TargetName="ChevronUp" Property="Visibility" Value="Visible"/>
           </Trigger>
          </ControlTemplate.Triggers>
         </ControlTemplate>
