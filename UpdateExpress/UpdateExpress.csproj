@@ -16,7 +16,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets\MicroSystemsBanner.png" />
-    <Resource Include="Assets\FixIt.png" />
     <Resource Include="Assets\ClickIt.png" />
     <Resource Include="Assets\UpdateExpress-U.png" />
     <Resource Include="Assets\UpdateExpress-U.ico" />

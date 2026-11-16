@@ -303,6 +303,14 @@ internal static class AppUpdatePrompt
             Font = SystemFonts.MessageBoxFont,
             MinimumSize = new Size(420, 120)
         };
+        // Force blue U on WinForms title bar (do not inherit orange EXE/shell cache).
+        try
+        {
+            var appIcon = global::UpdateExpress.AppIcon.TryLoadDrawingIcon();
+            if (appIcon is not null)
+                form.Icon = appIcon;
+        }
+        catch { /* keep default */ }
 
         var layout = new TableLayoutPanel
         {

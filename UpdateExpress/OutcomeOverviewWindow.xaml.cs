@@ -16,6 +16,7 @@ public partial class OutcomeOverviewWindow : Window
     public OutcomeOverviewWindow(string kindKey, string heading, string subtitle, IReadOnlyList<UpdateEntry> entries, bool showFixIt, bool norwegian)
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         _norwegian = norwegian;
         _showFixIt = showFixIt;
         Title = heading;

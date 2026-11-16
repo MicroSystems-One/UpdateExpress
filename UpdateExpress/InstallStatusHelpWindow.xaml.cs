@@ -17,6 +17,7 @@ public partial class InstallStatusHelpWindow : Window
     public InstallStatusHelpWindow(InstallationQueueItem item, bool norwegian)
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         Title = norwegian ? "Installasjonshjelp" : "Installation help";
         HeadingText.Text = item.Name;
         StatusText.Text = norwegian ? $"Status: {item.State}" : $"Status: {item.State}";

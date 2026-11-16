@@ -28,7 +28,6 @@ internal sealed class AppDialog : Window
         string? cancelLabel = null)
     {
         Title = title;
-        AppIcon.Apply(this);
         Width = 500;
         SizeToContent = SizeToContent.Height;
         MinHeight = 170;
@@ -42,7 +41,8 @@ internal sealed class AppDialog : Window
         if (owner is not null) Owner = owner;
         Background = Hex("#F3F3F3");
         FontFamily = new System.Windows.Media.FontFamily("Segoe UI");
-        if (owner?.Icon is not null) Icon = owner.Icon;
+        // Always force blue U — never inherit owner.Icon (can be stale/orange EXE cache).
+        AppIcon.Apply(this);
 
         var primary = CreateChromeButton(
             primaryLabel ?? PrimaryCaption(buttons),

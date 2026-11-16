@@ -216,8 +216,8 @@ internal sealed class TrayAgent : IDisposable
         // Prefer the embedded U icon so toast/tray notifications do not reuse a cached M icon.
         try
         {
-            using var stream = typeof(TrayAgent).Assembly.GetManifestResourceStream("UpdateExpress.Assets.UpdateExpress.ico");
-            if (stream is not null) return new Icon(stream);
+            var embedded = AppIcon.TryLoadDrawingIcon();
+            if (embedded is not null) return embedded;
         }
         catch (Exception ex) { AgentLog.Write("Embedded tray icon load failed: " + ex.Message); }
         try

@@ -25,6 +25,7 @@ public partial class WindowsUpdateFixDialog : Window
         bool allDrivers = false)
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         _fixTarget = fixTarget;
         _includeOptional = includeOptional;
         _allDrivers = allDrivers;

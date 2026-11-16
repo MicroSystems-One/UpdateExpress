@@ -15,6 +15,7 @@ public partial class WuaDeepCheckDialog : Window
     public WuaDeepCheckDialog()
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         string? previous = WuaDeepCheckReport.LoadLatestPrompt();
         if (!string.IsNullOrWhiteSpace(previous))
         {

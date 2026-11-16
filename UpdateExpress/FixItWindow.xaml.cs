@@ -11,6 +11,7 @@ public partial class FixItWindow : Window
     {
         _owner = owner;
         InitializeComponent();
+        AppIcon.Apply(this);
         Owner = owner;
     }
 

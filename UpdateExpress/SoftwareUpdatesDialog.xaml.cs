@@ -25,6 +25,7 @@ public partial class SoftwareUpdatesDialog : Window
         bool downloaded)
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         Title = $"Update Express – {displayName} updates";
         bool windowsCategory = displayName is "Critical" or "General";
         HeadingText.Text = windowsCategory

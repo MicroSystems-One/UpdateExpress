@@ -21,6 +21,7 @@ public partial class ErrorCodeFixDialog : Window
     public ErrorCodeFixDialog(UpdateEntry entry, bool includeOptional = false, bool allDrivers = false, bool stillOffered = false)
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         _entry = entry;
         _includeOptional = includeOptional;
         _allDrivers = allDrivers;
