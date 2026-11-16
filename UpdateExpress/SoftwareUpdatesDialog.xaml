@@ -4,7 +4,7 @@
         Title="Update Express – Updates"
         Width="720" Height="500" MinWidth="640" MinHeight="420"
         ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
-        Background="#F3F6FB" FontFamily="Segoe UI">
+        Background="#F3F3F3" FontFamily="Segoe UI Variable Text, Segoe UI">
   <Window.Resources>
     <!-- Override App.xaml MinHeight=39 so all footer actions share one 27px row. -->
     <Style x:Key="DialogActionButton" TargetType="Button">
@@ -42,7 +42,7 @@
       </Setter>
     </Style>
   </Window.Resources>
-  <Border Margin="18" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="14" Padding="20">
+  <Border Margin="18" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="8" Padding="20">
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
@@ -52,14 +52,14 @@
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
-      <TextBlock x:Name="HeadingText" Text="Windows updates ready" FontSize="20" FontWeight="SemiBold" Foreground="#152137"/>
+      <TextBlock x:Name="HeadingText" Text="Windows updates ready" FontSize="20" FontWeight="SemiBold" Foreground="#1C1C1C"/>
       <TextBlock x:Name="SummaryText" Grid.Row="1" Margin="0,8,0,10" TextWrapping="Wrap" Foreground="#334155"/>
-      <ListBox x:Name="UpdatesList" Grid.Row="2" BorderBrush="#DDE3EB" BorderThickness="1"
+      <ListBox x:Name="UpdatesList" Grid.Row="2" BorderBrush="#E5E5E5" BorderThickness="1"
                ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
       <TextBlock Grid.Row="3" Margin="0,12,0,8" TextWrapping="Wrap" Foreground="#9B5A00"
                  Text="Save your work before installing. A restart may be required afterwards. Optional auto-reboot (if enabled in policy) asks for confirmation or waits until outside active hours."/>
       <StackPanel x:Name="ProgressPanel" Grid.Row="4" Visibility="Collapsed" Margin="0,0,0,10">
-        <TextBlock x:Name="ProgressLabel" Text="Preparing…" FontSize="12" Foreground="#52617A" Margin="0,0,0,4"/>
+        <TextBlock x:Name="ProgressLabel" Text="Preparing…" FontSize="12" Foreground="#5D5D5D" Margin="0,0,0,4"/>
         <ProgressBar x:Name="ProgressBar" Height="7" IsIndeterminate="True" Foreground="#0067C0"/>
       </StackPanel>
       <StackPanel x:Name="ActionsPanel" Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Height="27">

@@ -39,7 +39,7 @@ internal sealed class AppDialog : Window
             ? WindowStartupLocation.CenterScreen
             : WindowStartupLocation.CenterOwner;
         if (owner is not null) Owner = owner;
-        Background = Hex("#F3F6FB");
+        Background = Hex("#F3F3F3");
         FontFamily = new System.Windows.Media.FontFamily("Segoe UI");
         Icon = owner?.Icon;
 
@@ -100,7 +100,7 @@ internal sealed class AppDialog : Window
             TextWrapping = TextWrapping.Wrap,
             FontSize = 13,
             LineHeight = 20,
-            Foreground = Hex("#152137"),
+            Foreground = Hex("#1C1C1C"),
             VerticalAlignment = WpfVerticalAlignment.Center,
             Margin = new Thickness(14, 0, 0, 0)
         };
@@ -124,7 +124,7 @@ internal sealed class AppDialog : Window
                         Text = title,
                         FontSize = 15,
                         FontWeight = FontWeights.SemiBold,
-                        Foreground = Hex("#152137"),
+                        Foreground = Hex("#1C1C1C"),
                         Margin = new Thickness(0, 0, 0, 12),
                         TextWrapping = TextWrapping.Wrap
                     },
@@ -181,9 +181,9 @@ internal sealed class AppDialog : Window
             Padding = new Thickness(16, 6, 16, 6),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
-            Background = primary ? Hex("#0067C0") : Hex("#EAF0F7"),
-            Foreground = primary ? Brushes.White : Hex("#152137"),
-            BorderBrush = primary ? Hex("#0055A8") : Hex("#DDE5EF"),
+            Background = primary ? Hex("#0067C0") : Hex("#F3F3F3"),
+            Foreground = primary ? Brushes.White : Hex("#1C1C1C"),
+            BorderBrush = primary ? Hex("#0055A8") : Hex("#E5E5E5"),
             BorderThickness = new Thickness(1),
             IsDefault = isDefault,
             IsCancel = isCancel,

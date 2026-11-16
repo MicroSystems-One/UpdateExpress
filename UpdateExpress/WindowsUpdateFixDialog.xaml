@@ -4,7 +4,7 @@
         Title="Windows Update fix"
         Width="560" Height="480" MinWidth="520" MinHeight="420"
         ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
-        Background="#F3F6FB" FontFamily="Segoe UI"
+        Background="#F3F3F3" FontFamily="Segoe UI Variable Text, Segoe UI"
         ShowInTaskbar="False">
   <Window.Resources>
     <!-- Override App.xaml MinHeight=39 / Margin bottom so footer buttons share one row. -->
@@ -43,7 +43,7 @@
       </Setter>
     </Style>
   </Window.Resources>
-  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="14" Padding="18">
+  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="8" Padding="18">
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
@@ -53,41 +53,41 @@
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
-      <TextBlock Text="Windows Update fix" FontSize="18" FontWeight="SemiBold" Foreground="#152137"/>
-      <TextBlock Grid.Row="1" Margin="0,8,0,12" TextWrapping="Wrap" Foreground="#52617A"
+      <TextBlock Text="Windows Update fix" FontSize="18" FontWeight="SemiBold" Foreground="#1C1C1C"/>
+      <TextBlock Grid.Row="1" Margin="0,8,0,12" TextWrapping="Wrap" Foreground="#5D5D5D"
                  Text="Use when Windows Update shows nothing, is stuck, or returns error codes. Requires administrator. History is saved in Update Express first. Folders are renamed (backup), not deleted."/>
       <StackPanel Grid.Row="2" Margin="0,0,0,10">
         <RadioButton x:Name="QuickOption" GroupName="FixLevel" IsChecked="True" Margin="0,0,0,8"
                      Checked="Level_Changed">
           <StackPanel>
-            <TextBlock Text="Quick fix" FontWeight="SemiBold" Foreground="#152137"/>
+            <TextBlock Text="Quick fix" FontWeight="SemiBold" Foreground="#1C1C1C"/>
             <TextBlock Text="Disk check → SFC /scannow → reset update cache (15–45 min)"
-                       TextWrapping="Wrap" Foreground="#52617A" FontSize="11" Margin="0,2,0,0"/>
+                       TextWrapping="Wrap" Foreground="#5D5D5D" FontSize="11" Margin="0,2,0,0"/>
           </StackPanel>
         </RadioButton>
         <RadioButton x:Name="MediumOption" GroupName="FixLevel" Margin="0,0,0,8" Checked="Level_Changed">
           <StackPanel>
-            <TextBlock Text="Medium fix" FontWeight="SemiBold" Foreground="#152137"/>
+            <TextBlock Text="Medium fix" FontWeight="SemiBold" Foreground="#1C1C1C"/>
             <TextBlock Text="Same steps as Quick, including disk check and SFC /scannow (15–45 min)"
-                       TextWrapping="Wrap" Foreground="#52617A" FontSize="11" Margin="0,2,0,0"/>
+                       TextWrapping="Wrap" Foreground="#5D5D5D" FontSize="11" Margin="0,2,0,0"/>
           </StackPanel>
         </RadioButton>
         <RadioButton x:Name="DeepOption" GroupName="FixLevel" Margin="0,0,0,0" Checked="Level_Changed">
           <StackPanel>
-            <TextBlock Text="Deep fix" FontWeight="SemiBold" Foreground="#152137"/>
+            <TextBlock Text="Deep fix" FontWeight="SemiBold" Foreground="#1C1C1C"/>
             <TextBlock Text="Quick fix + DISM /RestoreHealth (30–90+ min, needs network)"
-                       TextWrapping="Wrap" Foreground="#52617A" FontSize="11" Margin="0,2,0,0"/>
+                       TextWrapping="Wrap" Foreground="#5D5D5D" FontSize="11" Margin="0,2,0,0"/>
           </StackPanel>
         </RadioButton>
       </StackPanel>
-      <Border Grid.Row="3" BorderBrush="#DDE3EB" BorderThickness="1" CornerRadius="8" Background="#F8FAFC" Padding="8">
+      <Border Grid.Row="3" BorderBrush="#E5E5E5" BorderThickness="1" CornerRadius="8" Background="#F9F9F9" Padding="8">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <TextBlock x:Name="LogText" Text="Select a level and click Run." TextWrapping="Wrap"
                      FontFamily="Consolas" FontSize="11" Foreground="#334155"/>
         </ScrollViewer>
       </Border>
       <StackPanel Grid.Row="4" Margin="0,10,0,0" Visibility="Collapsed" x:Name="ProgressPanel">
-        <TextBlock x:Name="ProgressLabel" Text="Running…" FontSize="12" Foreground="#52617A" Margin="0,0,0,4"/>
+        <TextBlock x:Name="ProgressLabel" Text="Running…" FontSize="12" Foreground="#5D5D5D" Margin="0,0,0,4"/>
         <ProgressBar Height="7" IsIndeterminate="True" Foreground="#0067C0"/>
       </StackPanel>
       <Grid Grid.Row="5" Margin="0,14,0,0" Height="30" VerticalAlignment="Bottom">

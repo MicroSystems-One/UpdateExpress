@@ -4,7 +4,7 @@
         Title="WUA deep check"
         Width="760" Height="560" MinWidth="680" MinHeight="440"
         WindowStartupLocation="CenterOwner"
-        Background="#F3F6FB" FontFamily="Segoe UI"
+        Background="#F3F3F3" FontFamily="Segoe UI Variable Text, Segoe UI"
         ShowInTaskbar="False">
   <Window.Resources>
     <Style x:Key="DialogActionButton" TargetType="Button">
@@ -42,7 +42,7 @@
       </Setter>
     </Style>
   </Window.Resources>
-  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="14" Padding="18">
+  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="8" Padding="18">
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
@@ -51,17 +51,17 @@
         <RowDefinition Height="*"/>
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
-      <TextBlock Text="WUA deep check" FontSize="18" FontWeight="SemiBold" Foreground="#152137"/>
-      <TextBlock Grid.Row="1" Margin="0,8,0,8" TextWrapping="Wrap" Foreground="#52617A"
+      <TextBlock Text="WUA deep check" FontSize="18" FontWeight="SemiBold" Foreground="#1C1C1C"/>
+      <TextBlock Grid.Row="1" Margin="0,8,0,8" TextWrapping="Wrap" Foreground="#5D5D5D"
                  Text="Read-only analysis of Windows Update Agent health: network/DNS/TCP to Microsoft endpoints, local services, proxy, policy, reboot pending, and a light WUA search. Use when Quick/Medium/Deep fix did not help."/>
       <StackPanel Grid.Row="2" Margin="0,0,0,8">
-        <TextBlock x:Name="ProgressLabel" Text="Ready." FontSize="12" Foreground="#52617A" Margin="0,0,0,4"/>
+        <TextBlock x:Name="ProgressLabel" Text="Ready." FontSize="12" Foreground="#5D5D5D" Margin="0,0,0,4"/>
         <ProgressBar x:Name="ProgressBar" Height="7" IsIndeterminate="False" Value="0" Foreground="#0067C0"/>
       </StackPanel>
       <TextBox x:Name="ReportBox" Grid.Row="3" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
                VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-               FontFamily="Consolas" FontSize="11" BorderBrush="#DDE3EB" Padding="10"
-               Background="#F8FAFC"
+               FontFamily="Consolas" FontSize="11" BorderBrush="#E5E5E5" Padding="10"
+               Background="#F9F9F9"
                Text="Confirm to start. A copyable AI prompt is generated when the check finishes."/>
       <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Height="30" Margin="0,14,0,0">
         <Button x:Name="StartButton" Content="Start check" Style="{StaticResource DialogActionButton}"

@@ -42,7 +42,7 @@ public sealed class SetupWizardWindow : Window
         MinWidth = 480;
         MinHeight = 420;
         WindowStartupLocation = owner is null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(247, 249, 252));
+        Background = new SolidColorBrush(Color.FromRgb(243, 243, 243));
         ResizeMode = ResizeMode.CanResizeWithGrip;
 
         var root = new DockPanel { Margin = new Thickness(22) };
@@ -120,21 +120,21 @@ public sealed class SetupWizardWindow : Window
         {
             Text = "Update Express",
             FontSize = 12,
-            Foreground = new SolidColorBrush(Color.FromRgb(82, 97, 122)),
+            Foreground = new SolidColorBrush(Color.FromRgb(93, 93, 93)),
             Margin = new Thickness(0, 0, 0, 4)
         });
         _title = new TextBlock
         {
             FontSize = 18,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(21, 33, 55)),
+            Foreground = new SolidColorBrush(Color.FromRgb(28, 28, 28)),
             TextWrapping = TextWrapping.Wrap
         };
         header.Children.Add(_title);
         _body = new TextBlock
         {
             FontSize = 13,
-            Foreground = new SolidColorBrush(Color.FromRgb(82, 97, 122)),
+            Foreground = new SolidColorBrush(Color.FromRgb(93, 93, 93)),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 6, 0, 0)
         };
@@ -481,7 +481,7 @@ public sealed class SetupWizardWindow : Window
         {
             Text = tip,
             FontSize = 12,
-            Foreground = new SolidColorBrush(Color.FromRgb(82, 97, 122)),
+            Foreground = new SolidColorBrush(Color.FromRgb(93, 93, 93)),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(22, 0, 0, 0)
         });
@@ -522,8 +522,8 @@ public sealed class SetupWizardWindow : Window
     {
         var style = new Style(typeof(Button));
         style.Setters.Add(new Setter(System.Windows.Controls.Control.BackgroundProperty, Brushes.White));
-        style.Setters.Add(new Setter(System.Windows.Controls.Control.ForegroundProperty, new SolidColorBrush(Color.FromRgb(35, 48, 65))));
-        style.Setters.Add(new Setter(System.Windows.Controls.Control.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(175, 190, 208))));
+        style.Setters.Add(new Setter(System.Windows.Controls.Control.ForegroundProperty, new SolidColorBrush(Color.FromRgb(28, 28, 28))));
+        style.Setters.Add(new Setter(System.Windows.Controls.Control.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(229, 229, 229))));
         style.Setters.Add(new Setter(System.Windows.Controls.Control.BorderThicknessProperty, new Thickness(1)));
         style.Setters.Add(new Setter(FrameworkElement.HeightProperty, 27.0));
         style.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 27.0));
@@ -542,7 +542,7 @@ public sealed class SetupWizardWindow : Window
         border.AppendChild(presenter);
         template.VisualTree = border;
         var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-        hover.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(235, 242, 250)), "ButtonBorder"));
+        hover.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(243, 243, 243)), "ButtonBorder"));
         template.Triggers.Add(hover);
         var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
         disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 0.5));
