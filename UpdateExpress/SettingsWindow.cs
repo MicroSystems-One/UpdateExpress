@@ -1,6 +1,10 @@
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using Microsoft.Win32;
 using UpdateExpress.Services;
+using CheckBox = System.Windows.Controls.CheckBox;
 using ComboBox = System.Windows.Controls.ComboBox;
 using ComboBoxItem = System.Windows.Controls.ComboBoxItem;
 using RadioButton = System.Windows.Controls.RadioButton;
@@ -22,14 +26,26 @@ public sealed class SettingsWindow : Window
     private readonly TextBlock _languageCaption = new() { FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) };
     private readonly TextBlock _clockCaption = new() { FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 6) };
     private readonly TextBlock _dateCaption = new() { FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 6) };
+    private readonly TextBlock _diagCaption = new() { FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 18, 0, 6) };
+    private readonly CheckBox _verboseInstall = new() { Margin = new Thickness(0, 0, 0, 6) };
+    private readonly TextBlock _diagPath = new()
+    {
+        Margin = new Thickness(0, 0, 0, 8),
+        FontSize = 11,
+        Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x52, 0x61, 0x7A)),
+        TextWrapping = TextWrapping.Wrap
+    };
+    private readonly Button _openLogs = new() { Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 4, 10, 4) };
+    private readonly Button _openLastLog = new() { Margin = new Thickness(0, 0, 8, 0), Padding = new Thickness(10, 4, 10, 4) };
+    private readonly Button _exportLog = new() { Padding = new Thickness(10, 4, 10, 4) };
     private readonly TextBlock _note = new() { Margin = new Thickness(0, 16, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x52, 0x61, 0x7A)) };
     private readonly Button _close = new() { HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
     private bool _applying;
 
     public SettingsWindow()
     {
-        Width = 460;
-        Height = 420;
+        Width = 520;
+        Height = 580;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF3, 0xF6, 0xFB));
@@ -42,6 +58,7 @@ public sealed class SettingsWindow : Window
         _norwegian.IsChecked = _schedule.Language == "no";
         _clock24.IsChecked = _schedule.Use24HourClock;
         _clock12.IsChecked = !_schedule.Use24HourClock;
+        _verboseInstall.IsChecked = _schedule.VerboseInstallLogging;
         _dateFormat.Items.Add(new ComboBoxItem { Content = "", Tag = "text" });
         _dateFormat.Items.Add(new ComboBoxItem { Content = "", Tag = "dmy" });
         _dateFormat.Items.Add(new ComboBoxItem { Content = "", Tag = "iso" });
@@ -56,6 +73,19 @@ public sealed class SettingsWindow : Window
         _clock12.Checked += (_, _) => Apply(save: true);
         _clock24.Checked += (_, _) => Apply(save: true);
         _dateFormat.SelectionChanged += (_, _) => Apply(save: true);
+        _verboseInstall.Checked += (_, _) => Apply(save: true);
+        _verboseInstall.Unchecked += (_, _) => Apply(save: true);
+        _openLogs.Click += (_, _) =>
+        {
+            try { AgentLog.OpenLogsFolder(); }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning); }
+        };
+        _openLastLog.Click += (_, _) =>
+        {
+            try { AgentLog.OpenLastInstallLog(); }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning); }
+        };
+        _exportLog.Click += (_, _) => ExportLastLog();
         _close.Click += (_, _) => Close();
         Content = new Border
         {
@@ -76,12 +106,52 @@ public sealed class SettingsWindow : Window
                     _dateCaption,
                     _dateFormat,
                     _preview,
+                    _diagCaption,
+                    _verboseInstall,
+                    _diagPath,
+                    new StackPanel
+                    {
+                        Orientation = System.Windows.Controls.Orientation.Horizontal,
+                        Children = { _openLogs, _openLastLog, _exportLog }
+                    },
                     _note,
                     _close
                 }
             }
         };
         Apply(save: false);
+    }
+
+    private void ExportLastLog()
+    {
+        try
+        {
+            var dlg = new SaveFileDialog
+            {
+                Title = _norwegian.IsChecked == true ? "Eksporter installasjonslogg" : "Export install log",
+                Filter = "Log files (*.log)|*.log|Text files (*.txt)|*.txt|All files (*.*)|*.*",
+                FileName = "UpdateExpress-last-install.log",
+                OverwritePrompt = true
+            };
+            if (dlg.ShowDialog(this) != true) return;
+            string? path = AgentLog.ExportLastInstallLog(dlg.FileName);
+            if (path is null)
+            {
+                MessageBox.Show(this,
+                    _norwegian.IsChecked == true
+                        ? "Ingen installasjonslogg ennå. Kjør Installer / Oppdater først."
+                        : "No install log yet. Run Install / Update once first.",
+                    "Update Express", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            MessageBox.Show(this,
+                (_norwegian.IsChecked == true ? "Logg eksportert til:\n" : "Log exported to:\n") + path,
+                "Update Express", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     private void Apply(bool save)
@@ -94,10 +164,24 @@ public sealed class SettingsWindow : Window
         _schedule.Language = norwegian ? "no" : "en";
         _schedule.Use24HourClock = _clock24.IsChecked == true;
         _schedule.DateFormat = (_dateFormat.SelectedItem as ComboBoxItem)?.Tag as string ?? "text";
+        _schedule.VerboseInstallLogging = _verboseInstall.IsChecked == true;
         Title = norwegian ? "Update Express – Innstillinger" : "Update Express – Settings";
+        AppIcon.Apply(this);
         _languageCaption.Text = norwegian ? "Språk" : "Language";
         _clockCaption.Text = norwegian ? "Klokke" : "Clock";
         _dateCaption.Text = norwegian ? "Datoformat" : "Date format";
+        _diagCaption.Text = norwegian ? "Installasjons-/oppdateringslogg" : "Install / update diagnostics";
+        _verboseInstall.Content = norwegian
+            ? "Utdypende logging (også verbose.log)"
+            : "Verbose logging (also verbose.log)";
+        _diagPath.Text = norwegian
+            ? "Installasjonslogger skrives alltid til:\n" + AgentLog.LogsDir
+              + "\n(install-update.log / last-install.log). Last opp last-install.log hvis ikoner/EXE forsvinner etter oppdatering."
+            : "Install logs always go to:\n" + AgentLog.LogsDir
+              + "\n(install-update.log / last-install.log). Upload last-install.log if icons/EXE disappear after update.";
+        _openLogs.Content = norwegian ? "Åpne loggmappe" : "Open log folder";
+        _openLastLog.Content = norwegian ? "Åpne siste logg" : "Open last log";
+        _exportLog.Content = norwegian ? "Eksporter logg…" : "Export log…";
         _close.Content = norwegian ? "Lukk" : "Close";
         _note.Text = norwegian
             ? "Påminnelser, Windows-automatisering og proxy endres andre steder. Proxy ligger i tray-menyen. Påminnelser og automatisering ligger i hovedvinduet."

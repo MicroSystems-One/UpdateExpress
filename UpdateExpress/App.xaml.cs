@@ -21,19 +21,30 @@ public partial class App : System.Windows.Application
             Shutdown();
             return;
         }
-        if (args.Contains("--apply-critical-install", StringComparer.OrdinalIgnoreCase))
+        if (args.Contains("--apply-defender-exclusions", StringComparer.OrdinalIgnoreCase) ||
+            args.Contains("--remove-defender-exclusions", StringComparer.OrdinalIgnoreCase))
         {
-            // Elevated helper for Category 2: install queued Critical/Important updates only.
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            CriticalAutomation.ApplyQueuedInstall();
+            DefenderExclusions.ApplyFromArgs(args);
             Shutdown();
             return;
         }
-        if (args.Contains("--apply-general-install", StringComparer.OrdinalIgnoreCase))
+        if (args.Contains("--apply-critical-install", StringComparer.OrdinalIgnoreCase) ||
+            args.Contains("--apply-general-install", StringComparer.OrdinalIgnoreCase) ||
+            args.Contains("--apply-drivers-install", StringComparer.OrdinalIgnoreCase) ||
+            args.Contains("--apply-applications-install", StringComparer.OrdinalIgnoreCase))
         {
-            // Elevated helper for Category 3: install queued general software updates only.
+            // Elevated helpers must read the tray user's prompt/queue, not another admin's LocalAppData.
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            GeneralAutomation.ApplyQueuedInstall();
+            AutomationStatePaths.TryApplyFromArgs(args);
+            if (args.Contains("--apply-critical-install", StringComparer.OrdinalIgnoreCase))
+                CriticalAutomation.ApplyQueuedInstall();
+            else if (args.Contains("--apply-general-install", StringComparer.OrdinalIgnoreCase))
+                GeneralAutomation.ApplyQueuedInstall();
+            else if (args.Contains("--apply-drivers-install", StringComparer.OrdinalIgnoreCase))
+                DriverAutomation.ApplyQueuedInstall();
+            else
+                ApplicationAutomation.ApplyQueuedInstall();
             Shutdown();
             return;
         }
