@@ -1385,6 +1385,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // First paint: Results starts collapsed — force Auto row (Collapsed event does not run at init).
+        ApplyResultsRowLayout();
         AppIcon.Apply(this);
         Closed += (_, _) =>
         {
@@ -2614,19 +2616,24 @@ public partial class MainWindow : Window
     {
         if (ResultsExpander is null) return;
         ResultsExpander.IsExpanded = pendingCount >= 1;
+        ApplyResultsRowLayout();
     }
 
-    private void ResultsExpander_Expanded(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Keep Results grid row Auto when collapsed (no tall empty star gap on first paint)
+    /// and Star when expanded so the results table can stretch.
+    /// </summary>
+    private void ApplyResultsRowLayout()
     {
-        if (ResultsRow == null) return;
-        ResultsRow.Height = new GridLength(1, GridUnitType.Star);
+        if (ResultsRow is null || ResultsExpander is null) return;
+        ResultsRow.Height = ResultsExpander.IsExpanded
+            ? new GridLength(1, GridUnitType.Star)
+            : GridLength.Auto;
     }
 
-    private void ResultsExpander_Collapsed(object sender, RoutedEventArgs e)
-    {
-        if (ResultsRow == null) return;
-        ResultsRow.Height = GridLength.Auto;
-    }
+    private void ResultsExpander_Expanded(object sender, RoutedEventArgs e) => ApplyResultsRowLayout();
+
+    private void ResultsExpander_Collapsed(object sender, RoutedEventArgs e) => ApplyResultsRowLayout();
 
     private void ResultsExpander_SizeChanged(object sender, SizeChangedEventArgs e) => StretchResultsHeader();
 
