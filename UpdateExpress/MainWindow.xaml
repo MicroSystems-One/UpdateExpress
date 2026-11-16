@@ -286,7 +286,7 @@
   <Grid Grid.Row="0" Margin="0,6,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
     <Border Width="55" Height="55" CornerRadius="13" Background="#E5F1FA" Margin="0,0,18,0"><Image Source="Assets/MicroSystems-M.png" Stretch="Uniform" Margin="3"/></Border>
-    <StackPanel VerticalAlignment="Center"><TextBlock FontSize="20" FontWeight="Bold"><Run Text="Update " Foreground="#142035"/><Run Text="Express" Foreground="#F46D00"/></TextBlock><TextBlock x:Name="AppSubtitle" Text="Windows Update Management · Background Monitoring" Foreground="#52617A" FontSize="12" Margin="0,5,0,0"/></StackPanel>
+    <StackPanel VerticalAlignment="Center"><TextBlock FontSize="20" FontWeight="Bold"><Run Text="Update " Foreground="#142035"/><Run Text="Express" Foreground="#0067C0"/></TextBlock><TextBlock x:Name="AppSubtitle" Text="Windows Update Management · Background Monitoring" Foreground="#52617A" FontSize="12" Margin="0,5,0,0"/></StackPanel>
    </StackPanel>
    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
     <Button x:Name="FixItOpenButton" Click="FixItOpen_Click" Width="64" Height="64" Padding="0" Margin="0,0,96,0"
