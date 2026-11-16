@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.21",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.21/UpdateExpress_v0.7.2.21.exe",
-  "sha256": "25d9a9a3b6bb86d90f3c1dc8fcf03f063b9ba2e82fd2b1e5d8994bd9d6799181",
-  "publishedAt": "2026-11-16T15:55:00Z",
-  "releaseNotes": "ClickIt help UI, header blue U, shortcut refresh, install diagnostic logs. Tip 26c58f9."
+  "version": "0.7.2.22",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.22/UpdateExpress_v0.7.2.22.exe",
+  "sha256": "fdd403f5b8961af910988b8dfe35db28000784f37a61f268c10136557517f5ea",
+  "publishedAt": "2026-11-16T16:12:57Z",
+  "releaseNotes": "Help-row blue U, tray heal after self-update, always-on install logs, icon cleanup. Tip c2d5322."
 }
