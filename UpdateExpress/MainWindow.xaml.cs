@@ -2918,6 +2918,13 @@ public partial class MainWindow : Window
         ToolsGear_Click(sender, e);
     }
 
+    private void ScanButton_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        // Keep the section Expander from toggling when checking for updates from the header.
+        e.Handled = true;
+        Scan_Click(sender, e);
+    }
+
     private void ToolsGear_Click(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
