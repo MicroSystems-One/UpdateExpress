@@ -294,7 +294,7 @@
   <!-- Header: FIX IT! / CLICK IT (64×64 crossfade) left of MicroSystems banner with ≥96px gap; title on the left. -->
   <Grid Grid.Row="0" Margin="0,8,0,12" MinHeight="88"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
-    <Border Width="55" Height="55" CornerRadius="8" Background="#E5F1FA" Margin="0,0,18,0"><Image Source="Assets/MicroSystems-M.png" Stretch="Uniform" Margin="3"/></Border>
+    <Border Width="55" Height="55" CornerRadius="8" Background="Transparent" Margin="0,0,18,0"><Image Source="Assets/UpdateExpress-U.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/></Border>
     <StackPanel VerticalAlignment="Center"><TextBlock FontSize="28" FontWeight="SemiBold"><Run Text="Update " Foreground="#1C1C1C"/><Run Text="Express" Foreground="#0067C0"/></TextBlock><TextBlock x:Name="AppSubtitle" Text="Windows Update Management · Background Monitoring" Foreground="#5D5D5D" FontSize="12" Margin="0,4,0,0"/></StackPanel>
    </StackPanel>
    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">

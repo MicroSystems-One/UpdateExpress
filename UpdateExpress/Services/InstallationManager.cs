@@ -190,8 +190,18 @@ internal static class InstallationManager
                     RetryFileOperation(() => File.Copy(source, targetExe, true), targetExe);
                 else if (!File.Exists(targetExe))
                     throw new FileNotFoundException("Programfilen mangler. Kjør Installer fra den nye Publisert-mappen.");
+                // Always rewrite the on-disk U .ico so upgrade refreshes desktop/Start/taskbar IconLocation.
                 RetryFileOperation(() => WriteInstalledIcon(iconPath), iconPath);
                 TryDeleteLegacyVersionedIcons(targetDir);
+                try
+                {
+                    // Drop any leftover orange UpdateExpress.ico beside the install if present.
+                    string legacyOrange = Path.Combine(targetDir, "UpdateExpress.ico");
+                    if (File.Exists(legacyOrange)
+                        && !string.Equals(legacyOrange, iconPath, StringComparison.OrdinalIgnoreCase))
+                        RetryFileOperation(() => File.Delete(legacyOrange), legacyOrange);
+                }
+                catch (Exception ex) { AgentLog.Write("Legacy UpdateExpress.ico cleanup: " + ex.Message); }
                 // Always strip duplicate/orphan Update Express shortcuts first so upgrades leave one icon
                 // with the current install path and U icon.
                 if (startMenu)
@@ -575,7 +585,7 @@ internal static class InstallationManager
         object shell = Activator.CreateInstance(shellType)!;
         try
         {
-            // Rewrite the same path in place; callers remove numbered duplicates first.
+            // Always delete+recreate so Explorer cannot keep a cached IconLocation to an old orange U.
             if (File.Exists(shortcutPath))
             {
                 try { File.Delete(shortcutPath); }
@@ -585,12 +595,29 @@ internal static class InstallationManager
             shortcut.TargetPath = target;
             shortcut.Arguments = arguments;
             shortcut.WorkingDirectory = workingDirectory;
-            // Prefer the installed U icon file; fall back to the EXE so Explorer never shows a blank icon.
-            shortcut.IconLocation = (File.Exists(iconPath) ? iconPath : target) + ",0";
+            // Prefer the freshly written multi-size U .ico next to the install; else EXE,0 (ApplicationIcon).
+            string iconLocation = File.Exists(iconPath) ? iconPath + ",0" : target + ",0";
+            shortcut.IconLocation = iconLocation;
             shortcut.Description = "Update Express fra MicroSystems";
             shortcut.Save();
-            AgentLog.Write($"Shortcut written: {shortcutPath} → {target} (icon={(File.Exists(iconPath) ? iconPath : target)})");
+            AgentLog.Write($"Shortcut written: {shortcutPath} → {target} (icon={iconLocation})");
+            NotifyShellAssociationsChanged();
         }
         finally { if (System.Runtime.InteropServices.Marshal.IsComObject(shell)) System.Runtime.InteropServices.Marshal.ReleaseComObject(shell); }
+    }
+
+    [System.Runtime.InteropServices.DllImport("shell32.dll")]
+    private static extern void SHChangeNotify(uint wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
+
+    private static void NotifyShellAssociationsChanged()
+    {
+        try
+        {
+            // SHCNE_ASSOCCHANGED | SHCNF_IDLIST — nudge Explorer to drop stale shortcut/EXE icons.
+            const uint SHCNE_ASSOCCHANGED = 0x08000000;
+            const uint SHCNF_IDLIST = 0x0000;
+            SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
+        }
+        catch (Exception ex) { AgentLog.Write("SHChangeNotify skipped: " + ex.Message); }
     }
 }
