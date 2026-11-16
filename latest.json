@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.22",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.22/UpdateExpress_v0.7.2.22.exe",
-  "sha256": "fdd403f5b8961af910988b8dfe35db28000784f37a61f268c10136557517f5ea",
-  "publishedAt": "2026-11-16T16:12:57Z",
-  "releaseNotes": "Help-row blue U, tray heal after self-update, always-on install logs, icon cleanup. Tip c2d5322."
+  "version": "0.7.2.23",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.23/UpdateExpress_v0.7.2.23.exe",
+  "sha256": "90e4d74066e30951fbb4e19f212f5529b91a7c8dd6a47b02bd6e55522d128cdd",
+  "publishedAt": "2026-11-16T16:21:01Z",
+  "releaseNotes": "Remove header CLICK IT remnant; blue U on FIX IT button. Tip 2bef423."
 }
