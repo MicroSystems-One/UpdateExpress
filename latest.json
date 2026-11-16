@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.24",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.24/UpdateExpress_v0.7.2.24.exe",
-  "sha256": "46c7cb165704f8ca57311cc369591b524aa32f63ffcb8f933fdec5c5badfe76a",
-  "publishedAt": "2026-11-16T16:33:18Z",
-  "releaseNotes": "Help wrench 27px; auto-expand Results after scan; Check for Updates in header. Tip 47a0dce."
+  "version": "0.7.2.25",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.25/UpdateExpress_v0.7.2.25.exe",
+  "sha256": "0d30ff16d65d990cbd9e1cadfece77bf05a1cb08c28b4613f7c4b5bff983c806",
+  "publishedAt": "2026-11-16T16:47:42Z",
+  "releaseNotes": "Header tools icon; Results collapsed when 0 pending; Check for Updates Height 48. Tip e53b25b."
 }
