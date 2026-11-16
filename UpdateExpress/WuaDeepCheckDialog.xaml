@@ -5,7 +5,7 @@
         Width="760" Height="560" MinWidth="680" MinHeight="440"
         WindowStartupLocation="CenterOwner"
         Background="#F3F3F3" FontFamily="Segoe UI Variable Text, Segoe UI"
-        ShowInTaskbar="False">
+        ShowInTaskbar="False" Icon="Assets/UpdateExpress-U.ico">
   <Window.Resources>
     <Style x:Key="DialogActionButton" TargetType="Button">
       <Setter Property="Height" Value="30"/>

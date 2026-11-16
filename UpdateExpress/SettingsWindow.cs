@@ -95,6 +95,7 @@ public sealed class SettingsWindow : Window
         _schedule.Use24HourClock = _clock24.IsChecked == true;
         _schedule.DateFormat = (_dateFormat.SelectedItem as ComboBoxItem)?.Tag as string ?? "text";
         Title = norwegian ? "Update Express – Innstillinger" : "Update Express – Settings";
+        AppIcon.Apply(this);
         _languageCaption.Text = norwegian ? "Språk" : "Language";
         _clockCaption.Text = norwegian ? "Klokke" : "Clock";
         _dateCaption.Text = norwegian ? "Datoformat" : "Date format";

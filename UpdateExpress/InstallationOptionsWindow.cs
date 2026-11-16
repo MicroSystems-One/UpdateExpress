@@ -18,6 +18,7 @@ public sealed class InstallationOptionsWindow : Window
     public InstallationOptionsWindow(bool repair)
     {
         Title = repair ? "Update Express – Repair options" : "Update Express – Installation options";
+        AppIcon.Apply(this);
         Width = 520; Height = 460; MinHeight = 460; ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = Brushes.White;

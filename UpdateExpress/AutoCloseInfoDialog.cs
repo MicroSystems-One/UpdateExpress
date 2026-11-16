@@ -18,6 +18,7 @@ internal sealed class AutoCloseInfoDialog : Window
     public AutoCloseInfoDialog(string message, string title, int autoCloseSeconds = 10)
     {
         Title = title;
+        AppIcon.Apply(this);
         Width = 460;
         SizeToContent = SizeToContent.Height;
         MinHeight = 160;

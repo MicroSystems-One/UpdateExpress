@@ -5,7 +5,7 @@
         Width="420" Height="160" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
         Background="#F3F3F3" FontFamily="Segoe UI Variable Text, Segoe UI"
-        ShowInTaskbar="True" Topmost="True">
+        ShowInTaskbar="True" Topmost="True" Icon="Assets/UpdateExpress-U.ico">
   <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="8" Padding="18">
     <StackPanel>
       <TextBlock Text="Installing Update Express update…" FontSize="15" FontWeight="SemiBold" Foreground="#1C1C1C"/>

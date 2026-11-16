@@ -37,6 +37,7 @@ public sealed class SetupWizardWindow : Window
         _norwegian = MaintenanceSetup.IsNorwegian();
         Owner = owner;
         Title = _norwegian ? "Update Express – Oppsett" : "Update Express – Setup";
+        AppIcon.Apply(this);
         Width = 560;
         Height = 520;
         MinWidth = 480;
@@ -130,6 +131,7 @@ public sealed class SetupWizardWindow : Window
             Foreground = new SolidColorBrush(Color.FromRgb(28, 28, 28)),
             TextWrapping = TextWrapping.Wrap
         };
+        AppIcon.Apply(this);
         header.Children.Add(_title);
         _body = new TextBlock
         {

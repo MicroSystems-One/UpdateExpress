@@ -1,6 +1,6 @@
 {
-  "version": "0.7.2.19",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.19/UpdateExpress_v0.7.2.19.exe",
+  "version": "0.7.2.20",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.20/UpdateExpress_v0.7.2.20.exe",
   "sha256": "5825b24cbd377be158d928afac7f0eea7633ea4bd8a567542deb1a6c6141febf",
   "publishedAt": "2026-11-16T15:01:01Z",
   "releaseNotes": "Win11 Settings restyle, accent blue chrome, tools gear menu, compact monitoring status, www.microsystems.one. Tip d72e97b."

@@ -5,7 +5,7 @@
         Width="560" Height="480" MinWidth="520" MinHeight="420"
         ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
         Background="#F3F3F3" FontFamily="Segoe UI Variable Text, Segoe UI"
-        ShowInTaskbar="False">
+        ShowInTaskbar="False" Icon="Assets/UpdateExpress-U.ico">
   <Window.Resources>
     <!-- Override App.xaml MinHeight=39 / Margin bottom so footer buttons share one row. -->
     <Style x:Key="DialogActionButton" TargetType="Button">

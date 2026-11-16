@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -57,6 +57,7 @@ public sealed class InstallationManagerWindow : Window
     public InstallationManagerWindow(List<InstallationQueueItem> items, string? subtitle = null)
     {
         Title = "Update Express – Installation Manager";
+        AppIcon.Apply(this);
         Width = 760; Height = 530; MinWidth = 590; MinHeight = 400;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(247, 249, 252));

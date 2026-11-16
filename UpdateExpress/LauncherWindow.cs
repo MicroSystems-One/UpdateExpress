@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
@@ -10,6 +10,7 @@ public sealed class LauncherWindow : Window
     public LauncherWindow()
     {
         Title = "Update Express – MicroSystems";
+        AppIcon.Apply(this);
         Width = 460; Height = 370; MinWidth = 440; MinHeight = 350;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = new SolidColorBrush(Color.FromRgb(247, 249, 252));
