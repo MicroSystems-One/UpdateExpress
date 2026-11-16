@@ -1551,7 +1551,12 @@ public partial class MainWindow : Window
     private bool _languageReady;
     private static readonly Dictionary<string, string> Norwegian = new(StringComparer.Ordinal)
     {
-        ["Windows Update Status – Health Check"] = "Windows Update-status – helsesjekk", ["Check for Updates"] = "Søk etter oppdateringer", ["Open Windows Update"] = "Åpne Windows Update", ["Open Windows Update to install"] = "Åpne Windows Update for å installere",
+        ["Windows Update Status – Health Check"] = "Windows Update-status – helsesjekk",
+        ["Help with Windows Update"] = "Hjelp med Windows Update",
+        ["Repair stuck updates, open Windows Settings, or review installation help."] =
+            "Reparer fastlåste oppdateringer, åpne Windows-innstillinger, eller se installasjonshjelp.",
+        ["Open FIX IT!"] = "Åpne FIX IT!",
+        ["Check for Updates"] = "Søk etter oppdateringer", ["Open Windows Update"] = "Åpne Windows Update", ["Open Windows Update to install"] = "Åpne Windows Update for å installere",
         ["Manufacturer"] = "Produsent", ["Model"] = "Modell/nr", ["Product no."] = "Produktnr.", ["Serial no."] = "Serienr.", ["Device name"] = "Enhetsnavn", ["Uptime"] = "Oppetid",
         ["Copy"] = "Kopier",
         ["Install Selected Updates"] = "Installer valgte oppdateringer", ["Installation History"] = "Installasjonshistorikk",

@@ -74,7 +74,7 @@ internal static class InstallationManager
             using var key = Registry.CurrentUser.OpenSubKey(RunKey, false);
             agent = key?.GetValue(RunName) is string;
         }
-        AgentLog.Write($"Launching self-update: package={verifiedPackagePath}; scope={(machine ? "machine" : "user")}; agent={agent}; taskbar={taskbar}");
+        AgentLog.WriteInstall($"Launching self-update: package={verifiedPackagePath}; scope={(machine ? "machine" : "user")}; agent={agent}; taskbar={taskbar}");
         LaunchMaintenance("upgrade", machine, desktop, startMenu, agent, taskbar, verifiedPackagePath);
     }
 
@@ -93,7 +93,7 @@ internal static class InstallationManager
             ? " --silent"
             : "";
         string arguments = $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers ? "machine" : "user")} {(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)} {(taskbar ? 1 : 0)}{silentFlag}";
-        AgentLog.Write($"Launching detached maintenance: {operation} (parent {parentPid})");
+        AgentLog.WriteInstall($"Launching detached maintenance: {operation} (parent {parentPid})");
         using var maintenanceProcess = Process.Start(new ProcessStartInfo(helper, arguments) { UseShellExecute = true, WorkingDirectory = helperDir, Verb = allUsers ? "runas" : "open" })
             ?? throw new InvalidOperationException("Kunne ikke starte vedlikeholdsprosessen.");
         // Release locks before the helper replaces files. Shutdown must run on the WPF UI thread
@@ -120,7 +120,7 @@ internal static class InstallationManager
         }
         catch (Exception ex)
         {
-            AgentLog.Write("Dispatcher shutdown failed; forcing process exit: " + ex.Message);
+            AgentLog.WriteInstall("Dispatcher shutdown failed; forcing process exit: " + ex.Message);
             Environment.Exit(0);
         }
     }
@@ -152,7 +152,10 @@ internal static class InstallationManager
         string iconPath = Path.Combine(targetDir, DesktopIconName);
         if (!File.Exists(source) && operation != "uninstall")
             throw new FileNotFoundException("Fant ikke installasjonsfilen.", source);
-        AgentLog.Write($"Maintenance helper started: {operation}, source={source}");
+        AgentLog.BeginInstallSession(operation,
+            $"source={source}; scope={(machine ? "machine" : "user")}; desktop={desktop}; startMenu={startMenu}; agent={agent}; taskbar={taskbar}; silent={silent}; parentPid={parentPid}");
+        AgentLog.WritePathProbe("Source EXE", source);
+        AgentLog.WritePathProbe("Target EXE (before)", targetExe);
         try
         {
             // Wait for the launcher that started us to close (parentPid 0 = script/RMM, skip wait).
@@ -168,7 +171,7 @@ internal static class InstallationManager
             if (operation == "uninstall")
             {
                 try { DefenderExclusions.RemoveRegistered(targetDir, targetExe, machine, silent); }
-                catch (Exception ex) { AgentLog.Write("Defender exclusions uninstall step failed: " + ex.Message); }
+                catch (Exception ex) { AgentLog.WriteInstall("Defender exclusions uninstall step failed: " + ex.Message); }
                 if (!machine) using (var key = Registry.CurrentUser.OpenSubKey(RunKey, true)) key?.DeleteValue(RunName, false);
                 hive.DeleteSubKeyTree(UninstallKey, false);
                 RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
@@ -177,7 +180,8 @@ internal static class InstallationManager
                 if (File.Exists(targetExe)) RetryFileOperation(() => File.Delete(targetExe), targetExe);
                 if (File.Exists(iconPath)) RetryFileOperation(() => File.Delete(iconPath), iconPath);
                 TryDeleteLegacyVersionedIcons(targetDir);
-                AgentLog.Write("Uninstall completed.");
+                AgentLog.WriteInstall("Uninstall completed.");
+                AgentLog.EndInstallSession(operation, ok: true, summary: "Uninstall finished; history/settings retained.");
                 if (!silent)
                     MessageBox.Show("Update Express er avinstallert. Historikk og innstillinger er beholdt.", "Update Express");
             }
@@ -187,10 +191,15 @@ internal static class InstallationManager
                 // The staged helper must not be copied over itself; source can be an installed or published EXE.
                 // For repair from installed EXE, existing program file is left unchanged.
                 if (!string.Equals(source, targetExe, StringComparison.OrdinalIgnoreCase))
+                {
+                    AgentLog.WriteInstall($"Copy/replace EXE: {source} → {targetExe}");
                     RetryFileOperation(() => File.Copy(source, targetExe, true), targetExe);
+                    AgentLog.WritePathProbe("Target EXE (after copy)", targetExe);
+                }
                 else if (!File.Exists(targetExe))
                     throw new FileNotFoundException("Programfilen mangler. Kjør Installer fra den nye Publisert-mappen.");
                 // Always rewrite the on-disk U .ico so upgrade refreshes desktop/Start/taskbar IconLocation.
+                AgentLog.WriteInstall("Writing installed icon: " + iconPath);
                 RetryFileOperation(() => WriteInstalledIcon(iconPath), iconPath);
                 TryDeleteLegacyVersionedIcons(targetDir);
                 try
@@ -201,7 +210,7 @@ internal static class InstallationManager
                         && !string.Equals(legacyOrange, iconPath, StringComparison.OrdinalIgnoreCase))
                         RetryFileOperation(() => File.Delete(legacyOrange), legacyOrange);
                 }
-                catch (Exception ex) { AgentLog.Write("Legacy UpdateExpress.ico cleanup: " + ex.Message); }
+                catch (Exception ex) { AgentLog.WriteInstall("Legacy UpdateExpress.ico cleanup: " + ex.Message); }
                 // Always strip duplicate/orphan Update Express shortcuts first so upgrades leave one icon
                 // with the current install path and U icon.
                 if (startMenu)
@@ -226,7 +235,7 @@ internal static class InstallationManager
                     Directory.CreateDirectory(taskbarDir);
                     RemoveAppShortcuts(EnumerateTaskbarFolders(), keepPath: taskbarShortcut);
                     CreateShortcut(taskbarShortcut, targetExe, "--installed", targetDir, iconPath);
-                    AgentLog.Write(taskbar
+                    AgentLog.WriteInstall(taskbar
                         ? "Taskbar pin created/updated: " + taskbarShortcut
                         : "Existing taskbar pin refreshed: " + taskbarShortcut);
                 }
@@ -247,13 +256,27 @@ internal static class InstallationManager
                     else key.DeleteValue(RunName, false);
                 }
                 try { DefenderExclusions.EnsureRegistered(targetDir, targetExe, machine, silent); }
-                catch (Exception ex) { AgentLog.Write("Defender exclusions register step failed: " + ex.Message); }
-                if (agent) Process.Start(new ProcessStartInfo(targetExe, "--agent")
+                catch (Exception ex) { AgentLog.WriteInstall("Defender exclusions register step failed: " + ex.Message); }
+                if (agent)
+                {
+                    AgentLog.WriteInstall("Starting background agent: " + targetExe);
+                    Process.Start(new ProcessStartInfo(targetExe, "--agent")
                     { UseShellExecute = true, WorkingDirectory = targetDir });
+                }
                 if (operation == "upgrade" && !silent)
+                {
+                    AgentLog.WriteInstall("Starting UI after upgrade: " + targetExe);
                     Process.Start(new ProcessStartInfo(targetExe, "--installed")
                     { UseShellExecute = true, WorkingDirectory = targetDir });
-                AgentLog.Write($"{operation} completed: scope={(machine ? "machine" : "user")}, agent={agent}, silent={silent}, version={displayVersion}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
+                }
+                AgentLog.WriteInstall($"{operation} completed: scope={(machine ? "machine" : "user")}, agent={agent}, silent={silent}, version={displayVersion}, path={targetDir}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
+                AgentLog.PostInstallPresenceCheck(
+                    targetExe,
+                    desktop ? desktopShortcut : null,
+                    startMenu ? menuShortcut : null,
+                    (taskbar || File.Exists(taskbarShortcut)) ? taskbarShortcut : null);
+                AgentLog.EndInstallSession(operation, ok: true,
+                    summary: $"Final path={targetDir}; version={displayVersion}; Logs={AgentLog.LogsDir}");
                 string completedAction = operation == "repair" ? "repaired" : operation == "upgrade" ? "updated" : "installed";
                 string scopeText = machine ? "all users" : "the current user";
                 if (!silent)
@@ -271,12 +294,14 @@ internal static class InstallationManager
         }
         catch (Exception ex)
         {
-            AgentLog.Write("Maintenance FAILED: " + ex);
+            AgentLog.WriteInstall("Maintenance FAILED: " + ex);
+            AgentLog.EndInstallSession(operation, ok: false, summary: ex.Message);
             bool silentFail = args.Any(a => string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase))
                 || string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase);
             if (!silentFail)
             {
-                MessageBox.Show("Vedlikehold mislyktes:\n\n" + FormatMaintenanceError(ex) + "\n\nSe agent.log for detaljer.",
+                MessageBox.Show("Vedlikehold mislyktes:\n\n" + FormatMaintenanceError(ex)
+                    + "\n\nSe Logs\\install-update.log (og agent.log) for detaljer.",
                     "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             else
@@ -346,7 +371,7 @@ internal static class InstallationManager
         string full = Path.GetFullPath(directory);
         if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
         try { if (Directory.Exists(full)) Directory.Delete(full, true); }
-        catch (Exception ex) { AgentLog.Write("Could not delete staged update package folder: " + ex.Message); }
+        catch (Exception ex) { AgentLog.WriteInstall("Could not delete staged update package folder: " + ex.Message); }
     }
 
     private static void StopInstalledProcesses(string targetExe)
@@ -370,7 +395,7 @@ internal static class InstallationManager
                         proc.CloseMainWindow();
                         if (proc.WaitForExit(8000))
                         {
-                            AgentLog.Write("Closed Update Express UI PID " + proc.Id + " for upgrade.");
+                            AgentLog.WriteInstall("Closed Update Express UI PID " + proc.Id + " for upgrade.");
                             continue;
                         }
                     }
@@ -378,7 +403,7 @@ internal static class InstallationManager
                     proc.Kill(entireProcessTree: true);
                     if (!proc.WaitForExit(10000))
                         throw new IOException("Update Express could not be stopped for upgrade.");
-                    AgentLog.Write("Stopped Update Express process PID " + proc.Id + " for upgrade.");
+                    AgentLog.WriteInstall("Stopped Update Express process PID " + proc.Id + " for upgrade.");
                 }
                 catch (System.ComponentModel.Win32Exception ex)
                 {
@@ -410,7 +435,7 @@ internal static class InstallationManager
                         throw new IOException("Lukk det installerte Update Express-vinduet før oppgradering eller avinstallasjon.");
                     proc.Kill(entireProcessTree: true);
                     if (!proc.WaitForExit(10000)) throw new IOException("Bakgrunnsagenten kunne ikke avsluttes.");
-                    AgentLog.Write("Stopped installed agent PID " + proc.Id);
+                    AgentLog.WriteInstall("Stopped installed agent PID " + proc.Id);
                 }
                 catch (System.ComponentModel.Win32Exception ex)
                 {
@@ -465,10 +490,10 @@ internal static class InstallationManager
             foreach (var file in Directory.EnumerateFiles(targetDir, "UpdateExpress-U-v*.ico"))
             {
                 try { File.Delete(file); }
-                catch (Exception ex) { AgentLog.Write("Could not delete legacy icon " + file + ": " + ex.Message); }
+                catch (Exception ex) { AgentLog.WriteInstall("Could not delete legacy icon " + file + ": " + ex.Message); }
             }
         }
-        catch (Exception ex) { AgentLog.Write("Legacy icon cleanup skipped: " + ex.Message); }
+        catch (Exception ex) { AgentLog.WriteInstall("Legacy icon cleanup skipped: " + ex.Message); }
     }
 
     private static IEnumerable<string> EnumerateDesktopFolders()
@@ -570,11 +595,11 @@ internal static class InstallationManager
                 if (keepFull is not null && string.Equals(full, keepFull, StringComparison.OrdinalIgnoreCase))
                     continue;
                 File.Delete(full);
-                AgentLog.Write("Removed duplicate/orphan shortcut: " + full);
+                AgentLog.WriteInstall("Removed duplicate/orphan shortcut: " + full);
             }
             catch (Exception ex)
             {
-                AgentLog.Write("Could not remove shortcut " + path + ": " + ex.Message);
+                AgentLog.WriteInstall("Could not remove shortcut " + path + ": " + ex.Message);
             }
         }
     }
@@ -589,7 +614,7 @@ internal static class InstallationManager
             if (File.Exists(shortcutPath))
             {
                 try { File.Delete(shortcutPath); }
-                catch (Exception ex) { AgentLog.Write("Could not replace existing shortcut before recreate: " + ex.Message); }
+                catch (Exception ex) { AgentLog.WriteInstall("Could not replace existing shortcut before recreate: " + ex.Message); }
             }
             dynamic shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { shortcutPath })!;
             shortcut.TargetPath = target;
@@ -600,7 +625,7 @@ internal static class InstallationManager
             shortcut.IconLocation = iconLocation;
             shortcut.Description = "Update Express fra MicroSystems";
             shortcut.Save();
-            AgentLog.Write($"Shortcut written: {shortcutPath} → {target} (icon={iconLocation})");
+            AgentLog.WriteInstall($"Shortcut written: {shortcutPath} → {target} (icon={iconLocation})");
             NotifyShellAssociationsChanged();
         }
         finally { if (System.Runtime.InteropServices.Marshal.IsComObject(shell)) System.Runtime.InteropServices.Marshal.ReleaseComObject(shell); }
@@ -618,6 +643,6 @@ internal static class InstallationManager
             const uint SHCNF_IDLIST = 0x0000;
             SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
         }
-        catch (Exception ex) { AgentLog.Write("SHChangeNotify skipped: " + ex.Message); }
+        catch (Exception ex) { AgentLog.WriteInstall("SHChangeNotify skipped: " + ex.Message); }
     }
 }

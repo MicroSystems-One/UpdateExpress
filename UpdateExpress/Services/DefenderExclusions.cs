@@ -116,7 +116,7 @@ internal static class DefenderExclusions
         {
             if (!TryElevateAndApply(manifest, remove, silent))
             {
-                AgentLog.Write(remove
+                AgentLog.WriteInstall(remove
                     ? "Defender exclusions: skipped removal (not elevated / UAC cancelled)."
                     : "Defender exclusions: skipped registration (not elevated / UAC cancelled). Install continues; add exclusions manually if needed.");
             }
@@ -141,7 +141,7 @@ internal static class DefenderExclusions
         }
         if (!ElevationHelper.IsElevated)
         {
-            AgentLog.Write("Defender exclusions helper started without elevation; exiting.");
+            AgentLog.WriteInstall("Defender exclusions helper started without elevation; exiting.");
             Environment.ExitCode = 2;
             return;
         }
@@ -168,21 +168,21 @@ internal static class DefenderExclusions
             // Bound wait so silent RMM installs do not hang forever on a stuck UAC prompt.
             if (!process.WaitForExit(silent ? 120_000 : 300_000))
             {
-                AgentLog.Write("Defender exclusions: elevated helper timed out.");
+                AgentLog.WriteInstall("Defender exclusions: elevated helper timed out.");
                 try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
                 return false;
             }
-            AgentLog.Write($"Defender exclusions: elevated helper exit={process.ExitCode} remove={remove}");
+            AgentLog.WriteInstall($"Defender exclusions: elevated helper exit={process.ExitCode} remove={remove}");
             return process.ExitCode == 0;
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
-            AgentLog.Write("Defender exclusions: UAC cancelled.");
+            AgentLog.WriteInstall("Defender exclusions: UAC cancelled.");
             return false;
         }
         catch (Exception ex)
         {
-            AgentLog.Write("Defender exclusions: elevate failed: " + ex.Message);
+            AgentLog.WriteInstall("Defender exclusions: elevate failed: " + ex.Message);
             return false;
         }
     }
@@ -227,17 +227,17 @@ internal static class DefenderExclusions
             string stderr = p.StandardError.ReadToEnd();
             p.WaitForExit(120_000);
             foreach (var line in (stdout + "\n" + stderr).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-                AgentLog.Write("Defender exclusions: " + line);
+                AgentLog.WriteInstall("Defender exclusions: " + line);
             if (p.ExitCode != 0)
-                AgentLog.Write($"Defender exclusions: PowerShell exit={p.ExitCode} (install continues).");
+                AgentLog.WriteInstall($"Defender exclusions: PowerShell exit={p.ExitCode} (install continues).");
             else
-                AgentLog.Write(remove
+                AgentLog.WriteInstall(remove
                     ? $"Defender exclusions removed ({manifest.Paths.Count} paths, {manifest.Processes.Count} processes)."
                     : $"Defender exclusions ensured ({manifest.Paths.Count} paths, {manifest.Processes.Count} processes).");
         }
         catch (Exception ex)
         {
-            AgentLog.Write("Defender exclusions: PowerShell failed: " + ex.Message);
+            AgentLog.WriteInstall("Defender exclusions: PowerShell failed: " + ex.Message);
         }
     }
 
@@ -254,7 +254,7 @@ internal static class DefenderExclusions
         }
         catch (Exception ex)
         {
-            AgentLog.Write("Defender exclusions: could not write manifest: " + ex.Message);
+            AgentLog.WriteInstall("Defender exclusions: could not write manifest: " + ex.Message);
         }
     }
 
@@ -267,7 +267,7 @@ internal static class DefenderExclusions
         }
         catch (Exception ex)
         {
-            AgentLog.Write("Defender exclusions: could not read manifest: " + ex.Message);
+            AgentLog.WriteInstall("Defender exclusions: could not read manifest: " + ex.Message);
             return null;
         }
     }
@@ -275,6 +275,6 @@ internal static class DefenderExclusions
     private static void TryDeleteManifest()
     {
         try { if (File.Exists(ManifestPath)) File.Delete(ManifestPath); }
-        catch (Exception ex) { AgentLog.Write("Defender exclusions: could not delete manifest: " + ex.Message); }
+        catch (Exception ex) { AgentLog.WriteInstall("Defender exclusions: could not delete manifest: " + ex.Message); }
     }
 }

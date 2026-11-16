@@ -10,6 +10,11 @@ public sealed class ReminderSchedule
     public string Language { get; set; } = "en";
     /// <summary>text (ddd dd MMM yyyy), dmy (dd.MM.yyyy), iso (yyyy-MM-dd), or mdy (MM/dd/yyyy).</summary>
     public string DateFormat { get; set; } = "text";
+    /// <summary>
+    /// When true, also mirror general agent activity into Logs\verbose.log.
+    /// Install/upgrade/Defender steps always write to Logs\install-update.log regardless.
+    /// </summary>
+    public bool VerboseInstallLogging { get; set; }
     public bool Enabled { get; set; }
     // Monday = 0, Sunday = 6, Every day = 7
     public int Weekday { get; set; } = 2;
