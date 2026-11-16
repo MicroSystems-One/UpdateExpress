@@ -456,13 +456,17 @@
     <TextBlock x:Name="InstallProgressLabel" Text="Preparing installation…" FontSize="12" Foreground="#5D5D5D" Margin="0,0,0,3"/>
     <ProgressBar x:Name="InstallProgressBar" Height="7" IsIndeterminate="True" Foreground="#0067C0"/>
    </StackPanel>
-   <!-- Win11-style help accordion: CLICK IT icon (not globe+magnifier). -->
+   <!-- Help accordion: blue U + red wrench (~text height) + heading. -->
    <Border Background="#FFFFFF" BorderBrush="#E5E5E5" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,8,0,0">
     <Expander x:Name="WindowsHelpExpander" Style="{StaticResource SectionExpander}" IsExpanded="False">
      <Expander.Header>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
        <Image Source="Assets/UpdateExpress-U.png" Width="24" Height="24" Stretch="Uniform" Margin="0,0,10,0"
               RenderOptions.BitmapScalingMode="HighQuality"/>
+       <!-- Segoe MDL2 wrench (E90F), ~same height as 15px heading. -->
+       <TextBlock Text="&#xE90F;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="#C62828"
+                  VerticalAlignment="Center" Margin="0,0,8,0"
+                  ToolTip="Repair and diagnose Windows Update problems"/>
        <TextBlock x:Name="WindowsHelpHeading" Text="Fix your Windows update issues here...." FontSize="15" FontWeight="Medium"
                   Foreground="#1C1C1C" VerticalAlignment="Center"/>
       </StackPanel>
