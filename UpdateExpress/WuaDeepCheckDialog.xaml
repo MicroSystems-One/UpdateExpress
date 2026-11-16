@@ -56,7 +56,7 @@
                  Text="Read-only analysis of Windows Update Agent health: network/DNS/TCP to Microsoft endpoints, local services, proxy, policy, reboot pending, and a light WUA search. Use when Quick/Medium/Deep fix did not help."/>
       <StackPanel Grid.Row="2" Margin="0,0,0,8">
         <TextBlock x:Name="ProgressLabel" Text="Ready." FontSize="12" Foreground="#52617A" Margin="0,0,0,4"/>
-        <ProgressBar x:Name="ProgressBar" Height="7" IsIndeterminate="False" Value="0" Foreground="#F47700"/>
+        <ProgressBar x:Name="ProgressBar" Height="7" IsIndeterminate="False" Value="0" Foreground="#0067C0"/>
       </StackPanel>
       <TextBox x:Name="ReportBox" Grid.Row="3" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
                VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
@@ -65,7 +65,7 @@
                Text="Confirm to start. A copyable AI prompt is generated when the check finishes."/>
       <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Height="30" Margin="0,14,0,0">
         <Button x:Name="StartButton" Content="Start check" Style="{StaticResource DialogActionButton}"
-                Background="#F47700" Foreground="White" BorderBrush="#F47700" FontWeight="SemiBold"
+                Background="#0067C0" Foreground="White" BorderBrush="#0067C0" FontWeight="SemiBold"
                 Click="Start_Click"/>
         <Button x:Name="CopyButton" Content="Copy AI prompt" Style="{StaticResource DialogActionButton}"
                 IsEnabled="False" Click="Copy_Click"/>

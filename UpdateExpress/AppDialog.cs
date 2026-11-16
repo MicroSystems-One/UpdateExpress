@@ -181,9 +181,9 @@ internal sealed class AppDialog : Window
             Padding = new Thickness(16, 6, 16, 6),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
-            Background = primary ? Hex("#FF7900") : Hex("#EAF0F7"),
+            Background = primary ? Hex("#0067C0") : Hex("#EAF0F7"),
             Foreground = primary ? Brushes.White : Hex("#152137"),
-            BorderBrush = primary ? Hex("#F06A00") : Hex("#DDE5EF"),
+            BorderBrush = primary ? Hex("#0055A8") : Hex("#DDE5EF"),
             BorderThickness = new Thickness(1),
             IsDefault = isDefault,
             IsCancel = isCancel,
@@ -279,7 +279,7 @@ internal sealed class AppDialog : Window
             MessageBoxImage.Warning or MessageBoxImage.Exclamation => ("#F59E0B", "!"),
             MessageBoxImage.Error or MessageBoxImage.Hand or MessageBoxImage.Stop => ("#C62828", "!"),
             MessageBoxImage.Question => ("#1B4F86", "?"),
-            _ => ("#FF7900", "i")
+            _ => ("#0067C0", "i")
         };
 
         return new Grid

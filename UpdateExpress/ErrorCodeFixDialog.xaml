@@ -72,7 +72,7 @@
       </TextBlock>
       <WrapPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
         <Button x:Name="ReinstallButton" Content="Install again" Style="{StaticResource DialogActionButton}"
-                Background="#F47700" Foreground="White" BorderBrush="#F47700" FontWeight="SemiBold"
+                Background="#0067C0" Foreground="White" BorderBrush="#0067C0" FontWeight="SemiBold"
                 Click="Reinstall_Click" Visibility="Collapsed"/>
         <Button x:Name="HideButton" Content="Hide" Style="{StaticResource DialogActionButton}"
                 Click="Hide_Click"/>

@@ -60,7 +60,7 @@
                  Text="Save your work before installing. A restart may be required afterwards. Optional auto-reboot (if enabled in policy) asks for confirmation or waits until outside active hours."/>
       <StackPanel x:Name="ProgressPanel" Grid.Row="4" Visibility="Collapsed" Margin="0,0,0,10">
         <TextBlock x:Name="ProgressLabel" Text="Preparing…" FontSize="12" Foreground="#52617A" Margin="0,0,0,4"/>
-        <ProgressBar x:Name="ProgressBar" Height="7" IsIndeterminate="True" Foreground="#F47700"/>
+        <ProgressBar x:Name="ProgressBar" Height="7" IsIndeterminate="True" Foreground="#0067C0"/>
       </StackPanel>
       <StackPanel x:Name="ActionsPanel" Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Height="27">
         <Button Content="Install now" Style="{StaticResource DialogActionButton}" Click="InstallNow_Click"/>

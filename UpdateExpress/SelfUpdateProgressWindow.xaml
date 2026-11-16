@@ -11,7 +11,7 @@
       <TextBlock Text="Installing Update Express update…" FontSize="15" FontWeight="SemiBold" Foreground="#152137"/>
       <TextBlock x:Name="StageText" Margin="0,10,0,10" TextWrapping="Wrap" Foreground="#52617A"
                  Text="Preparing…"/>
-      <ProgressBar Height="8" IsIndeterminate="True" Foreground="#F47700"/>
+      <ProgressBar Height="8" IsIndeterminate="True" Foreground="#0067C0"/>
       <TextBlock Margin="0,10,0,0" FontSize="11" Foreground="#7A8699"
                  Text="Do not close this window. The app will restart when the package is verified."/>
     </StackPanel>
