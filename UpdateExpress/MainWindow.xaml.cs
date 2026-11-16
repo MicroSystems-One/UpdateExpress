@@ -1837,6 +1837,8 @@ public partial class MainWindow : Window
             _lastSuccessfulScan = DateTime.Now;
             // Keep the user's current results tab (All is the startup default).
             SetTab(_activeTab);
+            if (windows.Count >= 1 && ResultsExpander is { IsExpanded: false })
+                ResultsExpander.IsExpanded = true;
             int driverCount = windows.Count(e => e.Category == "Driver / firmware");
             try
             {
