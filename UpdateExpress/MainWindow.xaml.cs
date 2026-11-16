@@ -1837,8 +1837,7 @@ public partial class MainWindow : Window
             _lastSuccessfulScan = DateTime.Now;
             // Keep the user's current results tab (All is the startup default).
             SetTab(_activeTab);
-            if (windows.Count >= 1 && ResultsExpander is { IsExpanded: false })
-                ResultsExpander.IsExpanded = true;
+            SyncResultsExpandedForPending(windows.Count);
             int driverCount = windows.Count(e => e.Category == "Driver / firmware");
             try
             {
@@ -2608,6 +2607,13 @@ public partial class MainWindow : Window
     private static void LogStatic(string source, string status, object detail)
     {
         try { ActivityLog.TryWrite(source, status, detail); } catch { /* ignore */ }
+    }
+
+    /// <summary>Collapsed when 0 pending; expand when ≥1 so scan results are visible.</summary>
+    private void SyncResultsExpandedForPending(int pendingCount)
+    {
+        if (ResultsExpander is null) return;
+        ResultsExpander.IsExpanded = pendingCount >= 1;
     }
 
     private void ResultsExpander_Expanded(object sender, RoutedEventArgs e)
