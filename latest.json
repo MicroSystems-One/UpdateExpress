@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.20",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.20/UpdateExpress_v0.7.2.20.exe",
-  "sha256": "4967e5599c4713895b1e3008e0708b8147acc2704a94a30b1fa893fcc0f35a2a",
-  "publishedAt": "2026-11-16T15:25:36Z",
-  "releaseNotes": "U-on-blue app icon, Defender exclusions, header icon cleanup. Tip 941e948."
+  "version": "0.7.2.26",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.26/UpdateExpress_v0.7.2.26.exe",
+  "sha256": "1977d6c968c309fd4c698c560401b3ca7e1825d8d4492c48d1b5eceaa7700a03",
+  "publishedAt": "2026-11-16T17:31:19Z",
+  "releaseNotes": "Align chevrons; Results gap/Check 32/header swap. Tip 2c7e801."
 }
