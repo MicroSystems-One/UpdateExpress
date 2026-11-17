@@ -5,7 +5,7 @@
   reboot outside active hours) and local N-able PME service disabled.
 
 .NOTES
-  - Requires Update Express v0.7.2.27+ (silent defer shortcuts/tray; QuietUninstallString;
+  - Requires Update Express v0.7.2.28+ (silent defer shortcuts/tray; QuietUninstallString;
     Defender helper timeout; staged EXE replace).
   - Stopping PME.Agent.PmeService is LOCAL only. Also disable Windows patching for
     the device in the N-able console / patch profile, or RMM may re-enable PME.
@@ -13,17 +13,17 @@
   - Self-elevates when not already admin; otherwise prints a clear message and exits 2.
 
 .EXAMPLE
-  .\Install-UpdateExpress-Nable.ps1 -Version 0.7.2.27
+  .\Install-UpdateExpress-Nable.ps1 -Version 0.7.2.28
 
 .EXAMPLE
-  .\Install-UpdateExpress-Nable.ps1 -ExePath 'C:\Temp\UpdateExpress_v0.7.2.27.exe' -Scope machine
+  .\Install-UpdateExpress-Nable.ps1 -ExePath 'C:\Temp\UpdateExpress_v0.7.2.28.exe' -Scope machine
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('user', 'machine')]
     [string]$Scope = 'user',
 
-    [string]$Version = '0.7.2.27',
+    [string]$Version = '0.7.2.28',
 
     [string]$ExePath,
 

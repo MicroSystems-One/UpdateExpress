@@ -152,6 +152,39 @@ internal static class MaintenanceSetup
         }
     }
 
+    /// <summary>
+    /// Persist Installation options (profile / hours / install window / reboot) and mark setup complete
+    /// so the post-install Setup wizard is not shown again.
+    /// </summary>
+    internal static void ApplyInstallDialogChoices(
+        string profile,
+        int activeStart,
+        int activeEnd,
+        int daysMask,
+        string installTime,
+        string rebootChoice,
+        bool mirrorMachine = false)
+    {
+        var policy = UpdatePolicy.Load();
+        policy.Normalize();
+        ApplyProfileDefaults(policy, profile);
+        policy.WindowsAutomation.AutoReboot.ActiveHoursStart = Math.Clamp(activeStart, 0, 23);
+        policy.WindowsAutomation.AutoReboot.ActiveHoursEnd = Math.Clamp(activeEnd, 0, 23);
+        ApplyToPolicy(policy, daysMask, installTime);
+        policy.WindowsAutomation.AutoReboot.Enabled = !string.Equals(rebootChoice, "off", StringComparison.OrdinalIgnoreCase);
+        policy.WindowsAutomation.AutoReboot.Mode =
+            string.Equals(rebootChoice, "outsideActiveHours", StringComparison.OrdinalIgnoreCase)
+                ? "outsideActiveHours"
+                : "confirm";
+        policy.WindowsAutomation.NeverAutoReboot = !policy.WindowsAutomation.AutoReboot.Enabled;
+        policy.SetupProfile = (profile ?? "private").Trim().ToLowerInvariant();
+        policy.SetupCompleted = true;
+        policy.Save();
+        if (mirrorMachine)
+            policy.SaveMachineMirror();
+        SyncReminderFromPolicy(policy);
+    }
+
     internal static string EveningNoticeTitle(bool norwegian) =>
         norwegian ? "Oppdateringer planlagt i kveld" : "Updates scheduled for this evening";
 

@@ -36,9 +36,40 @@ internal static class InstallationManager
     {
         var dialog = new InstallationOptionsWindow(repair);
         if (dialog.ShowDialog() != true) return;
-        if (repair && IsInstalled && dialog.AllUsers != (RunningMachineCopy || (!File.Exists(UserExe) && File.Exists(MachineExe))))
+        bool allUsers = dialog.AllUsers || dialog.InstallWindowsService;
+        if (repair && IsInstalled && allUsers != (RunningMachineCopy || (!File.Exists(UserExe) && File.Exists(MachineExe))))
             throw new InvalidOperationException("Repair must use the existing installation scope. Use Install to change scope.");
-        LaunchMaintenance(repair ? "repair" : "install", dialog.AllUsers, dialog.DesktopShortcut, dialog.StartMenuShortcut, dialog.BackgroundAgent, dialog.TaskbarPin);
+
+        // Persist profile/hours/install window now so SetupCompleted is set before first UI launch
+        // (avoids a second Setup wizard that re-asks the same choices).
+        try
+        {
+            MaintenanceSetup.ApplyInstallDialogChoices(
+                dialog.SetupProfile,
+                dialog.ActiveHoursStart,
+                dialog.ActiveHoursEnd,
+                dialog.InstallDaysMask,
+                dialog.InstallTime,
+                dialog.RebootChoice,
+                mirrorMachine: allUsers || dialog.InstallWindowsService);
+            AgentLog.WriteInstall(
+                $"Install options saved: profile={dialog.SetupProfile}; hours={dialog.ActiveHoursStart}-{dialog.ActiveHoursEnd}; " +
+                $"days={dialog.InstallDaysMask}; time={dialog.InstallTime}; reboot={dialog.RebootChoice}; service={dialog.InstallWindowsService}; SetupCompleted=true");
+        }
+        catch (Exception ex)
+        {
+            AgentLog.WriteInstall("Could not persist install-dialog setup choices: " + ex.Message);
+            throw;
+        }
+
+        LaunchMaintenance(
+            repair ? "repair" : "install",
+            allUsers,
+            dialog.DesktopShortcut,
+            dialog.StartMenuShortcut,
+            dialog.BackgroundAgent,
+            dialog.TaskbarPin,
+            windowsService: dialog.InstallWindowsService);
     }
 
     internal static void Uninstall(bool silent = false)
@@ -49,7 +80,10 @@ internal static class InstallationManager
             return;
         if (silent)
             Environment.SetEnvironmentVariable("UE_SILENT", "1");
-        LaunchMaintenance("uninstall", RunningMachineCopy || (!File.Exists(UserExe) && File.Exists(MachineExe)), false, false, false);
+        // Quiet uninstall always elevates when a machine copy or Windows service may be present.
+        bool machine = RunningMachineCopy || (!File.Exists(UserExe) && File.Exists(MachineExe))
+            || PmeServiceControl.ReadState(WindowsServiceHost.ServiceName).Exists;
+        LaunchMaintenance("uninstall", machine, false, false, false, windowsService: false);
     }
 
     /// <summary>
@@ -79,10 +113,19 @@ internal static class InstallationManager
             agent = key?.GetValue(RunName) is string;
         }
         AgentLog.WriteInstall($"Launching self-update: package={verifiedPackagePath}; scope={(machine ? "machine" : "user")}; agent={agent}; taskbar={taskbar}");
-        LaunchMaintenance("upgrade", machine, desktop, startMenu, agent, taskbar, verifiedPackagePath);
+        bool hadService = PmeServiceControl.ReadState(WindowsServiceHost.ServiceName).Exists;
+        LaunchMaintenance("upgrade", machine, desktop, startMenu, agent, taskbar, windowsService: hadService, packageSource: verifiedPackagePath);
     }
 
-    private static void LaunchMaintenance(string operation, bool allUsers, bool desktop, bool startMenu, bool agent, bool taskbar = false, string? packageSource = null)
+    private static void LaunchMaintenance(
+        string operation,
+        bool allUsers,
+        bool desktop,
+        bool startMenu,
+        bool agent,
+        bool taskbar = false,
+        bool windowsService = false,
+        string? packageSource = null)
     {
         string running = Environment.ProcessPath ?? throw new InvalidOperationException("Fant ikke programfilen.");
         string source = packageSource ?? running;
@@ -96,10 +139,20 @@ internal static class InstallationManager
         string silentFlag = string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase)
             ? " --silent"
             : "";
-        string arguments = $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers ? "machine" : "user")} {(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)} {(taskbar ? 1 : 0)}{silentFlag}";
-        AgentLog.WriteInstall($"Launching detached maintenance: {operation} (parent {parentPid})");
-        using var maintenanceProcess = Process.Start(new ProcessStartInfo(helper, arguments) { UseShellExecute = true, WorkingDirectory = helperDir, Verb = allUsers ? "runas" : "open" })
-            ?? throw new InvalidOperationException("Kunne ikke starte vedlikeholdsprosessen.");
+        string serviceFlag = windowsService ? " --windows-service" : "";
+        // Service install always elevates (machine scope).
+        bool elevate = allUsers || windowsService || string.Equals(operation, "uninstall", StringComparison.OrdinalIgnoreCase)
+            && PmeServiceControl.ReadState(WindowsServiceHost.ServiceName).Exists;
+        string arguments =
+            $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers || windowsService ? "machine" : "user")} " +
+            $"{(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)} {(taskbar ? 1 : 0)}{serviceFlag}{silentFlag}";
+        AgentLog.WriteInstall($"Launching detached maintenance: {operation} (parent {parentPid}; service={windowsService}; elevate={elevate})");
+        using var maintenanceProcess = Process.Start(new ProcessStartInfo(helper, arguments)
+        {
+            UseShellExecute = true,
+            WorkingDirectory = helperDir,
+            Verb = elevate ? "runas" : "open"
+        }) ?? throw new InvalidOperationException("Kunne ikke starte vedlikeholdsprosessen.");
         // Release locks before the helper replaces files. Shutdown must run on the WPF UI thread
         // (tray self-update downloads on a background thread).
         ShutdownCurrentApplication();
@@ -131,25 +184,32 @@ internal static class InstallationManager
 
     internal static void ApplyMaintenance(string[] args)
     {
-        // Arguments: --apply-maintenance <op> <parentPID> <sourceEXE> <scope> <desktop> <startMenu> <agent> [taskbar] [--silent]
+        // Arguments: --apply-maintenance <op> <parentPID> <sourceEXE> <scope> <desktop> <startMenu> <agent> [taskbar]
+        //            [--windows-service] [--silent]
         bool silent = args.Any(a =>
                 string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(a, "--quiet", StringComparison.OrdinalIgnoreCase))
             || string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase);
+        bool windowsService = args.Any(a =>
+            string.Equals(a, "--windows-service", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(a, "--service-install", StringComparison.OrdinalIgnoreCase));
         string[] positional = args
             .Where(a => !string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase)
-                        && !string.Equals(a, "--quiet", StringComparison.OrdinalIgnoreCase))
+                        && !string.Equals(a, "--quiet", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(a, "--windows-service", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(a, "--service-install", StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if ((positional.Length != 8 && positional.Length != 9) || !new[] { "install", "repair", "uninstall", "upgrade" }.Contains(positional[1], StringComparer.OrdinalIgnoreCase)
             || !int.TryParse(positional[2], out int parentPid))
             throw new ArgumentException("Ugyldige parametere for vedlikehold.");
         string operation = positional[1].ToLowerInvariant();
         string source = Path.GetFullPath(positional[3]);
-        bool machine = positional[4] == "machine";
+        bool machine = positional[4] == "machine" || windowsService;
         bool desktop = positional[5] == "1", startMenu = positional[6] == "1", agent = positional[7] == "1";
         bool taskbar = positional.Length >= 9 && positional[8] == "1";
-        // Machine-wide auto-start needs a separate per-user registration flow; not supported in this preview.
-        if (machine) agent = false;
+        // Machine-wide Run key is not used; keep per-user agent when Windows service is installed
+        // so prompts can still surface in the interactive session.
+        if (machine && !windowsService) agent = false;
         string targetDir = machine ? MachineInstallDir : UserInstallDir;
         string targetExe = Path.Combine(targetDir, "UpdateExpress.exe");
         string menuDir = machine ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems") : StartMenuDir;
@@ -162,7 +222,7 @@ internal static class InstallationManager
         if (!File.Exists(source) && operation != "uninstall")
             throw new FileNotFoundException("Fant ikke installasjonsfilen.", source);
         AgentLog.BeginInstallSession(operation,
-            $"source={source}; scope={(machine ? "machine" : "user")}; desktop={desktop}; startMenu={startMenu}; agent={agent}; taskbar={taskbar}; silent={silent}; parentPid={parentPid}");
+            $"source={source}; scope={(machine ? "machine" : "user")}; desktop={desktop}; startMenu={startMenu}; agent={agent}; taskbar={taskbar}; windowsService={windowsService}; silent={silent}; parentPid={parentPid}");
         AgentLog.WritePathProbe("Source EXE", source);
         AgentLog.WritePathProbe("Target EXE (before)", targetExe);
         try
@@ -176,12 +236,26 @@ internal static class InstallationManager
             // Always stop every installed UpdateExpress process before replace/uninstall.
             // Starting shortcuts/tray mid-install previously locked the EXE and hung RMM scripts.
             if (operation is "upgrade" or "uninstall" or "install" or "repair")
+            {
+                bool servicePresent = PmeServiceControl.ReadState(WindowsServiceHost.ServiceName).Exists;
+                if (operation == "uninstall" || windowsService || servicePresent)
+                {
+                    try { WindowsServiceInstaller.StopAndDelete(); }
+                    catch (Exception ex) { AgentLog.WriteInstall("Windows service stop/delete before replace: " + ex.Message); }
+                    // Re-create after files land when this install asked for a service, or when upgrading a prior service install.
+                    if (operation != "uninstall" && (windowsService || servicePresent))
+                        windowsService = true;
+                }
                 StopInstalledProcesses(targetExe);
+            }
             if (operation == "uninstall")
             {
+                try { WindowsServiceInstaller.StopAndDelete(); }
+                catch (Exception ex) { AgentLog.WriteInstall("Windows service uninstall step failed: " + ex.Message); }
                 try { DefenderExclusions.RemoveRegistered(targetDir, targetExe, machine, silent); }
                 catch (Exception ex) { AgentLog.WriteInstall("Defender exclusions uninstall step failed: " + ex.Message); }
-                if (!machine) using (var key = Registry.CurrentUser.OpenSubKey(RunKey, true)) key?.DeleteValue(RunName, false);
+                // Clear Run key for the installing user even on machine uninstall (prompt agent).
+                try { using var key = Registry.CurrentUser.OpenSubKey(RunKey, true); key?.DeleteValue(RunName, false); } catch { /* ignore */ }
                 hive.DeleteSubKeyTree(UninstallKey, false);
                 // Also clear the other hive in case a prior scope mismatch left an Apps entry behind.
                 try { Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false); } catch { /* ignore */ }
@@ -242,14 +316,36 @@ internal static class InstallationManager
                     key.SetValue("NoModify", 1, RegistryValueKind.DWord);
                     key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
                 }
-                if (!machine) using (var key = Registry.CurrentUser.CreateSubKey(RunKey))
+                // Per-user Run key for prompt agent (also when machine service is installed).
+                using (var key = Registry.CurrentUser.CreateSubKey(RunKey))
                 {
-                    if (agent) key.SetValue(RunName, $"\"{targetExe}\" --agent");
-                    else key.DeleteValue(RunName, false);
+                    if (agent || windowsService)
+                        key.SetValue(RunName, $"\"{targetExe}\" --agent");
+                    else
+                        key.DeleteValue(RunName, false);
+                }
+
+                // Mirror SetupCompleted policy into ProgramData for LocalSystem service reads.
+                try
+                {
+                    var policy = UpdatePolicy.Load();
+                    if (policy.SetupCompleted)
+                        policy.SaveMachineMirror();
+                }
+                catch (Exception ex) { AgentLog.WriteInstall("Machine policy mirror failed: " + ex.Message); }
+
+                if (windowsService)
+                {
+                    try { WindowsServiceInstaller.InstallOrUpdate(targetExe); }
+                    catch (Exception ex)
+                    {
+                        AgentLog.WriteInstall("Windows service install failed: " + ex);
+                        throw;
+                    }
                 }
 
                 // Defender before shortcuts/tray so a long MpPreference call cannot race a user-launched UI.
-                AgentLog.WriteInstall($"{operation} files ready: scope={(machine ? "machine" : "user")}, agent={agent}, silent={silent}, version={displayVersion}, path={targetDir}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
+                AgentLog.WriteInstall($"{operation} files ready: scope={(machine ? "machine" : "user")}, agent={agent}, windowsService={windowsService}, silent={silent}, version={displayVersion}, path={targetDir}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
                 try { DefenderExclusions.EnsureRegistered(targetDir, targetExe, machine, silent); }
                 catch (Exception ex) { AgentLog.WriteInstall("Defender exclusions register step failed: " + ex.Message); }
 
@@ -261,7 +357,8 @@ internal static class InstallationManager
                 {
                     ApplyShortcutFlags(desktop, startMenu, taskbar, menuDir, menuShortcut, desktopShortcut, taskbarDir, taskbarShortcut, targetExe, targetDir, iconPath);
                     bool setupDone = IsSetupCompleted();
-                    if (agent && (operation != "install" || setupDone))
+                    bool startAgent = agent || windowsService;
+                    if (startAgent && (operation != "install" || setupDone))
                     {
                         AgentLog.WriteInstall("Starting background agent: " + targetExe);
                         try
@@ -273,7 +370,7 @@ internal static class InstallationManager
                         try { EnsureBackgroundAgentRunning(targetExe, waitForPid: true); }
                         catch (Exception ex) { AgentLog.WriteInstall("Post-install agent ensure failed: " + ex.Message); }
                     }
-                    else if (agent && operation == "install" && !setupDone)
+                    else if (startAgent && operation == "install" && !setupDone)
                     {
                         AgentLog.WriteInstall("Deferring tray agent until setup wizard completes.");
                     }
@@ -311,7 +408,12 @@ internal static class InstallationManager
                     AutoCloseInfoDialog.Show(
                         $"Update Express was {completedAction} successfully for {scopeText}.\n\n"
                         + $"Version: {displayVersion}\n"
-                        + (agent ? "Background monitoring is enabled for this user." : "Background monitoring is disabled.")
+                        + (windowsService
+                            ? "Windows service is installed (LocalSystem). Tray agent handles prompts in the user session.\n"
+                            : "")
+                        + (agent || windowsService
+                            ? "Background monitoring is enabled for this user."
+                            : "Background monitoring is disabled.")
                         + (operation == "upgrade" ? "\n\nUpdate Express will open now." : "\n\nYou can pin Update Express to the taskbar from the Start menu."),
                         "Update Express",
                         autoCloseSeconds: 10);

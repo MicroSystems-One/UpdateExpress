@@ -7,12 +7,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>UpdateExpress</AssemblyName>
-    <Version>0.7.2.27</Version>
-    <InformationalVersion>0.7.2.27</InformationalVersion>
-    <FileVersion>0.7.2.27</FileVersion>
-    <AssemblyVersion>0.7.2.27</AssemblyVersion>
+    <Version>0.7.2.28</Version>
+    <InformationalVersion>0.7.2.28</InformationalVersion>
+    <FileVersion>0.7.2.28</FileVersion>
+    <AssemblyVersion>0.7.2.28</AssemblyVersion>
     <Product>Update Express</Product>
     <ApplicationIcon>Assets\UpdateExpress-U.ico</ApplicationIcon>
+    <StartupObject>UpdateExpress.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets\MicroSystemsBanner.png" />
@@ -21,5 +22,8 @@
     <Resource Include="Assets\UpdateExpress-U.ico" />
     <Resource Include="Assets\UpdateExpressWindow.ico" />
     <EmbeddedResource Include="Assets\UpdateExpress-U.ico" LogicalName="UpdateExpress.Assets.UpdateExpress.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.11" />
   </ItemGroup>
 </Project>

@@ -76,16 +76,30 @@ public sealed class UpdatePolicy
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "UpdateExpress", "update-policy.json");
 
+    /// <summary>Machine-wide policy mirror for LocalSystem service / all-users installs.</summary>
+    internal static string MachinePathName => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "MicroSystems", "Update Express", "update-policy.json");
+
     public static UpdatePolicy Load()
     {
         try
         {
-            if (!File.Exists(PathName)) return new();
-            var policy = JsonSerializer.Deserialize<UpdatePolicy>(File.ReadAllText(PathName)) ?? new();
+            string path = ResolveReadablePath();
+            if (path.Length == 0) return new();
+            var policy = JsonSerializer.Deserialize<UpdatePolicy>(File.ReadAllText(path)) ?? new();
             policy.Normalize();
             return policy;
         }
         catch { return new(); }
+    }
+
+    private static string ResolveReadablePath()
+    {
+        // Prefer the interactive user's policy; fall back to ProgramData for session-0 service.
+        if (File.Exists(PathName)) return PathName;
+        if (File.Exists(MachinePathName)) return MachinePathName;
+        return "";
     }
 
     public void Save()
@@ -94,8 +108,34 @@ public sealed class UpdatePolicy
         AutomaticFirmware = false;
         AutomaticApplicationIds ??= new(StringComparer.OrdinalIgnoreCase);
         AutomaticWindows = WindowsAutomation.Enabled;
+        string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
         Directory.CreateDirectory(Path.GetDirectoryName(PathName)!);
-        File.WriteAllText(PathName, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(PathName, json);
+        TrySaveMachineMirror(json);
+    }
+
+    /// <summary>Write ProgramData mirror (best-effort; requires rights for machine/service installs).</summary>
+    internal void SaveMachineMirror()
+    {
+        Normalize();
+        AutomaticFirmware = false;
+        AutomaticApplicationIds ??= new(StringComparer.OrdinalIgnoreCase);
+        AutomaticWindows = WindowsAutomation.Enabled;
+        string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+        TrySaveMachineMirror(json);
+    }
+
+    private static void TrySaveMachineMirror(string json)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(MachinePathName)!);
+            File.WriteAllText(MachinePathName, json);
+        }
+        catch
+        {
+            // User-scope install without elevation cannot write ProgramData — OK.
+        }
     }
 
     internal void Normalize()
