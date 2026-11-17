@@ -41,10 +41,14 @@ internal static class InstallationManager
         LaunchMaintenance(repair ? "repair" : "install", dialog.AllUsers, dialog.DesktopShortcut, dialog.StartMenuShortcut, dialog.BackgroundAgent, dialog.TaskbarPin);
     }
 
-    internal static void Uninstall()
+    internal static void Uninstall(bool silent = false)
     {
-        if (MessageBox.Show("Avinstallere Update Express?\n\nOppdateringshistorikk og innstillinger beholdes.",
-            "Update Express", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (!silent &&
+            MessageBox.Show("Avinstallere Update Express?\n\nOppdateringshistorikk og innstillinger beholdes.",
+                "Update Express", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+        if (silent)
+            Environment.SetEnvironmentVariable("UE_SILENT", "1");
         LaunchMaintenance("uninstall", RunningMachineCopy || (!File.Exists(UserExe) && File.Exists(MachineExe)), false, false, false);
     }
 
@@ -128,9 +132,14 @@ internal static class InstallationManager
     internal static void ApplyMaintenance(string[] args)
     {
         // Arguments: --apply-maintenance <op> <parentPID> <sourceEXE> <scope> <desktop> <startMenu> <agent> [taskbar] [--silent]
-        bool silent = args.Any(a => string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase))
+        bool silent = args.Any(a =>
+                string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(a, "--quiet", StringComparison.OrdinalIgnoreCase))
             || string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase);
-        string[] positional = args.Where(a => !string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase)).ToArray();
+        string[] positional = args
+            .Where(a => !string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(a, "--quiet", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         if ((positional.Length != 8 && positional.Length != 9) || !new[] { "install", "repair", "uninstall", "upgrade" }.Contains(positional[1], StringComparer.OrdinalIgnoreCase)
             || !int.TryParse(positional[2], out int parentPid))
             throw new ArgumentException("Ugyldige parametere for vedlikehold.");
@@ -164,22 +173,28 @@ internal static class InstallationManager
                 try { using var parent = Process.GetProcessById(parentPid); parent.WaitForExit(30000); }
                 catch (ArgumentException) { /* Parent has exited already. */ }
             }
-            if (operation == "upgrade")
+            // Always stop every installed UpdateExpress process before replace/uninstall.
+            // Starting shortcuts/tray mid-install previously locked the EXE and hung RMM scripts.
+            if (operation is "upgrade" or "uninstall" or "install" or "repair")
                 StopInstalledProcesses(targetExe);
-            else if (operation == "uninstall" || operation == "install" || operation == "repair")
-                StopInstalledAgent(targetExe);
             if (operation == "uninstall")
             {
                 try { DefenderExclusions.RemoveRegistered(targetDir, targetExe, machine, silent); }
                 catch (Exception ex) { AgentLog.WriteInstall("Defender exclusions uninstall step failed: " + ex.Message); }
                 if (!machine) using (var key = Registry.CurrentUser.OpenSubKey(RunKey, true)) key?.DeleteValue(RunName, false);
                 hive.DeleteSubKeyTree(UninstallKey, false);
+                // Also clear the other hive in case a prior scope mismatch left an Apps entry behind.
+                try { Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false); } catch { /* ignore */ }
+                if (machine) { try { Registry.LocalMachine.DeleteSubKeyTree(UninstallKey, false); } catch { /* ignore */ } }
                 RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
                 RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: null);
                 RemoveAppShortcuts(EnumerateTaskbarFolders(), keepPath: null);
                 if (File.Exists(targetExe)) RetryFileOperation(() => File.Delete(targetExe), targetExe);
                 if (File.Exists(iconPath)) RetryFileOperation(() => File.Delete(iconPath), iconPath);
                 TryDeleteLegacyVersionedIcons(targetDir);
+                TryDeleteFile(Path.Combine(targetDir, "UpdateExpress.exe.new"));
+                TryDeleteFile(Path.Combine(targetDir, "agent.pid"));
+                TryDeleteFile(Path.Combine(targetDir, "defender-exclusions.json"));
                 AgentLog.WriteInstall("Uninstall completed.");
                 AgentLog.EndInstallSession(operation, ok: true, summary: "Uninstall finished; history/settings retained.");
                 if (!silent)
@@ -192,8 +207,8 @@ internal static class InstallationManager
                 // For repair from installed EXE, existing program file is left unchanged.
                 if (!string.Equals(source, targetExe, StringComparison.OrdinalIgnoreCase))
                 {
-                    AgentLog.WriteInstall($"Copy/replace EXE: {source} → {targetExe}");
-                    RetryFileOperation(() => File.Copy(source, targetExe, true), targetExe);
+                    AgentLog.WriteInstall($"Copy/replace EXE (staged): {source} → {targetExe}");
+                    ReplaceExeStaged(source, targetExe);
                     AgentLog.WritePathProbe("Target EXE (after copy)", targetExe);
                 }
                 else if (!File.Exists(targetExe))
@@ -211,35 +226,10 @@ internal static class InstallationManager
                         RetryFileOperation(() => File.Delete(legacyOrange), legacyOrange);
                 }
                 catch (Exception ex) { AgentLog.WriteInstall("Legacy UpdateExpress.ico cleanup: " + ex.Message); }
-                // Always strip duplicate/orphan Update Express shortcuts first so upgrades leave one icon
-                // with the current install path and U icon.
-                if (startMenu)
-                {
-                    Directory.CreateDirectory(menuDir);
-                    RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: menuShortcut);
-                    CreateShortcut(menuShortcut, targetExe, "--installed", targetDir, iconPath);
-                }
-                else
-                    RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: null);
-                if (desktop)
-                {
-                    RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: desktopShortcut);
-                    CreateShortcut(desktopShortcut, targetExe, "--installed", targetDir, iconPath);
-                }
-                else
-                    RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
-                // Taskbar: create when requested; always refresh an existing pin so path/icon stay current (no duplicates).
-                bool hadTaskbarPin = HasAppShortcut(EnumerateTaskbarFolders()) || File.Exists(taskbarShortcut);
-                if (taskbar || hadTaskbarPin)
-                {
-                    Directory.CreateDirectory(taskbarDir);
-                    RemoveAppShortcuts(EnumerateTaskbarFolders(), keepPath: taskbarShortcut);
-                    CreateShortcut(taskbarShortcut, targetExe, "--installed", targetDir, iconPath);
-                    AgentLog.WriteInstall(taskbar
-                        ? "Taskbar pin created/updated: " + taskbarShortcut
-                        : "Existing taskbar pin refreshed: " + taskbarShortcut);
-                }
+
                 string displayVersion = ReadDisplayVersion(targetExe);
+                string uninstallCmd = $"\"{targetExe}\" --uninstall";
+                string quietUninstallCmd = $"\"{targetExe}\" --uninstall --silent";
                 using (var key = hive.CreateSubKey(UninstallKey))
                 {
                     key.SetValue("DisplayName", "Update Express – MicroSystems");
@@ -247,52 +237,73 @@ internal static class InstallationManager
                     key.SetValue("Publisher", "MicroSystems");
                     key.SetValue("InstallLocation", targetDir);
                     key.SetValue("DisplayIcon", targetExe);
-                    key.SetValue("UninstallString", $"\"{targetExe}\" --uninstall");
-                    key.SetValue("NoModify", 0, RegistryValueKind.DWord);
+                    key.SetValue("UninstallString", uninstallCmd);
+                    key.SetValue("QuietUninstallString", quietUninstallCmd);
+                    key.SetValue("NoModify", 1, RegistryValueKind.DWord);
+                    key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
                 }
                 if (!machine) using (var key = Registry.CurrentUser.CreateSubKey(RunKey))
                 {
                     if (agent) key.SetValue(RunName, $"\"{targetExe}\" --agent");
                     else key.DeleteValue(RunName, false);
                 }
-                // Start agent + UI BEFORE Defender exclusions. UAC/timeout on Defender previously
-                // blocked tray restart after self-update (agent never launched; stale agent.pid).
-                if (agent)
-                {
-                    AgentLog.WriteInstall("Starting background agent (before Defender exclusions): " + targetExe);
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo(targetExe, "--agent")
-                        { UseShellExecute = true, WorkingDirectory = targetDir });
-                    }
-                    catch (Exception ex) { AgentLog.WriteInstall("Failed to start background agent: " + ex.Message); }
-                }
-                if (operation == "upgrade" && !silent)
-                {
-                    AgentLog.WriteInstall("Starting UI after upgrade: " + targetExe);
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo(targetExe, "--installed")
-                        { UseShellExecute = true, WorkingDirectory = targetDir });
-                    }
-                    catch (Exception ex) { AgentLog.WriteInstall("Failed to start UI after upgrade: " + ex.Message); }
-                }
+
+                // Defender before shortcuts/tray so a long MpPreference call cannot race a user-launched UI.
                 AgentLog.WriteInstall($"{operation} files ready: scope={(machine ? "machine" : "user")}, agent={agent}, silent={silent}, version={displayVersion}, path={targetDir}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
                 try { DefenderExclusions.EnsureRegistered(targetDir, targetExe, machine, silent); }
                 catch (Exception ex) { AgentLog.WriteInstall("Defender exclusions register step failed: " + ex.Message); }
-                // If Defender step took long / killed the fresh agent, ensure tray is up again.
-                if (agent)
+
+                // Silent RMM: defer shortcuts + agent so the script can seed SetupCompleted first.
+                // Interactive: shortcuts after Defender; agent Run key is set but tray starts only after setup
+                // (or immediately on upgrade/repair when setup was already completed).
+                bool deferLaunch = silent;
+                if (!deferLaunch)
                 {
-                    try { EnsureBackgroundAgentRunning(targetExe, waitForPid: true); }
-                    catch (Exception ex) { AgentLog.WriteInstall("Post-Defender agent ensure failed: " + ex.Message); }
+                    ApplyShortcutFlags(desktop, startMenu, taskbar, menuDir, menuShortcut, desktopShortcut, taskbarDir, taskbarShortcut, targetExe, targetDir, iconPath);
+                    bool setupDone = IsSetupCompleted();
+                    if (agent && (operation != "install" || setupDone))
+                    {
+                        AgentLog.WriteInstall("Starting background agent: " + targetExe);
+                        try
+                        {
+                            Process.Start(new ProcessStartInfo(targetExe, "--agent")
+                            { UseShellExecute = true, WorkingDirectory = targetDir });
+                        }
+                        catch (Exception ex) { AgentLog.WriteInstall("Failed to start background agent: " + ex.Message); }
+                        try { EnsureBackgroundAgentRunning(targetExe, waitForPid: true); }
+                        catch (Exception ex) { AgentLog.WriteInstall("Post-install agent ensure failed: " + ex.Message); }
+                    }
+                    else if (agent && operation == "install" && !setupDone)
+                    {
+                        AgentLog.WriteInstall("Deferring tray agent until setup wizard completes.");
+                    }
+                    if (operation == "upgrade")
+                    {
+                        AgentLog.WriteInstall("Starting UI after upgrade: " + targetExe);
+                        try
+                        {
+                            Process.Start(new ProcessStartInfo(targetExe, "--installed")
+                            { UseShellExecute = true, WorkingDirectory = targetDir });
+                        }
+                        catch (Exception ex) { AgentLog.WriteInstall("Failed to start UI after upgrade: " + ex.Message); }
+                    }
                 }
+                else
+                {
+                    AgentLog.WriteInstall("Silent mode: shortcuts/tray deferred for RMM policy seeding.");
+                    // Still drop stale shortcuts when flags are off so scope changes stay clean.
+                    if (!startMenu) RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: null);
+                    if (!desktop) RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
+                    if (!taskbar) RemoveAppShortcuts(EnumerateTaskbarFolders(), keepPath: null);
+                }
+
                 AgentLog.PostInstallPresenceCheck(
                     targetExe,
-                    desktop ? desktopShortcut : null,
-                    startMenu ? menuShortcut : null,
-                    (taskbar || File.Exists(taskbarShortcut)) ? taskbarShortcut : null);
+                    (!deferLaunch && desktop) ? desktopShortcut : null,
+                    (!deferLaunch && startMenu) ? menuShortcut : null,
+                    (!deferLaunch && (taskbar || File.Exists(taskbarShortcut))) ? taskbarShortcut : null);
                 AgentLog.EndInstallSession(operation, ok: true,
-                    summary: $"Final path={targetDir}; version={displayVersion}; Logs={AgentLog.LogsDir}");
+                    summary: $"Final path={targetDir}; version={displayVersion}; Logs={AgentLog.LogsDir}; deferred={deferLaunch}");
                 string completedAction = operation == "repair" ? "repaired" : operation == "upgrade" ? "updated" : "installed";
                 string scopeText = machine ? "all users" : "the current user";
                 if (!silent)
@@ -312,7 +323,8 @@ internal static class InstallationManager
         {
             AgentLog.WriteInstall("Maintenance FAILED: " + ex);
             AgentLog.EndInstallSession(operation, ok: false, summary: ex.Message);
-            bool silentFail = args.Any(a => string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase))
+            bool silentFail = args.Any(a => string.Equals(a, "--silent", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(a, "--quiet", StringComparison.OrdinalIgnoreCase))
                 || string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase);
             if (!silentFail)
             {
@@ -322,10 +334,132 @@ internal static class InstallationManager
             }
             else
             {
+                // Never rethrow: an unhandled WPF exception dialog hangs RMM Start-Process -Wait.
                 Environment.ExitCode = 1;
-                throw;
             }
         }
+    }
+
+    /// <summary>
+    /// Create desktop / Start Menu / taskbar shortcuts after silent policy seeding (RMM) or when finishing setup.
+    /// </summary>
+    internal static void ApplyDeferredShortcuts(bool desktop, bool startMenu, bool taskbar, bool machine)
+    {
+        string targetDir = machine ? MachineInstallDir : UserInstallDir;
+        string targetExe = Path.Combine(targetDir, "UpdateExpress.exe");
+        if (!File.Exists(targetExe))
+            throw new FileNotFoundException("Installed EXE missing; cannot create shortcuts.", targetExe);
+        string iconPath = Path.Combine(targetDir, DesktopIconName);
+        if (!File.Exists(iconPath))
+            RetryFileOperation(() => WriteInstalledIcon(iconPath), iconPath);
+        string menuDir = machine
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems")
+            : StartMenuDir;
+        string menuShortcut = Path.Combine(menuDir, ShortcutFileName);
+        string desktopShortcut = Path.Combine(
+            Environment.GetFolderPath(machine ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory),
+            ShortcutFileName);
+        string taskbarDir = TaskbarPinFolder;
+        string taskbarShortcut = Path.Combine(taskbarDir, ShortcutFileName);
+        ApplyShortcutFlags(desktop, startMenu, taskbar, menuDir, menuShortcut, desktopShortcut, taskbarDir, taskbarShortcut, targetExe, targetDir, iconPath);
+    }
+
+    private static void ApplyShortcutFlags(
+        bool desktop, bool startMenu, bool taskbar,
+        string menuDir, string menuShortcut, string desktopShortcut, string taskbarDir, string taskbarShortcut,
+        string targetExe, string targetDir, string iconPath)
+    {
+        if (startMenu)
+        {
+            Directory.CreateDirectory(menuDir);
+            RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: menuShortcut);
+            CreateShortcut(menuShortcut, targetExe, "--installed", targetDir, iconPath);
+        }
+        else
+            RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: null);
+        if (desktop)
+        {
+            RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: desktopShortcut);
+            CreateShortcut(desktopShortcut, targetExe, "--installed", targetDir, iconPath);
+        }
+        else
+            RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
+        bool hadTaskbarPin = HasAppShortcut(EnumerateTaskbarFolders()) || File.Exists(taskbarShortcut);
+        if (taskbar || hadTaskbarPin)
+        {
+            Directory.CreateDirectory(taskbarDir);
+            RemoveAppShortcuts(EnumerateTaskbarFolders(), keepPath: taskbarShortcut);
+            CreateShortcut(taskbarShortcut, targetExe, "--installed", targetDir, iconPath);
+            AgentLog.WriteInstall(taskbar
+                ? "Taskbar pin created/updated: " + taskbarShortcut
+                : "Existing taskbar pin refreshed: " + taskbarShortcut);
+        }
+        else
+            RemoveAppShortcuts(EnumerateTaskbarFolders(), keepPath: null);
+    }
+
+    private static bool IsSetupCompleted()
+    {
+        try { return UpdatePolicy.Load().SetupCompleted; }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Copy to .new then replace the live EXE so a failed/locked write cannot wipe the installed app.
+    /// </summary>
+    private static void ReplaceExeStaged(string source, string targetExe)
+    {
+        string staged = targetExe + ".new";
+        TryDeleteFile(staged);
+        RetryFileOperation(() => File.Copy(source, staged, true), staged);
+        if (!File.Exists(staged) || new FileInfo(staged).Length < 1024)
+            throw new IOException("Staged EXE is missing or too small after copy.");
+        if (File.Exists(targetExe))
+        {
+            try
+            {
+                RetryFileOperation(() => File.Copy(staged, targetExe, true), targetExe);
+            }
+            catch (IOException)
+            {
+                // Last resort: delete+move only after staged file is known-good; restore from staged if move fails mid-way.
+                try
+                {
+                    RetryFileOperation(() => File.Delete(targetExe), targetExe);
+                    RetryFileOperation(() => File.Move(staged, targetExe), targetExe);
+                    staged = ""; // moved
+                }
+                catch (Exception ex)
+                {
+                    if (!string.IsNullOrEmpty(staged) && File.Exists(staged) && !File.Exists(targetExe))
+                    {
+                        try { File.Move(staged, targetExe); staged = ""; }
+                        catch (Exception restoreEx)
+                        {
+                            throw new IOException(
+                                "Could not replace UpdateExpress.exe and restore failed. Staged copy left at " + targetExe + ".new",
+                                restoreEx);
+                        }
+                    }
+                    throw new IOException("Could not replace UpdateExpress.exe (file locked). Close Update Express and retry.", ex);
+                }
+            }
+        }
+        else
+        {
+            RetryFileOperation(() => File.Move(staged, targetExe), targetExe);
+            staged = "";
+        }
+        if (!string.IsNullOrEmpty(staged))
+            TryDeleteFile(staged);
+        if (!File.Exists(targetExe))
+            throw new IOException("Installed EXE missing after staged replace.");
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch (Exception ex) { AgentLog.WriteInstall("Could not delete " + path + ": " + ex.Message); }
     }
 
     private static string FormatMaintenanceError(Exception ex)

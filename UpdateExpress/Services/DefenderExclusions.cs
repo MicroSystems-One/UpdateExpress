@@ -114,6 +114,14 @@ internal static class DefenderExclusions
 
         if (!ElevationHelper.IsElevated)
         {
+            if (silent)
+            {
+                // RMM/SYSTEM or non-interactive: never prompt UAC — install must not hang.
+                AgentLog.WriteInstall(remove
+                    ? "Defender exclusions: silent skip removal (not elevated)."
+                    : "Defender exclusions: silent skip registration (not elevated).");
+                return;
+            }
             if (!TryElevateAndApply(manifest, remove, silent))
             {
                 AgentLog.WriteInstall(remove
@@ -166,7 +174,7 @@ internal static class DefenderExclusions
             using var process = Process.Start(info);
             if (process is null) return false;
             // Bound wait so silent RMM installs do not hang forever on a stuck UAC prompt.
-            if (!process.WaitForExit(silent ? 120_000 : 300_000))
+            if (!process.WaitForExit(silent ? 45_000 : 180_000))
             {
                 AgentLog.WriteInstall("Defender exclusions: elevated helper timed out.");
                 try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
@@ -223,12 +231,23 @@ internal static class DefenderExclusions
         try
         {
             using var p = Process.Start(psi) ?? throw new InvalidOperationException("Could not start PowerShell for Defender exclusions.");
-            string stdout = p.StandardOutput.ReadToEnd();
-            string stderr = p.StandardError.ReadToEnd();
-            p.WaitForExit(120_000);
+            // ReadToEnd() alone can block forever if MpCmdlets hang — bound the whole helper.
+            var stdoutTask = p.StandardOutput.ReadToEndAsync();
+            var stderrTask = p.StandardError.ReadToEndAsync();
+            bool exited = p.WaitForExit(90_000);
+            if (!exited)
+            {
+                AgentLog.WriteInstall("Defender exclusions: PowerShell timed out after 90s — killing helper (install continues).");
+                try { p.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                try { p.WaitForExit(5_000); } catch { /* ignore */ }
+            }
+            string stdout = stdoutTask.Wait(2_000) ? stdoutTask.Result : "";
+            string stderr = stderrTask.Wait(2_000) ? stderrTask.Result : "";
             foreach (var line in (stdout + "\n" + stderr).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                 AgentLog.WriteInstall("Defender exclusions: " + line);
-            if (p.ExitCode != 0)
+            if (!exited)
+                AgentLog.WriteInstall("Defender exclusions: skipped after timeout (install continues).");
+            else if (p.ExitCode != 0)
                 AgentLog.WriteInstall($"Defender exclusions: PowerShell exit={p.ExitCode} (install continues).");
             else
                 AgentLog.WriteInstall(remove

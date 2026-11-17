@@ -584,11 +584,21 @@ public partial class MainWindow : Window
 
     private void MaybeShowSetupWizard()
     {
+        // Prefer App startup wizard (before MainWindow). Reload policy if setup finished there.
         try
         {
             _policy = UpdatePolicy.Load();
             _policy.Normalize();
-            if (_policy.SetupCompleted) return;
+            if (_policy.SetupCompleted)
+            {
+                LoadAutomationPolicyIntoUi();
+                _schedule = ReminderSchedule.Load();
+                RemindersEnabled.IsChecked = _schedule.Enabled;
+                TimeChoice.Text = _schedule.Time;
+                DayChoice.SelectedIndex = _schedule.Weekday == 7 ? 0 : Math.Clamp(_schedule.Weekday, 0, 6) + 1;
+                RefreshScheduleStatus();
+                return;
+            }
             var wizard = new SetupWizardWindow(this) { Owner = this };
             wizard.ShowDialog();
             _policy = UpdatePolicy.Load();
@@ -600,6 +610,8 @@ public partial class MainWindow : Window
             RefreshScheduleStatus();
             if (MaintenanceExpander is not null)
                 MaintenanceExpander.IsExpanded = true;
+            try { InstallationManager.EnsureBackgroundAgentRunning(); }
+            catch (Exception ex) { AgentLog.Write("Post-setup agent ensure failed: " + ex.Message); }
         }
         catch (Exception ex)
         {

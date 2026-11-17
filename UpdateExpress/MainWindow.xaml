@@ -382,57 +382,58 @@
      </StackPanel>
    </StackPanel>
    </Grid>
-   <!-- Agent status: one summary line (state + timer) with chevron for details; details default collapsed. -->
-   <!-- Right padding 0 so monitor chevron shares the section chevron column. -->
-   <Border Background="#F3F3F3" CornerRadius="8" BorderBrush="#E5E5E5" BorderThickness="1" Padding="9,6,0,6" Margin="0,2,0,8">
-    <StackPanel>
-     <DockPanel LastChildFill="True">
-      <ToggleButton DockPanel.Dock="Right" x:Name="MonitorDetailsToggle" Width="28" Height="28"
-                    Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
-                    ToolTip="Show monitoring details" VerticalAlignment="Center" Margin="0"
-                    Checked="MonitorDetailsToggle_Changed" Unchecked="MonitorDetailsToggle_Changed"
-                    AutomationProperties.Name="Monitoring details">
-       <ToggleButton.Template>
-        <ControlTemplate TargetType="ToggleButton">
-         <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Width="28" Height="28">
-          <Grid Width="28" Height="28">
-           <Path x:Name="ChevronDown" Data="M2,4 L7,9 L12,4"
-                 Stroke="#0067C0" StrokeThickness="1.35"
-                 StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                 Fill="Transparent" Stretch="None" Width="14" Height="12"
-                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
-           <Path x:Name="ChevronUp" Data="M2,9 L7,4 L12,9"
-                 Stroke="#0067C0" StrokeThickness="1.35"
-                 StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                 Fill="Transparent" Stretch="None" Width="14" Height="12"
-                 HorizontalAlignment="Center" VerticalAlignment="Center"
-                 Visibility="Collapsed"/>
-          </Grid>
-         </Border>
-         <ControlTemplate.Triggers>
-          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/></Trigger>
-          <Trigger Property="IsChecked" Value="True">
-           <Setter TargetName="ChevronDown" Property="Visibility" Value="Collapsed"/>
-           <Setter TargetName="ChevronUp" Property="Visibility" Value="Visible"/>
-          </Trigger>
-         </ControlTemplate.Triggers>
-        </ControlTemplate>
-       </ToggleButton.Template>
-      </ToggleButton>
-      <TextBlock x:Name="MonitorElapsedText" DockPanel.Dock="Right" Text=""
-                 FontSize="13" FontWeight="SemiBold" Foreground="#B7791F"
-                 VerticalAlignment="Center" Margin="12,0,8,0"/>
-      <TextBlock x:Name="MonitorStateText" Text="Background monitoring: waiting for agent"
-                 FontSize="14" FontWeight="SemiBold" Foreground="#1C1C1C"
-                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-     </DockPanel>
-     <StackPanel x:Name="MonitorDetailsPanel" Visibility="Collapsed" Margin="0,8,0,0">
-      <TextBlock x:Name="MonitorDetailsText" Text="Last check: —  |  Available: —  |  New: —" FontSize="12" Foreground="#5D5D5D" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
-      <TextBlock x:Name="MonitorUpdatesText" Text="Updates: —" FontSize="12" Foreground="#5D5D5D" Margin="0,4,0,0" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" ToolTip="Last available updates"/>
-      <TextBlock x:Name="AutomationStatusText" Text="Windows automation: —" FontSize="12" Foreground="#5D5D5D" Margin="0,4,0,0" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" ToolTip="Category automation status"/>
+   <!-- Agent status: chevron sits in the same trailing 28px column as SectionExpander (outside the gray fill). -->
+   <DockPanel Margin="0,2,0,8" LastChildFill="True">
+    <ToggleButton DockPanel.Dock="Right" x:Name="MonitorDetailsToggle" Width="28" Height="28"
+                  Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
+                  ToolTip="Show monitoring details" VerticalAlignment="Top" Margin="0,4,0,0"
+                  Checked="MonitorDetailsToggle_Changed" Unchecked="MonitorDetailsToggle_Changed"
+                  AutomationProperties.Name="Monitoring details">
+     <ToggleButton.Template>
+      <ControlTemplate TargetType="ToggleButton">
+       <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Width="28" Height="28">
+        <Grid Width="28" Height="28">
+         <Path x:Name="ChevronDown" Data="M2,4 L7,9 L12,4"
+               Stroke="#0067C0" StrokeThickness="1.35"
+               StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+               Fill="Transparent" Stretch="None" Width="14" Height="12"
+               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+         <Path x:Name="ChevronUp" Data="M2,9 L7,4 L12,9"
+               Stroke="#0067C0" StrokeThickness="1.35"
+               StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+               Fill="Transparent" Stretch="None" Width="14" Height="12"
+               HorizontalAlignment="Center" VerticalAlignment="Center"
+               Visibility="Collapsed"/>
+        </Grid>
+       </Border>
+       <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/></Trigger>
+        <Trigger Property="IsChecked" Value="True">
+         <Setter TargetName="ChevronDown" Property="Visibility" Value="Collapsed"/>
+         <Setter TargetName="ChevronUp" Property="Visibility" Value="Visible"/>
+        </Trigger>
+       </ControlTemplate.Triggers>
+      </ControlTemplate>
+     </ToggleButton.Template>
+    </ToggleButton>
+    <Border Background="#F3F3F3" CornerRadius="8" BorderBrush="#E5E5E5" BorderThickness="1" Padding="9,6,8,6" Margin="0,0,0,0">
+     <StackPanel>
+      <DockPanel LastChildFill="True">
+       <TextBlock x:Name="MonitorElapsedText" DockPanel.Dock="Right" Text=""
+                  FontSize="13" FontWeight="SemiBold" Foreground="#B7791F"
+                  VerticalAlignment="Center" Margin="12,0,0,0"/>
+       <TextBlock x:Name="MonitorStateText" Text="Background monitoring: waiting for agent"
+                  FontSize="14" FontWeight="SemiBold" Foreground="#1C1C1C"
+                  VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+      </DockPanel>
+      <StackPanel x:Name="MonitorDetailsPanel" Visibility="Collapsed" Margin="0,8,0,0">
+       <TextBlock x:Name="MonitorDetailsText" Text="Last check: —  |  Available: —  |  New: —" FontSize="12" Foreground="#5D5D5D" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
+       <TextBlock x:Name="MonitorUpdatesText" Text="Updates: —" FontSize="12" Foreground="#5D5D5D" Margin="0,4,0,0" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" ToolTip="Last available updates"/>
+       <TextBlock x:Name="AutomationStatusText" Text="Windows automation: —" FontSize="12" Foreground="#5D5D5D" Margin="0,4,0,0" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" ToolTip="Category automation status"/>
+      </StackPanel>
      </StackPanel>
-    </StackPanel>
-   </Border>
+    </Border>
+   </DockPanel>
    <TextBlock x:Name="RebootNeededBanner" Text="⚠  Reboot needed" Visibility="Collapsed"
               FontSize="15" FontWeight="Bold" Foreground="#C62828"
               HorizontalAlignment="Center" Margin="0,0,0,8" Cursor="Hand" Background="Transparent"
@@ -449,9 +450,9 @@
     <ProgressBar x:Name="InstallProgressBar" Height="7" IsIndeterminate="True" Foreground="#0067C0"/>
    </StackPanel>
    <!-- Help accordion: blue U + heading + red crossed tools (24px). -->
-   <!-- Right padding 0 so help chevron aligns with outer section chevrons. -->
+   <!-- No right padding/border inset on the expander so its 28px chevron matches the section column. -->
    <Border Background="#FFFFFF" BorderBrush="#E5E5E5" BorderThickness="1" CornerRadius="8" Padding="10,8,0,8" Margin="0,8,0,0">
-    <Expander x:Name="WindowsHelpExpander" Style="{StaticResource SectionExpander}" IsExpanded="False">
+    <Expander x:Name="WindowsHelpExpander" Style="{StaticResource SectionExpander}" IsExpanded="False" Margin="0,0,-1,0">
      <Expander.Header>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
        <Image Source="Assets/UpdateExpress-U.png" Width="24" Height="24" Stretch="Uniform" Margin="0,0,10,0"
@@ -477,13 +478,13 @@
    </Border>
   </StackPanel></Expander></Border>
   <Border Grid.Row="2" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="ResultsExpander" Style="{StaticResource SectionExpander}" IsExpanded="False" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" Expanded="ResultsExpander_Expanded" Collapsed="ResultsExpander_Collapsed" SizeChanged="ResultsExpander_SizeChanged"><Expander.Header><Grid x:Name="ResultsHeaderBar" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock x:Name="ListHeading" Text="Check for Updates &amp; Results" Foreground="#1C1C1C" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/><Button x:Name="ScanButton" Content="⌕  Check for Updates" Style="{StaticResource RowPrimaryButton}" Click="Scan_Click" PreviewMouseLeftButtonDown="ScanButton_PreviewMouseDown" VerticalAlignment="Center" Height="32" MinHeight="32" MaxHeight="32" Margin="80,0,0,0" Padding="14,0" FontSize="14" ToolTip="Search Windows Update for available updates" AutomationProperties.Name="Check for Updates"/></StackPanel><StackPanel x:Name="ResultsHeaderActions" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0">
- <Button x:Name="ToolsGearButton" Click="ToolsGear_Click" PreviewMouseLeftButtonDown="ToolsGear_PreviewMouseDown" Width="32" Height="32" Padding="0" Margin="0"
+ <Button x:Name="ToolsGearButton" Click="ToolsGear_Click" PreviewMouseLeftButtonDown="ToolsGear_PreviewMouseDown" Width="28" Height="28" Padding="0" Margin="0,0,0,0"
          Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
          ToolTip="Tools" AutomationProperties.Name="Tools">
   <Button.Template>
    <ControlTemplate TargetType="Button">
-    <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Width="32" Height="32">
-     <Viewbox Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+    <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Width="28" Height="28">
+     <Viewbox Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
       <Canvas Width="24" Height="24">
        <Path Stroke="#0067C0" StrokeThickness="1.5" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"
              Data="M12,3 L13.1,6.2 C13.85,6.4 14.55,6.75 15.15,7.2 L18.3,5.95 L20.05,8.95 L17.2,10.55 C17.35,11.2 17.4,11.9 17.4,12.6 C17.4,13.3 17.35,14 17.2,14.65 L20.05,16.25 L18.3,19.25 L15.15,18 C14.55,18.45 13.85,18.8 13.1,19 L12,22.2 L9,22.2 L7.9,19 C7.15,18.8 6.45,18.45 5.85,18 L2.7,19.25 L0.95,16.25 L3.8,14.65 C3.65,14 3.6,13.3 3.6,12.6 C3.6,11.9 3.65,11.2 3.8,10.55 L0.95,8.95 L2.7,5.95 L5.85,7.2 C6.45,6.75 7.15,6.4 7.9,6.2 L9,3 Z"/>

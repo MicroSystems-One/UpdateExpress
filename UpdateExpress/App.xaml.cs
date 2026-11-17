@@ -77,7 +77,27 @@ public partial class App : System.Windows.Application
         if (args.Contains("--uninstall", StringComparer.OrdinalIgnoreCase))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            InstallationManager.Uninstall();
+            bool quiet = args.Contains("--silent", StringComparer.OrdinalIgnoreCase)
+                || args.Contains("--quiet", StringComparer.OrdinalIgnoreCase)
+                || string.Equals(Environment.GetEnvironmentVariable("UE_SILENT"), "1", StringComparison.OrdinalIgnoreCase);
+            InstallationManager.Uninstall(silent: quiet);
+            Shutdown();
+            return;
+        }
+        if (args.Contains("--finalize-shortcuts", StringComparer.OrdinalIgnoreCase))
+        {
+            // RMM: after silent install + policy seed — create deferred shortcuts and optionally start tray.
+            // Args: --finalize-shortcuts <user|machine> <desktop> <startMenu> <agent> <taskbar> [--silent]
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            try
+            {
+                FinalizeShortcutsFromArgs(args);
+            }
+            catch (Exception ex)
+            {
+                AgentLog.WriteInstall("Finalize shortcuts failed: " + ex);
+                Environment.ExitCode = 1;
+            }
             Shutdown();
             return;
         }
@@ -106,9 +126,15 @@ public partial class App : System.Windows.Application
             Shutdown();
             return;
         }
-        System.Windows.Window window = args.Contains("--maintenance", StringComparer.OrdinalIgnoreCase) ||
-            (!args.Contains("--installed", StringComparer.OrdinalIgnoreCase) && !InstallationManager.RunningInstalledCopy)
-            ? new LauncherWindow() : new MainWindow();
+        bool launcher = args.Contains("--maintenance", StringComparer.OrdinalIgnoreCase) ||
+            (!args.Contains("--installed", StringComparer.OrdinalIgnoreCase) && !InstallationManager.RunningInstalledCopy);
+        if (!launcher)
+        {
+            // Setup must complete before the main UI (and before tray is required for a fresh install).
+            try { RunSetupWizardIfNeeded(); }
+            catch (Exception ex) { AgentLog.WriteInstall("Startup setup wizard failed: " + ex.Message); }
+        }
+        System.Windows.Window window = launcher ? new LauncherWindow() : new MainWindow();
         string mode = window is MainWindow ? "main-ui" : "launcher";
         AgentLog.WriteStartupDiagnostics(mode);
         // Self-update helper may have stalled on Defender UAC before restarting tray — heal here.
@@ -134,6 +160,42 @@ public partial class App : System.Windows.Application
         }
         if (args.Contains("--proxy-settings", StringComparer.OrdinalIgnoreCase) && window is MainWindow main)
             main.Dispatcher.BeginInvoke(new Action(main.ShowProxySettings));
+    }
+
+    private static void RunSetupWizardIfNeeded()
+    {
+        var policy = UpdatePolicy.Load();
+        policy.Normalize();
+        if (policy.SetupCompleted) return;
+        var wizard = new SetupWizardWindow(owner: null);
+        wizard.ShowDialog();
+        try { InstallationManager.EnsureBackgroundAgentRunning(); }
+        catch (Exception ex) { AgentLog.WriteInstall("Post-setup agent ensure failed: " + ex.Message); }
+    }
+
+    private static void FinalizeShortcutsFromArgs(string[] args)
+    {
+        // --finalize-shortcuts <scope> <desktop> <startMenu> <agent> <taskbar>
+        int idx = Array.FindIndex(args, a => string.Equals(a, "--finalize-shortcuts", StringComparison.OrdinalIgnoreCase));
+        if (idx < 0 || args.Length < idx + 5)
+            throw new ArgumentException("Usage: --finalize-shortcuts <user|machine> <desktop 0|1> <startMenu 0|1> <agent 0|1> <taskbar 0|1>");
+        bool machine = string.Equals(args[idx + 1], "machine", StringComparison.OrdinalIgnoreCase);
+        bool desktop = args[idx + 2] == "1";
+        bool startMenu = args[idx + 3] == "1";
+        bool agent = args[idx + 4] == "1";
+        bool taskbar = args.Length > idx + 5 && args[idx + 5] == "1";
+        InstallationManager.ApplyDeferredShortcuts(desktop, startMenu, taskbar, machine);
+        if (agent && !machine)
+        {
+            string exe = machine ? InstallationManager.MachineExe : InstallationManager.UserExe;
+            if (!machine)
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
+                key?.SetValue("MicroSystems Update Express Agent", $"\"{exe}\" --agent");
+            }
+            InstallationManager.EnsureBackgroundAgentRunning(exe, waitForPid: true);
+        }
+        AgentLog.WriteInstall($"Finalize shortcuts done: desktop={desktop}; startMenu={startMenu}; agent={agent}; taskbar={taskbar}");
     }
     protected override void OnExit(System.Windows.ExitEventArgs e)
     {
