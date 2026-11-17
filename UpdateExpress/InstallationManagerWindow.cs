@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
+using UpdateExpress.Services;
 
 namespace UpdateExpress;
 
@@ -19,6 +20,7 @@ public sealed class InstallationManagerWindow : Window
 {
     private readonly ObservableCollection<InstallationQueueItem> _items;
     private readonly TextBlock _stage;
+    private readonly TextBlock _notice;
     private readonly TextBlock _counter;
     private readonly System.Windows.Controls.ProgressBar _bar;
     private readonly Button _start;
@@ -28,7 +30,7 @@ public sealed class InstallationManagerWindow : Window
     private DateTime _started;
     private bool _running;
     private readonly System.Windows.Controls.ListView _list;
-    public InstallationManagerWindow(List<InstallationQueueItem> items)
+    public InstallationManagerWindow(List<InstallationQueueItem> items, string? subtitle = null)
     {
         Title = "Update Express – Installation Manager";
         Width = 760; Height = 530; MinWidth = 590; MinHeight = 400;
@@ -57,8 +59,17 @@ public sealed class InstallationManagerWindow : Window
         bottom.Children.Add(_cancel);
         var top = new StackPanel(); DockPanel.SetDock(top, Dock.Top); root.Children.Add(top);
         top.Children.Add(new TextBlock { Text = "Installation Manager", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
-        top.Children.Add(new TextBlock { Text = "Review the combined Windows Update / driver / WinGet queue. No automatic restart.", FontSize = 12, Margin = new Thickness(0, 0, 0, 16) });
-        _stage = new TextBlock { Text = "Ready to install", FontSize = 13, FontWeight = FontWeights.SemiBold };
+        top.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(subtitle) ? "Review the combined Windows Update / driver / WinGet queue. No automatic restart." : subtitle, FontSize = 12, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap });
+        _notice = new TextBlock
+        {
+            Text = WuaProgressText.PleaseWait(WuaProgressText.Norwegian),
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromRgb(82, 97, 122)),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        top.Children.Add(_notice);
+        _stage = new TextBlock { Text = "Ready to install", FontSize = 13, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
         top.Children.Add(_stage);
         _bar = new System.Windows.Controls.ProgressBar { Minimum = 0, Maximum = items.Count, Value = 0, Height = 9, Margin = new Thickness(0, 9, 0, 8) };
         top.Children.Add(_bar);
@@ -128,10 +139,79 @@ public sealed class InstallationManagerWindow : Window
         SetStage(stage);
     }
     public void SetStage(string stage) => _stage.Text = stage;
+    public void SetNotice(string text) => _notice.Text = text;
+    public void SetItemState(int index, string state)
+    {
+        if (index < 0 || index >= _items.Count) return;
+        _items[index].State = state;
+        _list.ScrollIntoView(_items[index]);
+    }
+
+    public void ApplyActivity(WuaActivity activity, bool norwegian)
+    {
+        int row = FindRow(activity.Kb);
+        int number = row >= 0 ? row + 1 : activity.Number;
+        int total = _items.Count > 0 ? _items.Count : Math.Max(activity.Total, 1);
+        if (row < 0 && _items.Count > 0 && _items.Count == activity.Total)
+            row = Math.Clamp(activity.Number - 1, 0, _items.Count - 1);
+        if (activity.Phase == "downloaded")
+        {
+            if (row >= 0) SetItemState(row, norwegian ? "Lastet ned" : "Downloaded");
+            return;
+        }
+        if (row >= 0 && activity.Phase is "download" or "install")
+        {
+            for (int i = 0; i < _items.Count; i++)
+            {
+                if (i == row) continue;
+                if (IsActiveDownload(_items[i].State))
+                    _items[i].State = norwegian ? "Lastet ned" : "Downloaded";
+            }
+            string state = activity.Phase == "download"
+                ? (norwegian ? "Laster ned" : "Downloading")
+                : (norwegian ? "Installerer" : "Installing");
+            if (activity.Percent >= 0) state += $" {activity.Percent}%";
+            else state += "…";
+            SetItemState(row, state);
+        }
+        string label = string.IsNullOrWhiteSpace(activity.Kb) ? "…" : activity.Kb;
+        _stage.Text = WuaProgressText.Stage(norwegian, activity.Phase, label, number, total, activity.Percent);
+        _counter.Text = activity.Phase switch
+        {
+            "download" => norwegian ? $"Laster ned {number} av {total}" : $"Downloading {number} of {total}",
+            "install" => norwegian ? $"Installerer {number} av {total}" : $"Installing {number} of {total}",
+            _ => $"{number} of {total}"
+        };
+        double slot = total <= 0 ? 0 : (Math.Max(number, 1) - 1 + (activity.Percent < 0 ? 0.08 : activity.Percent / 100.0)) / total;
+        double fraction = activity.Phase == "install" ? 0.5 + slot * 0.5 : slot * 0.5;
+        _bar.IsIndeterminate = false;
+        _bar.Value = Math.Clamp(fraction, 0, 1) * _bar.Maximum;
+    }
+
+    private int FindRow(string kb)
+    {
+        if (string.IsNullOrWhiteSpace(kb)) return -1;
+        for (int i = 0; i < _items.Count; i++)
+            if (_items[i].Name.Contains(kb, StringComparison.OrdinalIgnoreCase))
+                return i;
+        return -1;
+    }
+
+    private static bool IsActiveDownload(string state) =>
+        state.StartsWith("Downloading", StringComparison.Ordinal) || state.StartsWith("Laster ned", StringComparison.Ordinal);
+
+    private static bool IsStillRunning(string state) =>
+        state is "Pending" or "Installing..." or "Verifying" or "Downloaded" or "Lastet ned"
+        || state.StartsWith("Downloading", StringComparison.Ordinal)
+        || state.StartsWith("Installing", StringComparison.Ordinal)
+        || state.StartsWith("Laster ned", StringComparison.Ordinal)
+        || state.StartsWith("Installerer", StringComparison.Ordinal);
+
     public void CompleteItem(int index, string state, bool failed)
     {
         if (index >= 0 && index < _items.Count) _items[index].State = state;
-        _bar.Value = _items.Count(x => x.State != "Pending" && x.State != "Installing..." && x.State != "Verifying");
+        _bar.IsIndeterminate = false;
+        _bar.Value = _items.Count(x => !IsStillRunning(x.State));
         _counter.Text = $"{_bar.Value:0} of {_items.Count} processed";
     }
     public void Finish()
@@ -140,8 +220,9 @@ public sealed class InstallationManagerWindow : Window
         _clock.Stop();
         _elapsed.Text = "Elapsed: " + (DateTime.Now - _started).ToString(@"hh\:mm\:ss");
         for (int i = 0; i < _items.Count; i++)
-            if (_items[i].State is "Pending" or "Installing..." or "Verifying")
+            if (IsStillRunning(_items[i].State))
                 _items[i].State = "Not verified";
+        _bar.IsIndeterminate = false;
         _bar.Value = _items.Count;
         _counter.Text = $"{_items.Count} of {_items.Count} processed";
         int failed = _items.Count(x => x.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase));
