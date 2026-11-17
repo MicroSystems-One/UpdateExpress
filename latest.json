@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.26",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.26/UpdateExpress_v0.7.2.26.exe",
-  "sha256": "1977d6c968c309fd4c698c560401b3ca7e1825d8d4492c48d1b5eceaa7700a03",
-  "publishedAt": "2026-11-16T17:31:19Z",
-  "releaseNotes": "Align chevrons; Results gap/Check 32/header swap. Tip 2c7e801."
+  "version": "0.7.2.27",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.27/UpdateExpress_v0.7.2.27.exe",
+  "sha256": "5cf23cd192bed41ca1bc470168b86fa600ed78e0b9c0b750914146162980d90d",
+  "publishedAt": "2026-11-17T21:30:46Z",
+  "releaseNotes": "N-able install/uninstall flow + chevron align. Tip 582bbf6."
 }
