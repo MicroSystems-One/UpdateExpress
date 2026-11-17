@@ -87,6 +87,20 @@ internal static class DownloadPromptAutomation
                 scheduled <= DateTime.Now &&
                 prompt.Updates.Count > 0)
             {
+                // Missed/overdue schedule (sleep, power-off): re-check the live maintenance
+                // window instead of installing mid-day on an unselected day.
+                int mask = MaintenanceSetup.ClampMask(policy.InstallDaysMask);
+                string windowTime = MaintenanceSetup.NormalizeTime(
+                    string.IsNullOrWhiteSpace(policy.InstallTime) ? preferred : policy.InstallTime,
+                    preferred);
+                if (mask != 0 && !MaintenanceSetup.IsWithinInstallWindow(mask, windowTime, DateTime.Now))
+                {
+                    AgentLog.Write($"{displayName} automation: overdue schedule outside install window — rescheduling.");
+                    await MaybeDeferOrPresentAsync(dispatcher, policy, prompt, preferred, displayName, balloonTitle,
+                        $"Scheduled {displayName.ToLowerInvariant()} updates are due.", elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
+                        .ConfigureAwait(false);
+                    return;
+                }
                 // Install window reached: start elevated install (reboot still follows AutoReboot policy).
                 AgentLog.Write($"{displayName} automation: scheduled install window reached — starting install.");
                 await StartElevatedInstallAsync(prompt, preferred, displayName, elevateArg, cat, useWeeklySchedule, minIntervalMinutes)

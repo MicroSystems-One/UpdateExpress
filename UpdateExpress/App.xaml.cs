@@ -167,8 +167,20 @@ public partial class App : System.Windows.Application
         var policy = UpdatePolicy.Load();
         policy.Normalize();
         if (policy.SetupCompleted) return;
-        var wizard = new SetupWizardWindow(owner: null);
-        wizard.ShowDialog();
+        var app = System.Windows.Application.Current;
+        // Wizard is the only window until MainWindow is created — keep the process
+        // alive when the dialog closes (default OnLastWindowClose would shut us down).
+        var previous = app.ShutdownMode;
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        try
+        {
+            var wizard = new SetupWizardWindow(owner: null);
+            wizard.ShowDialog();
+        }
+        finally
+        {
+            app.ShutdownMode = previous;
+        }
         try { InstallationManager.EnsureBackgroundAgentRunning(); }
         catch (Exception ex) { AgentLog.WriteInstall("Post-setup agent ensure failed: " + ex.Message); }
     }

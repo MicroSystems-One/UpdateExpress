@@ -59,8 +59,10 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 function Write-UeLog([string]$Message) {
+    # Use the information stream — never Write-Output — so helpers that return
+    # exit codes are not polluted into Object[] arrays.
     $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
-    Write-Output $line
+    Write-Information $line -InformationAction Continue
 }
 
 function Test-UeIsAdmin {
@@ -269,7 +271,8 @@ function Invoke-UeProcessBounded {
             Stop-Process -Force -ErrorAction SilentlyContinue
         throw "$Label timed out after ${TimeoutSec}s and was killed. See %LOCALAPPDATA%\MicroSystems\Update Express\Logs\install-update.log"
     }
-    return $p.ExitCode
+    # Force a scalar so callers never see an Object[] from incidental pipeline output.
+    return ,([int]$p.ExitCode)
 }
 
 # --- Download / resolve EXE ---
