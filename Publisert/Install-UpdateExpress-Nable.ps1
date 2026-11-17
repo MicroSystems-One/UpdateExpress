@@ -1,29 +1,29 @@
-﻿<#
+<#
 .SYNOPSIS
   Silent Update Express install for N-able RMM, with business maintenance policy
   matching the Pilot UI (profile business, active hours 07–17, install daily 17:00,
   reboot outside active hours) and local N-able PME service disabled.
 
 .NOTES
-  - Requires Update Express v0.7.2.18+ (--silent on --apply-maintenance).
+  - Requires Update Express v0.7.2.28+ (silent defer shortcuts/tray; QuietUninstallString;
+    Defender helper timeout; staged EXE replace).
   - Stopping PME.Agent.PmeService is LOCAL only. Also disable Windows patching for
     the device in the N-able console / patch profile, or RMM may re-enable PME.
-  - Policy files are written per Windows user profile under
-    %LocalAppData%\UpdateExpress\ so the tray agent picks them up without the wizard.
-  - Run elevated (N-able Automation / SYSTEM is fine).
+  - Policy files are written BEFORE shortcuts/tray so SetupCompleted is true on first UI.
+  - Self-elevates when not already admin; otherwise prints a clear message and exits 2.
 
 .EXAMPLE
-  .\Install-UpdateExpress-Nable.ps1 -Version 0.7.2.18
+  .\Install-UpdateExpress-Nable.ps1 -Version 0.7.2.28
 
 .EXAMPLE
-  .\Install-UpdateExpress-Nable.ps1 -ExePath 'C:\Temp\UpdateExpress_v0.7.2.18.exe' -Scope machine
+  .\Install-UpdateExpress-Nable.ps1 -ExePath 'C:\Temp\UpdateExpress_v0.7.2.28.exe' -Scope machine
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('user', 'machine')]
     [string]$Scope = 'user',
 
-    [string]$Version = '0.7.2.18',
+    [string]$Version = '0.7.2.28',
 
     [string]$ExePath,
 
@@ -49,15 +49,55 @@ param(
     [switch]$AutoReboot = $true,
     [switch]$Reminders = $true,
     [switch]$WindowsAutomation = $true,
-    [string]$Language = 'en'
+    [string]$Language = 'en',
+
+    # Bound wait for the silent EXE so RMM never hangs forever on a stuck helper.
+    [int]$InstallTimeoutSec = 180
 )
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 function Write-UeLog([string]$Message) {
+    # Use the information stream — never Write-Output — so helpers that return
+    # exit codes are not polluted into Object[] arrays.
     $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
-    Write-Output $line
+    Write-Information $line -InformationAction Continue
+}
+
+function Test-UeIsAdmin {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($id)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# Self-elevate or fail with a clear message (no silent hang as a limited user).
+if (-not (Test-UeIsAdmin)) {
+    Write-UeLog 'Not elevated — requesting Administrator (UAC)...'
+    try {
+        $relaunch = [System.Collections.Generic.List[string]]::new()
+        $relaunch.Add('-NoProfile')
+        $relaunch.Add('-ExecutionPolicy')
+        $relaunch.Add('Bypass')
+        $relaunch.Add('-File')
+        $relaunch.Add($PSCommandPath)
+        foreach ($key in $PSBoundParameters.Keys) {
+            $val = $PSBoundParameters[$key]
+            if ($val -is [System.Management.Automation.SwitchParameter]) {
+                if ($val.IsPresent) { $relaunch.Add("-$key") }
+                continue
+            }
+            $relaunch.Add("-$key")
+            $relaunch.Add([string]$val)
+        }
+        $p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $relaunch.ToArray() -Wait -PassThru
+        if ($null -eq $p) { throw 'UAC relaunch returned no process.' }
+        exit $p.ExitCode
+    } catch {
+        Write-UeLog 'ERROR: Administrator rights are required. Right-click PowerShell → Run as administrator, or deploy via N-able Automation (SYSTEM).'
+        Write-UeLog $_.Exception.Message
+        exit 2
+    }
 }
 
 function Get-InteractiveUserProfiles {
@@ -178,7 +218,6 @@ function Disable-NablePme {
             Start-Sleep -Seconds 2
         }
         Set-Service -Name $ServiceName -StartupType Disabled -ErrorAction Stop
-        # sc.exe as belt-and-suspenders when Set-Service is overridden by policy later
         & sc.exe stop $ServiceName | Out-Null
         & sc.exe config $ServiceName start= disabled | Out-Null
         $after = Get-Service -Name $ServiceName
@@ -204,6 +243,38 @@ function Register-UeAgentRunKey {
     Write-UeLog "Registered agent Run key for SID $Sid"
 }
 
+function Stop-UeProcesses {
+    Get-Process -Name 'UpdateExpress','UpdateExpress-Maintenance' -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            try {
+                Write-UeLog "Stopping PID $($_.Id) ($($_.ProcessName)) before install"
+                $_ | Stop-Process -Force -ErrorAction SilentlyContinue
+            } catch { }
+        }
+    Start-Sleep -Milliseconds 800
+}
+
+function Invoke-UeProcessBounded {
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter(Mandatory)][string[]]$ArgumentList,
+        [int]$TimeoutSec = 180,
+        [string]$Label = 'process'
+    )
+    Write-UeLog "$Label starting (timeout ${TimeoutSec}s): $FilePath $($ArgumentList -join ' ')"
+    $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -PassThru -WindowStyle Hidden
+    if ($null -eq $p) { throw "$Label failed to start." }
+    $ok = $p.WaitForExit([Math]::Max(5, $TimeoutSec) * 1000)
+    if (-not $ok) {
+        try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch { }
+        Get-Process -Name 'UpdateExpress','UpdateExpress-Maintenance' -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+        throw "$Label timed out after ${TimeoutSec}s and was killed. See %LOCALAPPDATA%\MicroSystems\Update Express\Logs\install-update.log"
+    }
+    # Force a scalar so callers never see an Object[] from incidental pipeline output.
+    return ,([int]$p.ExitCode)
+}
+
 # --- Download / resolve EXE ---
 if (-not $ExePath) {
     $url = "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v$Version/UpdateExpress_v$Version.exe"
@@ -222,8 +293,19 @@ if ($DisablePme) {
     Disable-NablePme -ServiceName $PmeServiceName
 }
 
-# --- Silent install via Update Express maintenance CLI ---
-# parentPid 0 = no wait (RMM/script). --silent suppresses UI dialogs (0.7.2.18+).
+# Seed SetupCompleted BEFORE install so any early UI never shows the wizard.
+Write-UeLog 'Seeding Pilot policy (SetupCompleted=true) before silent install...'
+$profiles = Get-InteractiveUserProfiles
+foreach ($prof in $profiles) {
+    $localApp = Join-Path $prof.Path 'AppData\Local'
+    if (-not (Test-Path $localApp)) { continue }
+    Write-UePolicyFiles -LocalAppDataRoot $localApp
+}
+Write-UePolicyFiles -LocalAppDataRoot $env:LOCALAPPDATA
+
+Stop-UeProcesses
+
+# --- Silent install: EXE defers shortcuts/tray when --silent ---
 $env:UE_SILENT = '1'
 $desktopFlag = if ($Desktop) { '1' } else { '0' }
 $menuFlag = if ($StartMenu) { '1' } else { '0' }
@@ -244,12 +326,11 @@ $argList = @(
 )
 
 Write-UeLog "Silent install: scope=$Scope desktop=$desktopFlag startMenu=$menuFlag agent=$agentFlag taskbar=$taskbarFlag"
-$p = Start-Process -FilePath $ExePath -ArgumentList $argList -Wait -PassThru -WindowStyle Hidden
-if ($null -eq $p -or $p.ExitCode -notin 0, $null) {
-    $code = if ($p) { $p.ExitCode } else { 'null' }
-    throw "Silent install failed (exit $code). Check %LOCALAPPDATA%\UpdateExpress\agent.log or ProgramData logs."
+$exit = Invoke-UeProcessBounded -FilePath $ExePath -ArgumentList $argList -TimeoutSec $InstallTimeoutSec -Label 'Silent install'
+if ($exit -notin 0, $null) {
+    throw "Silent install failed (exit $exit). Check %LOCALAPPDATA%\MicroSystems\Update Express\Logs\install-update.log"
 }
-Write-UeLog "Install process exit code: $($p.ExitCode)"
+Write-UeLog "Install process exit code: $exit"
 
 $installedUser = Join-Path $env:LOCALAPPDATA 'MicroSystems\Update Express\UpdateExpress.exe'
 $installedMachine = Join-Path ${env:ProgramFiles} 'MicroSystems\Update Express\UpdateExpress.exe'
@@ -263,13 +344,12 @@ $installedExe = if ($Scope -eq 'machine' -and (Test-Path $installedMachine)) {
     $null
 }
 if (-not $installedExe) {
-    Write-UeLog "WARNING: Installed EXE path not found yet; policy will still be written."
+    Write-UeLog "WARNING: Installed EXE path not found yet; policy was written; shortcuts may be skipped."
 } else {
     Write-UeLog "Installed EXE: $installedExe"
 }
 
-# --- Seed Pilot policy (screenshot values) for each profile ---
-$profiles = Get-InteractiveUserProfiles
+# Re-seed policy after install (covers SYSTEM vs console user LocalAppData).
 foreach ($prof in $profiles) {
     $localApp = Join-Path $prof.Path 'AppData\Local'
     if (-not (Test-Path $localApp)) { continue }
@@ -278,17 +358,22 @@ foreach ($prof in $profiles) {
         Register-UeAgentRunKey -Sid $prof.Sid -Exe $installedExe
     }
 }
-
-# Also seed current process LocalAppData (SYSTEM or deploying user)
 Write-UePolicyFiles -LocalAppDataRoot $env:LOCALAPPDATA
 
-# Start agent now when user-scope install requested and EXE exists
-if ($Agent -and $Scope -eq 'user' -and $installedExe) {
-    try {
-        Start-Process -FilePath $installedExe -ArgumentList '--agent' -WindowStyle Hidden | Out-Null
-        Write-UeLog 'Started --agent'
-    } catch {
-        Write-UeLog "Could not start agent now: $($_.Exception.Message)"
+# Create deferred shortcuts + start tray now that SetupCompleted is true.
+if ($installedExe) {
+    $finArgs = @(
+        '--finalize-shortcuts',
+        $Scope,
+        $desktopFlag,
+        $menuFlag,
+        $agentFlag,
+        $taskbarFlag,
+        '--silent'
+    )
+    $finExit = Invoke-UeProcessBounded -FilePath $installedExe -ArgumentList $finArgs -TimeoutSec 60 -Label 'Finalize shortcuts'
+    if ($finExit -notin 0, $null) {
+        Write-UeLog "WARNING: Finalize shortcuts exit $finExit (install files are present)."
     }
 }
 
