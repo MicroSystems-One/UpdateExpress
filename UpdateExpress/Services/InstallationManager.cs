@@ -409,7 +409,7 @@ internal static class InstallationManager
                         $"Update Express was {completedAction} successfully for {scopeText}.\n\n"
                         + $"Version: {displayVersion}\n"
                         + (windowsService
-                            ? "Windows service is installed (LocalSystem). Tray agent handles prompts in the user session.\n"
+                            ? $"Windows service “{WindowsServiceHost.DisplayName}” is installed (LocalSystem; internal name {WindowsServiceHost.ServiceName}). Tray agent handles prompts in the user session.\n"
                             : "")
                         + (agent || windowsService
                             ? "Background monitoring is enabled for this user."

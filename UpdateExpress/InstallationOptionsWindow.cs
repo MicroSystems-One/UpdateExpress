@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -8,9 +7,19 @@ using UpdateExpress.Services;
 
 namespace UpdateExpress;
 
+/// <summary>
+/// Multi-step Installation / Repair options wizard.
+/// Defaults match the product install screenshots (all-users, both, 8–16, Mon–Fri 17:00,
+/// restart outside active hours, shortcuts + tray + Windows service).
+/// </summary>
 public sealed class InstallationOptionsWindow : Window
 {
+    private const int WeekdaysMask = 0b0011111; // Mon..Fri
+
     private readonly bool _norwegian;
+    private readonly bool _repair;
+    private int _page;
+
     private readonly System.Windows.Controls.RadioButton _current = new() { Margin = new Thickness(0, 6, 0, 4) };
     private readonly System.Windows.Controls.RadioButton _all = new() { Margin = new Thickness(0, 0, 0, 8) };
     private readonly System.Windows.Controls.RadioButton _profilePrivate = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 2) };
@@ -25,9 +34,9 @@ public sealed class InstallationOptionsWindow : Window
     private readonly System.Windows.Controls.RadioButton _rebootOff = new() { GroupName = "InstallReboot", Margin = new Thickness(0, 4, 0, 8) };
     private readonly System.Windows.Controls.CheckBox _desktop = new() { IsChecked = true, Margin = new Thickness(0, 4, 0, 4) };
     private readonly System.Windows.Controls.CheckBox _menu = new() { IsChecked = true, Margin = new Thickness(0, 4, 0, 4) };
-    private readonly System.Windows.Controls.CheckBox _taskbar = new() { IsChecked = false, Margin = new Thickness(0, 4, 0, 4) };
+    private readonly System.Windows.Controls.CheckBox _taskbar = new() { IsChecked = true, Margin = new Thickness(0, 4, 0, 4) };
     private readonly System.Windows.Controls.CheckBox _agent = new() { IsChecked = true, Margin = new Thickness(0, 4, 0, 4) };
-    private readonly System.Windows.Controls.CheckBox _service = new() { IsChecked = false, Margin = new Thickness(0, 4, 0, 4) };
+    private readonly System.Windows.Controls.CheckBox _service = new() { IsChecked = true, Margin = new Thickness(0, 4, 0, 4) };
     private readonly TextBlock _serviceHint = new()
     {
         TextWrapping = TextWrapping.Wrap,
@@ -35,10 +44,28 @@ public sealed class InstallationOptionsWindow : Window
         Foreground = Brushes.DimGray,
         Margin = new Thickness(22, 0, 0, 8)
     };
+    private readonly TextBlock _stepLabel = new()
+    {
+        FontSize = 12,
+        Foreground = Brushes.DimGray,
+        Margin = new Thickness(0, 0, 0, 10)
+    };
+    private readonly TextBlock _heading = new()
+    {
+        FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+        FontSize = 20,
+        FontWeight = FontWeights.SemiBold,
+        Margin = new Thickness(0, 0, 0, 4)
+    };
 
-    private string _profile = "private";
-    private string _rebootChoice = "confirm";
-    private int _daysMask = MaintenanceSetup.AllDaysMask;
+    private readonly StackPanel _pageHost = new();
+    private readonly Button _back = new();
+    private readonly Button _next = new();
+    private readonly Button _cancel = new();
+
+    private string _profile = "both";
+    private string _rebootChoice = "outsideActiveHours";
+    private int _daysMask = WeekdaysMask;
 
     public bool AllUsers => _all.IsChecked == true;
     public bool DesktopShortcut => _desktop.IsChecked == true;
@@ -50,30 +77,52 @@ public sealed class InstallationOptionsWindow : Window
     public int ActiveHoursStart { get; private set; } = 8;
     public int ActiveHoursEnd { get; private set; } = 16;
     public int InstallDaysMask => _daysMask;
-    public string InstallTime { get; private set; } = "18:00";
+    public string InstallTime { get; private set; } = "17:00";
     public string RebootChoice => _rebootChoice;
 
     public InstallationOptionsWindow(bool repair)
     {
+        _repair = repair;
         _norwegian = MaintenanceSetup.IsNorwegian();
         Title = repair
             ? (_norwegian ? "Update Express – Reparasjon" : "Update Express – Repair options")
             : (_norwegian ? "Update Express – Installasjonsvalg" : "Update Express – Installation options");
         AppIcon.Apply(this);
         Width = 560;
-        Height = 720;
+        Height = 560;
         MinWidth = 520;
-        MinHeight = 560;
+        MinHeight = 480;
         ResizeMode = ResizeMode.CanResizeWithGrip;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = Brushes.White;
 
-        ApplyLocalizedLabels(repair);
+        ApplyLocalizedLabels();
+        BuildChrome();
+        BuildDayBoxes();
+        WireEvents();
 
+        if (repair)
+            SeedFromPolicy();
+        else
+            ApplyFreshInstallDefaults();
+
+        RefreshScopeUi();
+        ShowPage(0);
+    }
+
+    private void BuildChrome()
+    {
         var root = new Grid { Margin = new Thickness(24, 20, 24, 20) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(27) });
         Content = root;
+
+        Grid.SetRow(_heading, 0);
+        root.Children.Add(_heading);
+        Grid.SetRow(_stepLabel, 1);
+        root.Children.Add(_stepLabel);
 
         var scroll = new ScrollViewer
         {
@@ -81,151 +130,9 @@ public sealed class InstallationOptionsWindow : Window
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Margin = new Thickness(0, 0, 0, 12)
         };
-        Grid.SetRow(scroll, 0);
+        Grid.SetRow(scroll, 2);
+        scroll.Content = _pageHost;
         root.Children.Add(scroll);
-
-        var content = new StackPanel();
-        scroll.Content = content;
-        content.Children.Add(new TextBlock
-        {
-            Text = repair
-                ? (_norwegian ? "Reparer Update Express" : "Repair Update Express")
-                : (_norwegian ? "Installer Update Express" : "Install Update Express"),
-            FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
-            FontSize = 20,
-            FontWeight = FontWeights.SemiBold
-        });
-
-        content.Children.Add(Section("Installation scope", "Installasjonsområde"));
-        _all.Checked += (_, _) => RefreshScopeUi();
-        _current.Checked += (_, _) => RefreshScopeUi();
-        content.Children.Add(_current);
-        content.Children.Add(_all);
-
-        content.Children.Add(Section("Profile", "Profil"));
-        content.Children.Add(ProfileTip(_profilePrivate, "private",
-            _norwegian ? "Privat" : "Private",
-            _norwegian ? "Hjemmebruk – mykere kveldsvindu, spør før omstart." : "Home use — softer evening window, ask before restart."));
-        content.Children.Add(ProfileTip(_profileBusiness, "business",
-            _norwegian ? "Bedrift" : "Business",
-            _norwegian ? "Arbeids-PC – man–fre arbeidstid, omstart utenom arbeidstid." : "Work PC — weekday hours, restart outside active hours."));
-        content.Children.Add(ProfileTip(_profileBoth, "both",
-            _norwegian ? "Begge deler" : "Both",
-            _norwegian ? "Blanding – arbeidstid man–fre, spør før omstart (tryggere)." : "Mixed — weekday hours, ask before restart (safer)."));
-
-        content.Children.Add(Section("Active hours", "Arbeidstid"));
-        content.Children.Add(new TextBlock
-        {
-            Text = _norwegian
-                ? "I denne perioden unngår vi omstart når det er mulig."
-                : "We avoid restarts in this period when possible.",
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 12,
-            Foreground = Brushes.DimGray,
-            Margin = new Thickness(0, 0, 0, 6)
-        });
-        var hours = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-        hours.Children.Add(new TextBlock
-        {
-            Text = _norwegian ? "Fra" : "From",
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0)
-        });
-        hours.Children.Add(_activeStart);
-        hours.Children.Add(new TextBlock
-        {
-            Text = _norwegian ? "til" : "to",
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0)
-        });
-        hours.Children.Add(_activeEnd);
-        hours.Children.Add(new TextBlock
-        {
-            Text = _norwegian ? " (time 0–23)" : " (hour 0–23)",
-            VerticalAlignment = VerticalAlignment.Center,
-            Foreground = Brushes.Gray,
-            Margin = new Thickness(8, 0, 0, 0)
-        });
-        content.Children.Add(hours);
-
-        content.Children.Add(Section("Install window", "Installasjonsvindu"));
-        content.Children.Add(new TextBlock
-        {
-            Text = _norwegian
-                ? "Velg dager og ett klokkeslett. Defender kjører uansett kontinuerlig."
-                : "Pick days and one clock time. Defender still runs continuously.",
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 12,
-            Foreground = Brushes.DimGray,
-            Margin = new Thickness(0, 0, 0, 6)
-        });
-        var days = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-        var labels = _norwegian ? MaintenanceSetup.DayLabelsNo : MaintenanceSetup.DayLabelsEn;
-        for (int i = 0; i < 7; i++)
-        {
-            var box = new System.Windows.Controls.CheckBox
-            {
-                Content = labels[i],
-                Margin = new Thickness(0, 0, 12, 6),
-                VerticalContentAlignment = VerticalAlignment.Center
-            };
-            _dayBoxes[i] = box;
-            days.Children.Add(box);
-        }
-        content.Children.Add(days);
-        var timeRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-        timeRow.Children.Add(new TextBlock
-        {
-            Text = _norwegian ? "Klokkeslett" : "Time",
-            VerticalAlignment = VerticalAlignment.Center
-        });
-        timeRow.Children.Add(_installTime);
-        content.Children.Add(timeRow);
-
-        content.Children.Add(Section("If Windows requires a restart", "Hvis Windows krever omstart"));
-        _rebootConfirm.Checked += (_, _) => _rebootChoice = "confirm";
-        _rebootOutside.Checked += (_, _) => _rebootChoice = "outsideActiveHours";
-        _rebootOff.Checked += (_, _) => _rebootChoice = "off";
-        content.Children.Add(_rebootConfirm);
-        content.Children.Add(_rebootOutside);
-        content.Children.Add(_rebootOff);
-
-        content.Children.Add(Section("Shortcuts and monitoring", "Snarveier og overvåking"));
-        content.Children.Add(_desktop);
-        content.Children.Add(_menu);
-        content.Children.Add(_taskbar);
-        content.Children.Add(_agent);
-        content.Children.Add(_service);
-        content.Children.Add(_serviceHint);
-        content.Children.Add(new TextBlock
-        {
-            Text = _norwegian
-                ? "Eksisterende Update Express-snarveier erstattes (ikke dupliseres) slik at ikon og sti alltid peker på gjeldende installasjonsmappe."
-                : "Existing Update Express shortcuts are replaced (not duplicated) so the icon and path always point at the current install folder.",
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 12,
-            Foreground = Brushes.DimGray,
-            Margin = new Thickness(0, 0, 0, 8)
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = _norwegian
-                ? "Alle-brukere installerer for alle; bakgrunnsagent for spørsmål konfigureres for innlogget bruker. Windows-tjeneste krever administrator."
-                : "All-users installation installs the app for everyone; the prompt agent is configured for the installing user. Windows service requires administrator.",
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 12,
-            Foreground = Brushes.DimGray
-        });
-
-        _service.Checked += (_, _) =>
-        {
-            _all.IsChecked = true;
-            RefreshScopeUi();
-        };
-        _service.Unchecked += (_, _) => RefreshScopeUi();
-
-        SeedFromPolicy();
-        RefreshScopeUi();
 
         var buttons = new Grid
         {
@@ -238,45 +145,70 @@ public sealed class InstallationOptionsWindow : Window
         buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
         buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
         buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
-        Grid.SetRow(buttons, 1);
-        var ok = new Button
-        {
-            Content = repair ? (_norwegian ? "Reparer" : "Repair") : (_norwegian ? "Installer" : "Install"),
-            Width = 90,
-            Height = 27,
-            MinHeight = 27,
-            MaxHeight = 27,
-            Padding = new Thickness(8, 0, 8, 0),
-            VerticalAlignment = VerticalAlignment.Stretch,
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
-            IsDefault = true
-        };
-        ok.Click += (_, _) =>
-        {
-            if (!TryCommit()) return;
-            DialogResult = true;
-        };
-        var cancel = new Button
-        {
-            Content = _norwegian ? "Avbryt" : "Cancel",
-            Width = 90,
-            Height = 27,
-            MinHeight = 27,
-            MaxHeight = 27,
-            Padding = new Thickness(8, 0, 8, 0),
-            VerticalAlignment = VerticalAlignment.Stretch,
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
-            IsCancel = true
-        };
-        cancel.Click += (_, _) => { DialogResult = false; };
-        Grid.SetColumn(ok, 0);
-        Grid.SetColumn(cancel, 2);
-        buttons.Children.Add(ok);
-        buttons.Children.Add(cancel);
+        buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
+        Grid.SetRow(buttons, 3);
+
+        StyleNavButton(_back, _norwegian ? "Tilbake" : "Back");
+        StyleNavButton(_next, _norwegian ? "Neste" : "Next");
+        StyleNavButton(_cancel, _norwegian ? "Avbryt" : "Cancel");
+        _next.IsDefault = true;
+        _cancel.IsCancel = true;
+        _back.Click += (_, _) => ShowPage(_page - 1);
+        _next.Click += (_, _) => OnNext();
+        _cancel.Click += (_, _) => { DialogResult = false; };
+
+        Grid.SetColumn(_back, 0);
+        Grid.SetColumn(_next, 2);
+        Grid.SetColumn(_cancel, 4);
+        buttons.Children.Add(_back);
+        buttons.Children.Add(_next);
+        buttons.Children.Add(_cancel);
         root.Children.Add(buttons);
     }
 
-    private void ApplyLocalizedLabels(bool repair)
+    private static void StyleNavButton(Button button, string content)
+    {
+        button.Content = content;
+        button.Width = 90;
+        button.Height = 27;
+        button.MinHeight = 27;
+        button.MaxHeight = 27;
+        button.Padding = new Thickness(8, 0, 8, 0);
+        button.VerticalAlignment = VerticalAlignment.Stretch;
+        button.HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch;
+    }
+
+    private void BuildDayBoxes()
+    {
+        var labels = _norwegian ? MaintenanceSetup.DayLabelsNo : MaintenanceSetup.DayLabelsEn;
+        for (int i = 0; i < 7; i++)
+        {
+            _dayBoxes[i] = new System.Windows.Controls.CheckBox
+            {
+                Content = labels[i],
+                Margin = new Thickness(0, 0, 12, 6),
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+        }
+    }
+
+    private void WireEvents()
+    {
+        _all.Checked += (_, _) => RefreshScopeUi();
+        _current.Checked += (_, _) => RefreshScopeUi();
+        _rebootConfirm.Checked += (_, _) => _rebootChoice = "confirm";
+        _rebootOutside.Checked += (_, _) => _rebootChoice = "outsideActiveHours";
+        _rebootOff.Checked += (_, _) => _rebootChoice = "off";
+        _service.Checked += (_, _) =>
+        {
+            _all.IsChecked = true;
+            RefreshScopeUi();
+        };
+        _service.Unchecked += (_, _) => RefreshScopeUi();
+    }
+
+    private void ApplyLocalizedLabels()
     {
         _current.Content = _norwegian ? "Kun gjeldende bruker" : "Current user only";
         _all.Content = _norwegian ? "Alle brukere (krever administrator)" : "All users (administrator required)";
@@ -290,20 +222,145 @@ public sealed class InstallationOptionsWindow : Window
             ? "Installer som Windows-tjeneste (maskin / LocalSystem)"
             : "Install as Windows service (machine / LocalSystem)";
         _serviceHint.Text = _norwegian
-            ? "Tjenesten kjører bakgrunnsautomatisering med systemrettigheter. UI og spørsmål forblir i brukersesjonen via bakgrunnsagenten. Eksplisitt samtykke kreves."
-            : "The service runs background automation with system rights. UI and prompts stay in the user session via the tray agent. Explicit consent required.";
+            ? "Tjenesten «Update Express» (internt MicroSystemsUpdateExpress) kjører bakgrunnsautomatisering med systemrettigheter. UI og spørsmål forblir i brukersesjonen via bakgrunnsagenten. Eksplisitt samtykke kreves."
+            : "The “Update Express” service (internal name MicroSystemsUpdateExpress) runs background automation with system rights. UI and prompts stay in the user session via the tray agent. Explicit consent required.";
         _rebootConfirm.Content = _norwegian ? "Spør meg om bekreftelse" : "Ask me for confirmation";
         _rebootOutside.Content = _norwegian ? "Bare utenom arbeidstid" : "Only outside active hours";
         _rebootOff.Content = _norwegian ? "Jeg restarter selv (ingen auto-omstart)" : "I’ll restart myself (no auto-reboot)";
-        _ = repair;
+    }
+
+    private void ShowPage(int page)
+    {
+        _page = Math.Clamp(page, 0, 2);
+        _pageHost.Children.Clear();
+
+        _heading.Text = _repair
+            ? (_norwegian ? "Reparer Update Express" : "Repair Update Express")
+            : (_norwegian ? "Installer Update Express" : "Install Update Express");
+
+        _stepLabel.Text = _norwegian
+            ? $"Steg {_page + 1} av 3"
+            : $"Step {_page + 1} of 3";
+
+        switch (_page)
+        {
+            case 0:
+                _pageHost.Children.Add(Section("Installation scope", "Installasjonsområde"));
+                _pageHost.Children.Add(_current);
+                _pageHost.Children.Add(_all);
+                _pageHost.Children.Add(Section("Profile", "Profil"));
+                _pageHost.Children.Add(ProfileTip(_profilePrivate, "private",
+                    _norwegian ? "Privat" : "Private",
+                    _norwegian ? "Hjemmebruk – mykere kveldsvindu, spør før omstart." : "Home use — softer evening window, ask before restart."));
+                _pageHost.Children.Add(ProfileTip(_profileBusiness, "business",
+                    _norwegian ? "Bedrift" : "Business",
+                    _norwegian ? "Arbeids-PC – man–fre arbeidstid, omstart utenom arbeidstid." : "Work PC — weekday hours, restart outside active hours."));
+                _pageHost.Children.Add(ProfileTip(_profileBoth, "both",
+                    _norwegian ? "Begge deler" : "Both",
+                    _norwegian
+                        ? "Blanding – man–fre 17:00, omstart utenom arbeidstid."
+                        : "Mixed — weekdays at 17:00, restart outside active hours."));
+                break;
+            case 1:
+                _pageHost.Children.Add(Section("Active hours", "Arbeidstid"));
+                _pageHost.Children.Add(Hint(
+                    _norwegian
+                        ? "I denne perioden unngår vi omstart når det er mulig."
+                        : "We avoid restarts in this period when possible."));
+                var hours = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+                hours.Children.Add(Label(_norwegian ? "Fra" : "From"));
+                hours.Children.Add(_activeStart);
+                hours.Children.Add(Label(_norwegian ? "til" : "to"));
+                hours.Children.Add(_activeEnd);
+                hours.Children.Add(new TextBlock
+                {
+                    Text = _norwegian ? " (time 0–23)" : " (hour 0–23)",
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = Brushes.Gray,
+                    Margin = new Thickness(8, 0, 0, 0)
+                });
+                _pageHost.Children.Add(hours);
+
+                _pageHost.Children.Add(Section("Install window", "Installasjonsvindu"));
+                _pageHost.Children.Add(Hint(
+                    _norwegian
+                        ? "Velg dager og ett klokkeslett. Defender kjører uansett kontinuerlig."
+                        : "Pick days and one clock time. Defender still runs continuously."));
+                var days = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+                foreach (var box in _dayBoxes) days.Children.Add(box);
+                _pageHost.Children.Add(days);
+                var timeRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+                timeRow.Children.Add(Label(_norwegian ? "Klokkeslett" : "Time"));
+                timeRow.Children.Add(_installTime);
+                _pageHost.Children.Add(timeRow);
+
+                _pageHost.Children.Add(Section("If Windows requires a restart", "Hvis Windows krever omstart"));
+                _pageHost.Children.Add(_rebootConfirm);
+                _pageHost.Children.Add(_rebootOutside);
+                _pageHost.Children.Add(_rebootOff);
+                break;
+            default:
+                _pageHost.Children.Add(Section("Shortcuts and monitoring", "Snarveier og overvåking"));
+                _pageHost.Children.Add(_desktop);
+                _pageHost.Children.Add(_menu);
+                _pageHost.Children.Add(_taskbar);
+                _pageHost.Children.Add(_agent);
+                _pageHost.Children.Add(_service);
+                _pageHost.Children.Add(_serviceHint);
+                _pageHost.Children.Add(Hint(
+                    _norwegian
+                        ? "Eksisterende Update Express-snarveier erstattes (ikke dupliseres) slik at ikon og sti alltid peker på gjeldende installasjonsmappe."
+                        : "Existing Update Express shortcuts are replaced (not duplicated) so the icon and path always point at the current install folder."));
+                _pageHost.Children.Add(Hint(
+                    _norwegian
+                        ? "Alle-brukere installerer for alle; bakgrunnsagent for spørsmål konfigureres for innlogget bruker. Windows-tjeneste krever administrator. I Tjenester heter den «Update Express»."
+                        : "All-users installation installs the app for everyone; the prompt agent is configured for the installing user. Windows service requires administrator. In Services it appears as “Update Express”."));
+                break;
+        }
+
+        _back.IsEnabled = _page > 0;
+        _back.Visibility = _page > 0 ? Visibility.Visible : Visibility.Hidden;
+        bool last = _page >= 2;
+        _next.Content = last
+            ? (_repair ? (_norwegian ? "Reparer" : "Repair") : (_norwegian ? "Installer" : "Install"))
+            : (_norwegian ? "Neste" : "Next");
+    }
+
+    private void OnNext()
+    {
+        if (_page < 2)
+        {
+            if (_page == 1 && !TryValidateSchedule()) return;
+            ShowPage(_page + 1);
+            return;
+        }
+
+        if (!TryCommit()) return;
+        DialogResult = true;
     }
 
     private UIElement Section(string en, string no) => new TextBlock
     {
         Text = _norwegian ? no : en,
-        Margin = new Thickness(0, 14, 0, 4),
+        Margin = new Thickness(0, 10, 0, 4),
         FontSize = 14,
         FontWeight = FontWeights.SemiBold
+    };
+
+    private static TextBlock Hint(string text) => new()
+    {
+        Text = text,
+        TextWrapping = TextWrapping.Wrap,
+        FontSize = 12,
+        Foreground = Brushes.DimGray,
+        Margin = new Thickness(0, 0, 0, 8)
+    };
+
+    private static TextBlock Label(string text) => new()
+    {
+        Text = text,
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(0, 0, 8, 0)
     };
 
     private UIElement ProfileTip(System.Windows.Controls.RadioButton radio, string value, string label, string tip)
@@ -328,16 +385,45 @@ public sealed class InstallationOptionsWindow : Window
         return panel;
     }
 
+    /// <summary>Screenshot defaults for a fresh Install.</summary>
+    private void ApplyFreshInstallDefaults()
+    {
+        _all.IsChecked = true;
+        _current.IsChecked = false;
+        _profile = "both";
+        _profileBoth.IsChecked = true;
+        _profilePrivate.IsChecked = false;
+        _profileBusiness.IsChecked = false;
+        _activeStart.Text = "8";
+        _activeEnd.Text = "16";
+        _daysMask = WeekdaysMask;
+        for (int i = 0; i < 7; i++)
+            _dayBoxes[i].IsChecked = MaintenanceSetup.HasDay(_daysMask, i);
+        _installTime.Text = "17:00";
+        _rebootChoice = "outsideActiveHours";
+        _rebootOutside.IsChecked = true;
+        _rebootConfirm.IsChecked = false;
+        _rebootOff.IsChecked = false;
+        _desktop.IsChecked = true;
+        _menu.IsChecked = true;
+        _taskbar.IsChecked = true;
+        _agent.IsChecked = true;
+        _service.IsChecked = true;
+    }
+
     private void SeedFromPolicy()
     {
+        ApplyFreshInstallDefaults();
         var policy = UpdatePolicy.Load();
         policy.Normalize();
+        if (!policy.SetupCompleted) return;
+
         if (!string.IsNullOrWhiteSpace(policy.SetupProfile))
             _profile = policy.SetupProfile.Trim().ToLowerInvariant();
         _activeStart.Text = policy.WindowsAutomation.AutoReboot.ActiveHoursStart.ToString(CultureInfo.InvariantCulture);
         _activeEnd.Text = policy.WindowsAutomation.AutoReboot.ActiveHoursEnd.ToString(CultureInfo.InvariantCulture);
-        _daysMask = policy.InstallDaysMask == 0 ? MaintenanceSetup.AllDaysMask : policy.InstallDaysMask;
-        _installTime.Text = MaintenanceSetup.NormalizeTime(policy.InstallTime, "18:00");
+        _daysMask = policy.InstallDaysMask == 0 ? WeekdaysMask : policy.InstallDaysMask;
+        _installTime.Text = MaintenanceSetup.NormalizeTime(policy.InstallTime, "17:00");
         if (!policy.WindowsAutomation.AutoReboot.Enabled) _rebootChoice = "off";
         else if (string.Equals(policy.WindowsAutomation.AutoReboot.Mode, "outsideActiveHours", StringComparison.OrdinalIgnoreCase))
             _rebootChoice = "outsideActiveHours";
@@ -347,7 +433,7 @@ public sealed class InstallationOptionsWindow : Window
         _profileBusiness.IsChecked = _profile == "business";
         _profileBoth.IsChecked = _profile == "both";
         if (_profilePrivate.IsChecked != true && _profileBusiness.IsChecked != true && _profileBoth.IsChecked != true)
-            _profilePrivate.IsChecked = true;
+            _profileBoth.IsChecked = true;
 
         for (int i = 0; i < 7; i++)
             _dayBoxes[i].IsChecked = MaintenanceSetup.HasDay(_daysMask, i);
@@ -384,19 +470,12 @@ public sealed class InstallationOptionsWindow : Window
         if (service && !machine)
             _all.IsChecked = true;
 
-        // Per-user agent remains available for prompts even with machine service install.
         _agent.IsEnabled = true;
-        if (!machine && !service && _agent.IsChecked != true)
-            _agent.IsEnabled = true;
-
         _service.IsEnabled = true;
-        if (!machine && _service.IsChecked == true)
-            _serviceHint.Foreground = Brushes.DarkOrange;
-        else
-            _serviceHint.Foreground = Brushes.DimGray;
+        _serviceHint.Foreground = (!machine && service) ? Brushes.DarkOrange : Brushes.DimGray;
     }
 
-    private bool TryCommit()
+    private bool TryValidateSchedule()
     {
         if (!int.TryParse(_activeStart.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int start) ||
             start is < 0 or > 23 ||
@@ -424,10 +503,21 @@ public sealed class InstallationOptionsWindow : Window
         if (!TimeSpan.TryParseExact(time, @"hh\:mm", CultureInfo.InvariantCulture, out _))
         {
             MessageBox.Show(this,
-                _norwegian ? "Klokkeslett må være TT:mm, f.eks. 18:00." : "Time must be HH:mm, e.g. 18:00.",
+                _norwegian ? "Klokkeslett må være TT:mm, f.eks. 17:00." : "Time must be HH:mm, e.g. 17:00.",
                 Title, MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
+
+        ActiveHoursStart = start;
+        ActiveHoursEnd = end;
+        _daysMask = mask;
+        InstallTime = time;
+        return true;
+    }
+
+    private bool TryCommit()
+    {
+        if (!TryValidateSchedule()) return false;
 
         if (_service.IsChecked == true && _all.IsChecked != true)
             _all.IsChecked = true;
@@ -438,19 +528,17 @@ public sealed class InstallationOptionsWindow : Window
                 _norwegian
                     ? "Du har valgt å installere Update Express som Windows-tjeneste (LocalSystem).\n\n" +
                       "Tjenesten kan kjøre bakgrunnsautomatisering uten innlogget bruker. UI og spørsmål forblir i brukersesjonen.\n\n" +
+                      "I Tjenester-listen heter den «Update Express».\n\n" +
                       "Fortsette?"
                     : "You chose to install Update Express as a Windows service (LocalSystem).\n\n" +
                       "The service can run background automation without a signed-in user. UI and prompts stay in the user session.\n\n" +
+                      "In the Services list it appears as “Update Express”.\n\n" +
                       "Continue?",
                 Title, MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (consent != MessageBoxResult.Yes)
                 return false;
         }
 
-        ActiveHoursStart = start;
-        ActiveHoursEnd = end;
-        _daysMask = mask;
-        InstallTime = time;
         return true;
     }
 }

@@ -17,14 +17,16 @@ internal static class WindowsServiceInstaller
         var existing = PmeServiceControl.ReadState(WindowsServiceHost.ServiceName);
         if (existing.Exists)
         {
-            AgentLog.WriteInstall("Windows service already registered; updating binPath and restarting.");
+            AgentLog.WriteInstall("Windows service already registered; updating binPath/DisplayName and restarting.");
             RunScQuiet("stop", WindowsServiceHost.ServiceName);
             // config binPath= must be one argument after binPath=
-            RunScQuiet("config", WindowsServiceHost.ServiceName, "binPath=", binPath, "start=", "auto", "obj=", "LocalSystem");
+            RunScQuiet("config", WindowsServiceHost.ServiceName, "binPath=", binPath, "start=", "auto", "obj=", "LocalSystem",
+                "DisplayName=", WindowsServiceHost.DisplayName);
         }
         else
         {
-            AgentLog.WriteInstall("Creating Windows service " + WindowsServiceHost.ServiceName);
+            AgentLog.WriteInstall(
+                $"Creating Windows service {WindowsServiceHost.ServiceName} (DisplayName={WindowsServiceHost.DisplayName})");
             RunScRequired(
                 "create",
                 WindowsServiceHost.ServiceName,
@@ -32,12 +34,20 @@ internal static class WindowsServiceInstaller
                 "start=", "auto",
                 "obj=", "LocalSystem",
                 "DisplayName=", WindowsServiceHost.DisplayName);
-            RunScQuiet("description", WindowsServiceHost.ServiceName,
-                "Update Express background automation (MicroSystems). UI remains in the user session.");
         }
+
+        RunScQuiet("description", WindowsServiceHost.ServiceName,
+            "Update Express background automation (MicroSystems). UI remains in the user session.");
 
         var start = RunScQuiet("start", WindowsServiceHost.ServiceName);
         AgentLog.WriteInstall($"Windows service start exit={start.ExitCode}; output={Trim(start.Output)}");
+        // Confirm SCM sees the service before claiming success to the UI.
+        var after = PmeServiceControl.ReadState(WindowsServiceHost.ServiceName);
+        AgentLog.WriteInstall(
+            $"Windows service verify: exists={after.Exists}; state={after.State}; display={WindowsServiceHost.DisplayName}");
+        if (!after.Exists)
+            throw new InvalidOperationException(
+                "Windows service registration reported success but the service is not visible to SCM.");
         if (start.ExitCode != 0 && start.ExitCode != 1056)
             throw new InvalidOperationException(
                 "Windows service was registered but failed to start (sc exit " + start.ExitCode + "). " + Trim(start.Output));

@@ -13,8 +13,10 @@ namespace UpdateExpress.Services;
 /// </summary>
 internal static class WindowsServiceHost
 {
+    /// <summary>SCM key (stable). Shown under M if DisplayName is missing.</summary>
     internal const string ServiceName = "MicroSystemsUpdateExpress";
-    internal const string DisplayName = "MicroSystems Update Express";
+    /// <summary>Friendly name in services.msc — sorts under U as “Update Express”.</summary>
+    internal const string DisplayName = "Update Express";
 
     internal static void Run()
     {

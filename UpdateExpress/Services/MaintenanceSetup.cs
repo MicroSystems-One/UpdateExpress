@@ -136,11 +136,12 @@ internal static class MaintenanceSetup
                 ApplyToPolicy(policy, (1 << 1) | (1 << 3), "18:00"); // Tue+Thu
                 break;
             case "both":
+                // Product default (install screenshots): weekdays 17:00, restart outside 08–16.
                 policy.WindowsAutomation.AutoReboot.ActiveHoursStart = 8;
                 policy.WindowsAutomation.AutoReboot.ActiveHoursEnd = 16;
                 policy.WindowsAutomation.AutoReboot.Enabled = true;
-                policy.WindowsAutomation.AutoReboot.Mode = "confirm";
-                ApplyToPolicy(policy, (1 << 1) | (1 << 4), "18:00"); // Tue+Fri
+                policy.WindowsAutomation.AutoReboot.Mode = "outsideActiveHours";
+                ApplyToPolicy(policy, 0b0011111, "17:00"); // Mon..Fri
                 break;
             default: // private
                 policy.WindowsAutomation.AutoReboot.ActiveHoursStart = 8;
