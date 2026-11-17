@@ -1472,7 +1472,24 @@ public partial class MainWindow : Window
                 balloon: null);
             MaybeShowSetupWizard();
             if (UpdateUntilCurrent.Load().Active)
+            {
+                // Defense-in-depth: App elevates before MainWindow, but never resume
+                // the cycle from a medium-IL process (would Access Denied and clear Active).
+                if (!ElevationHelper.IsElevated)
+                {
+                    try
+                    {
+                        ElevationHelper.RestartElevated("--installed");
+                        Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        AgentLog.WriteInstall("Update-until-current resume needs elevation: " + ex.Message);
+                    }
+                    return;
+                }
                 await RunUpdateUntilCurrentAsync();
+            }
         };
         _connectivity.Updated += UpdateConnectivity;
         Loaded += (_, _) => _connectivity.Start();

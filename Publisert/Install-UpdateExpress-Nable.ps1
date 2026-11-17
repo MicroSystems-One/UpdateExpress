@@ -71,6 +71,14 @@ function Test-UeIsAdmin {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# SYSTEM + Scope=user would install under systemprofile LocalAppData (inaccessible to
+# interactive users) and then register that path in every user's Run key. Force machine.
+$runningAsSystem = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -eq 'S-1-5-18'
+if ($runningAsSystem -and $Scope -eq 'user') {
+    Write-UeLog 'Running as SYSTEM with Scope=user — forcing Scope=machine so the EXE lands under Program Files (accessible to interactive users).'
+    $Scope = 'machine'
+}
+
 # Self-elevate or fail with a clear message (no silent hang as a limited user).
 if (-not (Test-UeIsAdmin)) {
     Write-UeLog 'Not elevated — requesting Administrator (UAC)...'
