@@ -33,7 +33,7 @@ public sealed class LauncherWindow : Window
         });
         Add("↓  Install", "Install Update Express", () => InstallationManager.InstallOrRepair(false));
         Add("⚒  Repair", "Repair installation", () => InstallationManager.InstallOrRepair(true));
-        Add("×  Uninstall", "Remove application", InstallationManager.Uninstall);
+        Add("×  Uninstall", "Remove application", () => InstallationManager.Uninstall());
         root.Children.Add(new TextBlock { Text = "No updates are installed automatically.", Margin = new Thickness(0, 20, 0, 0), Foreground = Brushes.Gray, FontSize = 12 });
         void Add(string title, string subtitle, Action action)
         {
