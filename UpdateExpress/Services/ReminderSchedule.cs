@@ -22,6 +22,11 @@ public sealed class ReminderSchedule
     public DateTime? LastPromptedOccurrence { get; set; }
     public DateTime? ConfirmedOccurrence { get; set; }
     public DateTime? SnoozedUntil { get; set; }
+    /// <summary>
+    /// Calendar date of a maintenance day that rolled past midnight without Confirm.
+    /// Shown once on the next reminder, then cleared.
+    /// </summary>
+    public DateTime? MissedUnconfirmedDate { get; set; }
 
     private static string DirectoryPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "UpdateExpress");
     public static string SettingsPath => Path.Combine(DirectoryPath, "schedule.json");

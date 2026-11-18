@@ -1922,15 +1922,39 @@ public partial class MainWindow : Window
         // Already confirmed for today — do not keep prompting.
         if (_schedule.ConfirmedOccurrence is DateTime confirmed && confirmed.Date == now.Date) return;
 
+        var due = now.Date.Add(at);
         var slot = ReminderSchedule.EffectiveReminderSlot(now, at);
-        if (slot is null) return; // not due yet, or past last half-hour before midnight → next day
+        if (slot is null)
+        {
+            // Past the last :00/:30 before midnight with no confirm → remember for next day's dialog.
+            if (now >= due
+                && ReminderSchedule.NextHalfHourSlot(now) is null
+                && _schedule.ConfirmedOccurrence?.Date != now.Date)
+            {
+                MarkMissedUnconfirmedDay(now.Date);
+            }
+            return;
+        }
 
         if (_schedule.LastPromptedOccurrence == slot.Value) return;
         ShowReminder(false, slot.Value);
     }
 
+    private void MarkMissedUnconfirmedDay(DateTime day)
+    {
+        var date = day.Date;
+        if (_schedule.MissedUnconfirmedDate?.Date == date) return;
+        _schedule.MissedUnconfirmedDate = date;
+        _schedule.Save();
+        ReminderSchedule.Log("reminder_deferred_next_day", date.ToString("yyyy-MM-dd"));
+    }
+
     private void ShowReminder(bool isTest, DateTime occurrence)
     {
+        bool showMissed = !isTest
+            && _schedule.MissedUnconfirmedDate is DateTime missed
+            && missed.Date < DateTime.Now.Date;
+
         if (!isTest)
         {
             _schedule.LastPromptedOccurrence = occurrence;
@@ -1949,7 +1973,7 @@ public partial class MainWindow : Window
                 if (IsLoaded) Activate();
 
                 bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
-                var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no")
+                var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no", showMissed)
                 {
                     Owner = ownerOk ? this : null,
                     WindowStartupLocation = ownerOk
@@ -1960,6 +1984,9 @@ public partial class MainWindow : Window
                 ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision);
                 if (!isTest)
                 {
+                    if (showMissed)
+                        _schedule.MissedUnconfirmedDate = null;
+
                     if (dialog.Decision == "confirmed")
                     {
                         _schedule.ConfirmedOccurrence = occurrence;
@@ -1981,7 +2008,7 @@ public partial class MainWindow : Window
                         }
                         else
                         {
-                            ReminderSchedule.Log("reminder_deferred_next_day", occurrence.ToString("o"));
+                            MarkMissedUnconfirmedDay(occurrence.Date);
                         }
                     }
                     _schedule.Save();

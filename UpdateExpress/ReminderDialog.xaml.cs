@@ -9,7 +9,7 @@ public partial class ReminderDialog : Window
 {
     public string Decision { get; private set; } = "dismissed";
 
-    public ReminderDialog(bool isTest, DateTime occurrence, bool norwegian = false)
+    public ReminderDialog(bool isTest, DateTime occurrence, bool norwegian = false, bool showMissedPreviousDay = false)
     {
         InitializeComponent();
         AppIcon.Apply(this);
@@ -29,6 +29,15 @@ public partial class ReminderDialog : Window
         WhenText.Text = isTest
             ? (norwegian ? "Testvarsel – ingen handling utført" : "Notification test – no action performed")
             : (norwegian ? $"Planlagt tidspunkt: {time}" : $"Scheduled time: {time}");
+
+        if (showMissedPreviousDay && !isTest)
+        {
+            MissedNoticeText.Visibility = Visibility.Visible;
+            MissedNoticeText.Text = norwegian
+                ? "Vi minner om at planlagt vedlikehold i går ikke ble gjennomført, fordi det manglet bekreftelse."
+                : "Reminder: yesterday's scheduled maintenance was not completed because it was not confirmed.";
+        }
+
         if (norwegian)
         {
             Title = "Update Express – Påminnelse";
