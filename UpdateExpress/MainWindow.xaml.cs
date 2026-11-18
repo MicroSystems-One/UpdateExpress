@@ -676,21 +676,30 @@ public partial class MainWindow : Window
     private void RefreshAutomationStatusTexts()
     {
         var status = WindowsAutomationStatus.Load();
+        bool no = _schedule.Language == "no";
         string Format(CategoryAutomationStatus item, string pendingNote)
         {
-            if (item.LastRun is null) return "Status: " + pendingNote;
+            if (item.LastRun is null) return (no ? "Status: " : "Status: ") + pendingNote;
             string next = item.NextDue?.ToString("dd.MM HH:mm") ?? "—";
-            return $"Status: {item.LastResult} · last {item.LastRun:dd.MM HH:mm} · next {next}";
+            return no
+                ? $"Status: {item.LastResult} · sist {item.LastRun:dd.MM HH:mm} · neste {next}"
+                : $"Status: {item.LastResult} · last {item.LastRun:dd.MM HH:mm} · next {next}";
         }
-        DefenderAutomationStatus.Text = Format(status.Defender, "waiting for agent");
-        CriticalAutomationStatus.Text = Format(status.Critical, "waiting for agent");
-        GeneralAutomationStatus.Text = Format(status.General, "waiting for agent");
-        AutomationStatusText.Text =
-            $"Windows automation: Defender={status.Defender.LastResult}" +
-            $"  |  Critical={status.Critical.LastResult}" +
-            $"  |  General={status.General.LastResult}" +
-            $"  |  Drivers={status.Drivers.LastResult}" +
-            $"  |  Apps={status.Applications.LastResult}";
+        string waiting = no ? "venter på agent" : "waiting for agent";
+        DefenderAutomationStatus.Text = Format(status.Defender, waiting);
+        CriticalAutomationStatus.Text = Format(status.Critical, waiting);
+        GeneralAutomationStatus.Text = Format(status.General, waiting);
+        AutomationStatusText.Text = no
+            ? $"Windows-automatisering: Defender={status.Defender.LastResult}" +
+              $"  |  Kritisk={status.Critical.LastResult}" +
+              $"  |  Generell={status.General.LastResult}" +
+              $"  |  Drivere={status.Drivers.LastResult}" +
+              $"  |  Programmer={status.Applications.LastResult}"
+            : $"Windows automation: Defender={status.Defender.LastResult}" +
+              $"  |  Critical={status.Critical.LastResult}" +
+              $"  |  General={status.General.LastResult}" +
+              $"  |  Drivers={status.Drivers.LastResult}" +
+              $"  |  Apps={status.Applications.LastResult}";
         AutomationStatusText.ToolTip =
             $"Defender: {status.Defender.Detail}\nCritical: {status.Critical.Detail}\nGeneral: {status.General.Detail}\nDrivers: {status.Drivers.Detail}\nApplications: {status.Applications.Detail}";
     }
@@ -730,7 +739,9 @@ public partial class MainWindow : Window
         int windows = _pendingSnapshot.Count(x => x.Category != "Driver / firmware" &&
             (!string.IsNullOrEmpty(x.UpdateId) || x.Source == FeatureUpdateOfferReader.Source));
         int drivers = _pendingSnapshot.Count(x => x.Category == "Driver / firmware" && !string.IsNullOrEmpty(x.UpdateId));
-        return $"Windows: {windows} available  |  Drivers: {drivers} available  |  Applications: {_appEntries.Count} available";
+        return _schedule.Language == "no"
+            ? $"Windows: {windows} tilgjengelig  |  Drivere: {drivers} tilgjengelig  |  Programmer: {_appEntries.Count} tilgjengelig"
+            : $"Windows: {windows} available  |  Drivers: {drivers} available  |  Applications: {_appEntries.Count} available";
     }
 
     private void RefreshHealthSummary()
@@ -739,7 +750,9 @@ public partial class MainWindow : Window
         if (_historySnapshot.Count == 0 && _pendingSnapshot.Count == 0 && _installOutcomeSuccess is null && _installOutcomeFailures is null)
         {
             HealthSummary.Inlines.Clear();
-            HealthSummary.Text = CategorySummary() + "\nHistory not checked yet.";
+            HealthSummary.Text = CategorySummary() + (_schedule.Language == "no"
+                ? "\nHistorikk er ikke sjekket ennå."
+                : "\nHistory not checked yet.");
             return;
         }
         var failures = _historySnapshot.Where(x => x.IsHistoryFailed).ToList();
@@ -1090,25 +1103,58 @@ public partial class MainWindow : Window
     private static IEnumerable<string> SplitKbs(string? value) =>
         System.Text.RegularExpressions.Regex.Matches(value ?? "", @"KB\d{5,9}", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
             .Select(m => m.Value.ToUpperInvariant()).Distinct();
+    private DefenderState? _lastDefender;
+
     private async void DefenderRefresh_Click(object sender, RoutedEventArgs e) { await RefreshDefenderAsync(); await RefreshFirewallAsync(); }
     private async System.Threading.Tasks.Task RefreshDefenderAsync()
     {
         DefenderRefreshButton.IsEnabled = false;
-        DefenderLabel.Text = "Checking…";
+        bool norwegian = _schedule.Language == "no";
+        DefenderLabel.Text = norwegian ? "Sjekker…" : "Checking…";
         try
         {
             var status = await UpdateExpress.Services.DefenderStatusReader.ReadAsync();
-            DefenderShield.Fill = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(status.Level switch
-            {
-                "green" => "#168A57", "orange" => "#EA941B", "red" => "#D13C36", _ => "#9099A6"
-            }));
-            DefenderLabel.Text = status.Label;
-            DefenderChecked.Text = $"Checked {status.CheckedAt:HH:mm}";
-            System.Windows.Controls.ToolTipService.SetToolTip(DefenderShield, status.Details);
-            System.Windows.Controls.ToolTipService.SetToolTip(DefenderLabel, status.Details);
+            _lastDefender = status;
+            ApplyDefenderUi(status);
         }
-        catch (Exception ex) { DefenderLabel.Text = "Unknown"; DefenderChecked.Text = ex.Message; }
+        catch (Exception ex)
+        {
+            _lastDefender = null;
+            DefenderLabel.Text = norwegian ? "Ukjent" : "Unknown";
+            DefenderChecked.Text = ex.Message;
+        }
         finally { DefenderRefreshButton.IsEnabled = true; }
+    }
+
+    private void ApplyDefenderUi(DefenderState status)
+    {
+        bool norwegian = _schedule.Language == "no";
+        DefenderShield.Fill = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(status.Level switch
+        {
+            "green" => "#168A57", "orange" => "#EA941B", "red" => "#D13C36", _ => "#9099A6"
+        }));
+        DefenderLabel.Text = LocalizeDefenderLabel(status.Label, norwegian);
+        DefenderChecked.Text = norwegian
+            ? $"Sjekket {status.CheckedAt:HH:mm}"
+            : $"Checked {status.CheckedAt:HH:mm}";
+        System.Windows.Controls.ToolTipService.SetToolTip(DefenderShield, status.Details);
+        System.Windows.Controls.ToolTipService.SetToolTip(DefenderLabel, status.Details);
+    }
+
+    private static string LocalizeDefenderLabel(string label, bool norwegian)
+    {
+        if (!norwegian) return label;
+        return label switch
+        {
+            "Updated" => "Oppdatert",
+            "Unknown" => "Ukjent",
+            "Checking…" => "Sjekker…",
+            "Protection disabled" => "Beskyttelse deaktivert",
+            "Critical: 7+ days" => "Kritisk: 7+ dager",
+            "Warning: 2–6 days" => "Advarsel: 2–6 dager",
+            "Defender passive" => "Defender passiv",
+            _ => label
+        };
     }
     private async Task RefreshFirewallAsync()
     {
@@ -1246,34 +1292,59 @@ public partial class MainWindow : Window
 
     private void RefreshMonitorPanel()
     {
+        bool no = _schedule.Language == "no";
         var status = MonitorStatus.Read();
         if (status is null)
         {
-            MonitorStateText.Text = "Background monitoring: no status yet";
-            MonitorDetailsText.Text = "Install/start the background agent to see status";
-            MonitorUpdatesText.Text = "Updates: —";
+            MonitorStateText.Text = no
+                ? "Bakgrunnsovervåking: ingen status ennå"
+                : "Background monitoring: no status yet";
+            MonitorDetailsText.Text = no
+                ? "Installer/start bakgrunnsagenten for å se status"
+                : "Install/start the background agent to see status";
+            MonitorUpdatesText.Text = no ? "Oppdateringer: —" : "Updates: —";
             MonitorElapsedText.Text = "";
             return;
         }
         string state = status.State switch
         {
-            "scanning" => "Background monitoring: checking for updates …",
-            "completed" => "Background monitoring: last check completed",
-            "failed" => "Background monitoring: last check failed",
-            _ => "Background monitoring: waiting for next check"
+            "scanning" => no
+                ? "Bakgrunnsovervåking: søker etter oppdateringer …"
+                : "Background monitoring: checking for updates …",
+            "completed" => no
+                ? "Bakgrunnsovervåking: siste sjekk fullført"
+                : "Background monitoring: last check completed",
+            "failed" => no
+                ? "Bakgrunnsovervåking: siste sjekk feilet"
+                : "Background monitoring: last check failed",
+            _ => no
+                ? "Bakgrunnsovervåking: venter på neste sjekk"
+                : "Background monitoring: waiting for next check"
         };
         string last = status.LastCompleted?.ToString("dd.MM HH:mm") ?? "—";
         string next = status.NextScheduled == default
             ? "—"
             : status.NextScheduled.ToString("HH:mm");
         // Inline after monitoring text: three spaces between each segment.
-        MonitorStateText.Text = $"{state}   Next scheduled: {next}   Last: {last}";
-        MonitorDetailsText.Text = $"Available: {status.Pending}  |  New: {status.New}";
-        MonitorUpdatesText.Text = status.Updates.Length == 0 ? "Updates: none recorded" : "Updates: " + string.Join("; ", status.Updates.Take(3));
-        MonitorUpdatesText.ToolTip = status.Updates.Length == 0 ? "No recorded updates" : string.Join(Environment.NewLine, status.Updates);
+        MonitorStateText.Text = no
+            ? $"{state}   Neste planlagt: {next}   Sist: {last}"
+            : $"{state}   Next scheduled: {next}   Last: {last}";
+        MonitorDetailsText.Text = no
+            ? $"Tilgjengelig: {status.Pending}  |  Nye: {status.New}"
+            : $"Available: {status.Pending}  |  New: {status.New}";
+        MonitorUpdatesText.Text = status.Updates.Length == 0
+            ? (no ? "Oppdateringer: ingen registrert" : "Updates: none recorded")
+            : (no ? "Oppdateringer: " : "Updates: ") + string.Join("; ", status.Updates.Take(3));
+        MonitorUpdatesText.ToolTip = status.Updates.Length == 0
+            ? (no ? "Ingen registrerte oppdateringer" : "No recorded updates")
+            : string.Join(Environment.NewLine, status.Updates);
         MonitorElapsedText.Text = status.State == "scanning" && status.Started.HasValue
-            ? $"Checking: {(int)Math.Max(0, (DateTime.Now - status.Started.Value).TotalSeconds)} s"
-            : status.State == "failed" ? (status.Error ?? "Error – see agent.log") : "";
+            ? (no
+                ? $"Sjekker: {(int)Math.Max(0, (DateTime.Now - status.Started.Value).TotalSeconds)} s"
+                : $"Checking: {(int)Math.Max(0, (DateTime.Now - status.Started.Value).TotalSeconds)} s")
+            : status.State == "failed"
+                ? (status.Error ?? (no ? "Feil – se agent.log" : "Error – see agent.log"))
+                : "";
     }
 
     public void ShowProxySettings()
@@ -1290,18 +1361,31 @@ public partial class MainWindow : Window
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => UpdateConnectivity(internet, update, proxy))); return; }
         InternetLamp.Fill = internet.Ok ? Brushes.ForestGreen : Brushes.OrangeRed;
         UpdateServerLamp.Fill = update.Ok ? Brushes.ForestGreen : Brushes.OrangeRed;
-        InternetStatusText.Text = "Internet: " + internet.Message;
-        UpdateServerStatusText.Text = "Microsoft TCP: " + (update.Message == "TCP OK" ? "OK" : update.Message);
+        bool no = _schedule.Language == "no";
+        InternetStatusText.Text = (no ? "Internett: " : "Internet: ") + internet.Message;
+        UpdateServerStatusText.Text = (no ? "Microsoft TCP: " : "Microsoft TCP: ")
+            + (update.Message == "TCP OK" ? "OK" : update.Message);
         var wua = MonitorStatus.Read();
         bool wuaOk = wua?.LastCompleted is not null && wua.State != "failed";
         WuaLamp.Fill = wuaOk ? Brushes.ForestGreen : wua?.State == "failed" ? Brushes.OrangeRed : Brushes.Gray;
-        WuaStatusText.Text = wuaOk ? "WUA: OK" : wua?.State == "failed" ? "WUA: Error" : "WUA: Not confirmed";
-        WuaStatusText.ToolTip = wuaOk ? $"Last successful WUA check: {wua!.LastCompleted:dd.MM HH:mm}" :
-            wua?.Error ?? "Waiting for successful background-agent check.";
+        WuaStatusText.Text = wuaOk
+            ? "WUA: OK"
+            : wua?.State == "failed"
+                ? (no ? "WUA: Feil" : "WUA: Error")
+                : (no ? "WUA: Ikke bekreftet" : "WUA: Not confirmed");
+        WuaStatusText.ToolTip = wuaOk
+            ? (no
+                ? $"Siste vellykkede WUA-sjekk: {wua!.LastCompleted:dd.MM HH:mm}"
+                : $"Last successful WUA check: {wua!.LastCompleted:dd.MM HH:mm}")
+            : wua?.Error ?? (no
+                ? "Venter på vellykket bakgrunnsagentsjekk."
+                : "Waiting for successful background-agent check.");
         ProxyStatusText.Text = proxy;
         InternetStatusText.ToolTip = internet.Detail;
         UpdateServerStatusText.ToolTip = update.Detail;
-        ProxyStatusText.ToolTip = "Proxy configuration from .NET. DNS/TCP/ICMP probes use direct connections and do not test the proxy. Windows Update may use WinHTTP or other proxy settings.";
+        ProxyStatusText.ToolTip = no
+            ? "Proxy-konfigurasjon fra .NET. DNS/TCP/ICMP-prober bruker direkte tilkoblinger og tester ikke proxyen. Windows Update kan bruke WinHTTP eller andre proxy-innstillinger."
+            : "Proxy configuration from .NET. DNS/TCP/ICMP probes use direct connections and do not test the proxy. Windows Update may use WinHTTP or other proxy settings.";
     }
     private MachineIdentityReader.Identity _machineIdentity = new("—", "—", "—", "—", "—");
     private void RefreshUptime()
@@ -1414,7 +1498,6 @@ public partial class MainWindow : Window
             _fixItWindow = null;
         };
         ShowMachineIdentity(MachineIdentityReader.ReadFast());
-        AppSubtitle.Text = $"Windows Update Management · Background Monitoring v{ProductVersion.Display}";
         RefreshOsSupportStatus();
         _appEntries = AppEntries; DataContext = this;
         _entriesView = CollectionViewSource.GetDefaultView(Entries);
@@ -1424,7 +1507,7 @@ public partial class MainWindow : Window
         _schedule = ReminderSchedule.Load();
         DayChoice.SelectedIndex = _schedule.Weekday == 7 ? 0 : Math.Clamp(_schedule.Weekday, 0, 6) + 1;
         TimeChoice.Text = _schedule.Time;
-        ApplyLanguage();
+        ApplyLanguage(); // sets AppSubtitle / Title from language + version
         RemindersEnabled.IsChecked = _schedule.Enabled;
         LoadAutomationPolicyIntoUi();
         BuildInstallDayChips();
@@ -1648,7 +1731,30 @@ public partial class MainWindow : Window
         ["Every day"] = "Hver dag", ["Monday"] = "Mandag", ["Tuesday"] = "Tirsdag", ["Wednesday"] = "Onsdag",
         ["Thursday"] = "Torsdag", ["Friday"] = "Fredag", ["Saturday"] = "Lørdag", ["Sunday"] = "Søndag",
         ["You're up to date"] = "Du er oppdatert",
-        ["Last checked: —"] = "Sist sjekket: —"
+        ["Last checked: —"] = "Sist sjekket: —",
+        ["Not checked"] = "Ikke sjekket",
+        ["Checking…"] = "Sjekker…",
+        ["Checking Windows…"] = "Sjekker Windows…",
+        ["Include optional"] = "Inkluder valgfrie",
+        ["All WUA drivers"] = "Alle WUA-drivere",
+        ["Change setup…"] = "Endre oppsett…",
+        ["Maintenance window"] = "Vedlikeholdsvindu",
+        ["Install days (same clock for all)"] = "Installasjonsdager (samme klokke for alle)",
+        ["Install time"] = "Installasjonstid",
+        ["Defender signatures update continuously when enabled. Critical and general updates download in the background and install in your maintenance window."] =
+            "Defender-signaturer oppdateres kontinuerlig når det er aktivert. Kritiske og generelle oppdateringer lastes ned i bakgrunnen og installeres i vedlikeholdsvinduet.",
+        ["Status: —"] = "Status: —",
+        ["Status: waiting for agent"] = "Status: venter på agent",
+        ["Internet: checking …"] = "Internett: sjekker …",
+        ["Microsoft TCP: checking …"] = "Microsoft TCP: sjekker …",
+        ["WUA: Not confirmed"] = "WUA: Ikke bekreftet",
+        ["Proxy: checking …"] = "Proxy: sjekker …",
+        ["Background monitoring: waiting for agent"] = "Bakgrunnsovervåking: venter på agent",
+        ["Last check: —  |  Available: —  |  New: —"] = "Siste sjekk: —  |  Tilgjengelig: —  |  Nye: —",
+        ["Updates: —"] = "Oppdateringer: —",
+        ["Windows automation: —"] = "Windows-automatisering: —",
+        ["Preparing installation…"] = "Forbereder installasjon…",
+        ["Ready"] = "Klar"
     };
     private void ApplyLanguage()
     {
@@ -1662,7 +1768,18 @@ public partial class MainWindow : Window
                 var match = Norwegian.Keys.FirstOrDefault(k => original == k || original.EndsWith("  " + k, StringComparison.Ordinal));
                 if (match != null) control.Content = norwegian ? original.Replace(match, Norwegian[match]) : original;
             }
-            if (element is System.Windows.Controls.TextBlock block && block.Name is not ("DefenderLabel" or "DefenderChecked" or "HealthSummary" or "StatusText" or "ScheduleStatus" or "AppsInfo" or "AppsSelectedCount" or "SelectedCountText" or "AutomationStatusText" or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus" or "FooterSafetyText" or "RebootNeededBanner" or "LongUptimeHint" or "UpdateUntilCurrentStatus" or "UpToDateTitle" or "UpToDateSubtitle") && !string.IsNullOrEmpty(block.Text))
+            if (element is System.Windows.Controls.TextBlock block
+                && block.Name is not (
+                    "DefenderLabel" or "DefenderChecked" or "HealthSummary" or "StatusText" or "ScheduleStatus"
+                    or "AppsInfo" or "AppsSelectedCount" or "SelectedCountText" or "AutomationStatusText"
+                    or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus"
+                    or "FooterSafetyText" or "RebootNeededBanner" or "LongUptimeHint" or "UpdateUntilCurrentStatus"
+                    or "UpToDateTitle" or "UpToDateSubtitle" or "AppSubtitle" or "ListHeading"
+                    or "WindowsHelpHeading" or "WindowsHelpBody" or "MonitorStateText" or "MonitorDetailsText"
+                    or "MonitorUpdatesText" or "MonitorElapsedText" or "InternetStatusText" or "UpdateServerStatusText"
+                    or "WuaStatusText" or "ProxyStatusText" or "OsVersionLabel" or "OsSupportIcon"
+                    or "MaintenanceSummaryText")
+                && !string.IsNullOrEmpty(block.Text))
             {
                 if (block.Tag is not string original) { original = block.Text; block.Tag = original; }
                 if (Norwegian.TryGetValue(original, out var translated)) block.Text = norwegian ? translated : original;
@@ -1676,6 +1793,12 @@ public partial class MainWindow : Window
                         column.Header = norwegian && Norwegian.TryGetValue(english, out var translated) ? translated : english;
                     }
                 }
+            // Expander / headered controls: Header is not a visual child — walk it explicitly.
+            if (element is System.Windows.Controls.HeaderedContentControl headered && headered.Header is not null)
+                Translate(headered.Header);
+            if (element is System.Windows.Controls.Expander expander && expander.Header is not null
+                && expander is not System.Windows.Controls.HeaderedContentControl)
+                Translate(expander.Header);
             if (element is System.Windows.DependencyObject obj)
                 for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(obj); i++) Translate(System.Windows.Media.VisualTreeHelper.GetChild(obj, i));
         }
@@ -1687,14 +1810,32 @@ public partial class MainWindow : Window
         MachineDeviceCopy.ToolTip = copyTip;
         if (RebootNeededBanner is not null) RebootNeededBanner.Text = RebootBannerText();
         RefreshLongUptimeHint();
+        RefreshAppChromeLanguage();
         ListHeading.Text = norwegian ? "Søk etter oppdateringer og resultater" : "Check for Updates & Results";
+        if (WindowsHelpHeading is not null)
+            WindowsHelpHeading.Text = norwegian
+                ? "Fiks Windows Update-problemene dine her...."
+                : "Fix your Windows update issues here....";
+        if (WindowsHelpBody is not null)
+            WindowsHelpBody.Text = norwegian
+                ? "Reparer fastlåste oppdateringer, åpne Windows-innstillinger, eller se installasjonshjelp."
+                : "Repair stuck updates, open Windows Settings, or review installation help.";
         RefreshScheduleStatus();
         RefreshUpdateUntilCurrentUi();
+        RefreshMonitorPanel();
+        RefreshMaintenanceSummary();
+        BuildInstallDayChips();
+        RefreshAutomationStatusTexts();
+        if (_lastDefender is not null) ApplyDefenderUi(_lastDefender);
+        else if (DefenderChecked is not null && (DefenderChecked.Text == "Not checked" || DefenderChecked.Text == "Ikke sjekket"))
+            DefenderChecked.Text = norwegian ? "Ikke sjekket" : "Not checked";
+        RefreshHealthSummary();
         // Translate() restores ScanButton from Tag; keep the busy label while a scan is running.
         if (_scanButtonSearching)
             ScanButton.Content = norwegian ? "Søker...." : "Searching....";
         else
             ResetScanButtonLabel();
+        ResetInstallButtonLabel();
         if (FooterSafetyText is not null)
         {
             const string footerEn =
@@ -1703,6 +1844,20 @@ public partial class MainWindow : Window
         }
         _fixItWindow?.ApplyLanguage(norwegian);
         RefreshUpToDatePanel();
+    }
+
+    private void RefreshAppChromeLanguage()
+    {
+        bool norwegian = _schedule.Language == "no";
+        if (AppSubtitle is not null)
+        {
+            AppSubtitle.Text = norwegian
+                ? $"Windows Update-administrasjon · Bakgrunnsovervåking v{ProductVersion.Display}"
+                : $"Windows Update Management · Background Monitoring v{ProductVersion.Display}";
+        }
+        Title = norwegian
+            ? "Update Express – Windows Update-administrasjon"
+            : "Update Express – Windows Update Management";
     }
     private void RefreshScheduleStatus()
     {

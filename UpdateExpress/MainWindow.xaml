@@ -343,7 +343,7 @@
     <Ellipse x:Name="UpdateServerLamp" Width="9" Height="9" Fill="#9099A6" Margin="0,0,6,0"/>
     <TextBlock x:Name="UpdateServerStatusText" Text="Microsoft TCP: checking …" FontSize="12" Foreground="#5D5D5D" Margin="0,0,18,0"/>
     <Ellipse x:Name="WuaLamp" Width="9" Height="9" Fill="#9099A6" Margin="0,0,6,0"/>
-    <TextBlock x:Name="WuaStatusText" Text="WUA: Ikke bekreftet" FontSize="12" Foreground="#5D5D5D" Margin="0,0,18,0"/>
+    <TextBlock x:Name="WuaStatusText" Text="WUA: Not confirmed" FontSize="12" Foreground="#5D5D5D" Margin="0,0,18,0"/>
     <TextBlock x:Name="ProxyStatusText" Text="Proxy: checking …" FontSize="12" Foreground="#5D5D5D"/>
    </StackPanel>
    <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
