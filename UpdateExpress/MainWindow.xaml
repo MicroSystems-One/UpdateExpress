@@ -479,7 +479,7 @@
 
      </Grid></Grid>
   </Grid></Expander></Border>
-  <Border Grid.Row="4" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,0"><Expander x:Name="MaintenanceExpander" Style="{StaticResource SectionExpander}" IsExpanded="False"><Expander.Header><StackPanel Orientation="Horizontal"><TextBlock Text="Maintenance &amp; Notifications – Pilot" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C"/></StackPanel></Expander.Header><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="340" CanContentScroll="False" Padding="0,0,4,0"><StackPanel Margin="8,12,8,8">
+  <Border Grid.Row="4" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,0"><Expander x:Name="MaintenanceExpander" Style="{StaticResource SectionExpander}" IsExpanded="False"><Expander.Header><StackPanel Orientation="Horizontal"><TextBlock Text="Maintenance &amp; Notifications" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C"/></StackPanel></Expander.Header><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="340" CanContentScroll="False" Padding="0,0,4,0"><StackPanel Margin="8,12,8,8">
     <Border Background="#F4FBF7" BorderBrush="#C9E8D6" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
       <StackPanel>
         <DockPanel LastChildFill="True" Margin="0,0,0,6">

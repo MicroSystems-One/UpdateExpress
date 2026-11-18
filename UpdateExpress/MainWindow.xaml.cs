@@ -199,9 +199,10 @@ public partial class MainWindow : Window
     {
         if (selected)
         {
-            button.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1B4F86"));
+            // Same blue as RowPrimaryButton ("Check for updates" / "Se etter oppdateringer").
+            button.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#0067C0"));
             button.Foreground = System.Windows.Media.Brushes.White;
-            button.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#163E6B"));
+            button.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#0055A8"));
             return;
         }
         button.ClearValue(BackgroundProperty);
@@ -1687,7 +1688,7 @@ public partial class MainWindow : Window
         ["Priority"] = "Prioritet", ["Version"] = "Versjon", ["Application"] = "Program", ["Package ID"] = "Pakke-ID", ["Installed"] = "Installert",
         ["Available"] = "Tilgjengelig", ["Check Application Updates (WinGet)"] = "Søk etter programoppdateringer (WinGet)",
         ["Export Raw WinGet Report"] = "Eksporter WinGet-rapport", ["Install Selected Applications"] = "Installer valgte programmer",
-        ["Maintenance & Notifications – Pilot"] = "Vedlikehold og varsler – pilot", ["Weekday:"] = "Ukedag:",
+        ["Maintenance & Notifications"] = "Vedlikehold og varsler", ["Weekday:"] = "Ukedag:",
         ["Time:"] = "Tid:", ["Time format:"] = "Klokkeformat:", ["Language:"] = "Språk:",
         ["Enable Reminders"] = "Aktiver påminnelser", ["Save Schedule"] = "Lagre tidsplan",
         ["Test Notification"] = "Test varsel", ["Notification History"] = "Varselhistorikk",
