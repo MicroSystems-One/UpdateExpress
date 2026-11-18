@@ -73,7 +73,7 @@ internal sealed class TrayAgent : IDisposable
             _ = GeneralAutomation.RunDueJobAsync(_dispatcher);
             _ = DriverAutomation.RunDueJobAsync(_dispatcher);
             _ = ApplicationAutomation.RunDueJobAsync(_dispatcher);
-            try { _dispatcher.BeginInvoke(new Action(RebootCoordinator.RunDueJob)); }
+            try { _dispatcher.BeginInvoke(new Action(() => RebootCoordinator.RunDueJob(allowUiPrompt: true))); }
             catch (Exception ex) { AgentLog.Write("Deferred reboot poll failed: " + ex.Message); }
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
         WriteMonitorStatus("waiting", 0, 0, null, null);

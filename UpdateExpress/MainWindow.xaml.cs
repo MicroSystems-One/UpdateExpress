@@ -2025,8 +2025,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// After the user confirms the reminder, restart in that maintenance window
-    /// (immediately with countdown if the slot is due now; otherwise wait until the slot).
+    /// After the user confirms the reminder, persist a pending reboot so tray/service
+    /// can fire it even if MainWindow is closed. UI timer is a fast path while open.
     /// </summary>
     private void ScheduleConfirmedReboot(DateTime occurrence)
     {
@@ -2035,50 +2035,39 @@ public partial class MainWindow : Window
         _confirmedRebootTimer = null;
 
         int countdown = Math.Clamp(_policy.WindowsAutomation.AutoReboot.CountdownSeconds, 60, 3600);
-        var delay = occurrence - DateTime.Now;
-        if (delay < TimeSpan.Zero) delay = TimeSpan.Zero;
+        var when = occurrence <= DateTime.Now ? DateTime.Now : occurrence;
+        var delay = when - DateTime.Now;
+        string reason = norwegian
+            ? "Bekreftet vedlikeholdspåminnelse."
+            : "Confirmed maintenance reminder.";
+        string comment = norwegian
+            ? "Update Express: omstart etter bekreftet vedlikeholdspåminnelse. Lagre arbeidet."
+            : "Update Express: restart after confirmed maintenance reminder. Save your work.";
 
-        void StartCountdownReboot()
-        {
-            try
-            {
-                StatusText.Text = norwegian
-                    ? $"Omstart planlagt — Windows starter på nytt om {countdown} sekunder."
-                    : $"Restart scheduled — Windows will restart in {countdown} seconds.";
-                ReminderSchedule.Log("confirmed_reboot", $"countdown={countdown}; slot={occurrence:o}");
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "shutdown.exe",
-                    Arguments = $"/r /t {countdown}",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                });
-            }
-            catch (Exception ex)
-            {
-                ReminderSchedule.Log("confirmed_reboot_error", ex.Message);
-                MessageBox.Show(this, ex.Message,
-                    norwegian ? "Omstart" : "Restart computer",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
+        // Persist for tray agent / Windows service (survives closing MainWindow).
+        RebootCoordinator.SchedulePending("reminder", when, reason);
+        ReminderSchedule.Log("confirmed_reboot_armed", when.ToString("o"));
 
         if (delay <= TimeSpan.FromSeconds(5))
         {
-            StartCountdownReboot();
+            StatusText.Text = norwegian
+                ? $"Omstart planlagt — Windows starter på nytt om {countdown} sekunder."
+                : $"Restart scheduled — Windows will restart in {countdown} seconds.";
+            RebootCoordinator.ClearPending();
+            RebootCoordinator.StartCountdownReboot("reminder", countdown, comment);
             return;
         }
 
         StatusText.Text = norwegian
-            ? $"Omstart bekreftet for {_schedule.Format(occurrence)}. PC-en starter på nytt da."
-            : $"Restart confirmed for {_schedule.Format(occurrence)}. This PC will restart then.";
-        ReminderSchedule.Log("confirmed_reboot_armed", occurrence.ToString("o"));
+            ? $"Omstart bekreftet for {_schedule.Format(when)}. PC-en starter på nytt da (også hvis vinduet lukkes)."
+            : $"Restart confirmed for {_schedule.Format(when)}. This PC will restart then (even if you close this window).";
+
         _confirmedRebootTimer = new DispatcherTimer { Interval = delay };
         _confirmedRebootTimer.Tick += (_, _) =>
         {
             _confirmedRebootTimer?.Stop();
             _confirmedRebootTimer = null;
-            StartCountdownReboot();
+            RebootCoordinator.RunDueJob(allowUiPrompt: false);
         };
         _confirmedRebootTimer.Start();
     }
