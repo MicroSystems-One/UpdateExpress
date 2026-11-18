@@ -80,7 +80,14 @@ if ($runningAsSystem -and $Scope -eq 'user') {
 }
 
 # Self-elevate or fail with a clear message (no silent hang as a limited user).
+# Non-interactive hosts (RMM as non-admin, scheduled tasks) must not block on UAC.
 if (-not (Test-UeIsAdmin)) {
+    $canPromptUac = [Environment]::UserInteractive -and -not $runningAsSystem
+    if (-not $canPromptUac) {
+        Write-UeLog 'ERROR: Administrator rights are required in this non-interactive session.'
+        Write-UeLog 'Deploy via N-able Automation / Script Manager as SYSTEM (or Run as administrator manually).'
+        exit 2
+    }
     Write-UeLog 'Not elevated — requesting Administrator (UAC)...'
     try {
         $relaunch = [System.Collections.Generic.List[string]]::new()
@@ -299,6 +306,24 @@ Write-UeLog "Using EXE: $ExePath"
 # --- Optional: disable N-able PME locally before install ---
 if ($DisablePme) {
     Disable-NablePme -ServiceName $PmeServiceName
+}
+
+# Seed machine-wide fleet overlay (RMM can replace this file later without reinstall).
+$fleetDir = Join-Path $env:ProgramData 'MicroSystems\Update Express'
+$fleetPath = Join-Path $fleetDir 'fleet-policy.json'
+$fleetTemplate = Join-Path $PSScriptRoot 'fleet-policy.business.json'
+if (-not (Test-Path $fleetPath)) {
+    New-Item -ItemType Directory -Path $fleetDir -Force | Out-Null
+    if (Test-Path $fleetTemplate) {
+        Copy-Item -LiteralPath $fleetTemplate -Destination $fleetPath -Force
+        Write-UeLog "Seeded fleet policy: $fleetPath"
+    }
+    else {
+        Write-UeLog "Fleet template missing ($fleetTemplate); skipping fleet-policy.json seed."
+    }
+}
+else {
+    Write-UeLog "Fleet policy already present: $fleetPath"
 }
 
 # Seed SetupCompleted BEFORE install so any early UI never shows the wizard.

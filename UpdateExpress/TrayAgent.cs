@@ -81,8 +81,13 @@ internal sealed class TrayAgent : IDisposable
             _ = ApplicationAutomation.RunDueJobAsync(_dispatcher);
             try { _dispatcher.BeginInvoke(new Action(() => RebootCoordinator.RunDueJob(allowUiPrompt: true))); }
             catch (Exception ex) { AgentLog.Write("Deferred reboot poll failed: " + ex.Message); }
+            try { UpdateUntilCurrent.TryLaunchResume(); }
+            catch (Exception ex) { AgentLog.Write("Update-until-current resume poll failed: " + ex.Message); }
+            try { RmmStatusExport.WriteBestEffort("tray-poll"); }
+            catch (Exception ex) { AgentLog.Write("RMM status export failed: " + ex.Message); }
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
         WriteMonitorStatus("waiting", 0, 0, null, null);
+        try { RmmStatusExport.WriteBestEffort("tray-start", force: true); } catch { /* ignore */ }
         AgentLog.Write($"Tray agent started; WUA monitor every {monitorInterval.TotalHours:0.##}h; Defender+Critical+General+Drivers+Apps+reboot poll every 5m.");
         _ = Task.Run(async () =>
         {

@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="FIX IT! – Windows Update repair"
-        Width="780" Height="360" MinWidth="720" MinHeight="320"
+        Width="780" Height="410" MinWidth="720" MinHeight="360"
         WindowStartupLocation="CenterOwner"
         Background="#F3F3F3" FontFamily="Segoe UI Variable Text, Segoe UI"
         ShowInTaskbar="False"
@@ -65,6 +65,7 @@
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
@@ -72,28 +73,32 @@
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
-        <Button x:Name="WindowsUpdateFixButton" Grid.Row="0" Grid.Column="0" Content="⚒  Windows Update fix"
+        <Button x:Name="ProblemPcButton" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="4"
+                Content="🛠  Problem PC pipeline (diagnose → fix → retry)"
+                Style="{StaticResource FixItActionButton}" Margin="0,0,0,10" Click="ProblemPc_Click"
+                ToolTip="Runs WUA deep check, Medium/Deep fix when needed, then retries the update search and writes a report for RMM."/>
+        <Button x:Name="WindowsUpdateFixButton" Grid.Row="1" Grid.Column="0" Content="⚒  Windows Update fix"
                 Style="{StaticResource FixItActionButton}" Click="WindowsUpdateFix_Click"
                 ToolTip="Quick / Medium / Deep repair for stuck or empty Windows Update"/>
-        <Button x:Name="WuaDeepCheckButton" Grid.Row="0" Grid.Column="1" Content="🔍  WUA deep check"
+        <Button x:Name="WuaDeepCheckButton" Grid.Row="1" Grid.Column="1" Content="🔍  WUA deep check"
                 Style="{StaticResource FixItActionButton}" Click="WuaDeepCheck_Click"
                 ToolTip="Read-only deep analysis when Windows Update fix did not help (network, services, WUA). ~2–4 min."/>
-        <Button x:Name="HistoryButton" Grid.Row="0" Grid.Column="2" Content="☷  Installation History"
+        <Button x:Name="HistoryButton" Grid.Row="1" Grid.Column="2" Content="☷  Installation History"
                 Style="{StaticResource FixItActionButton}" Click="History_Click"
                 ToolTip="Show Windows Update installation history in the main window"/>
-        <Button x:Name="ExportCsvButton" Grid.Row="0" Grid.Column="3" Content="↓  Export CSV"
+        <Button x:Name="ExportCsvButton" Grid.Row="1" Grid.Column="3" Content="↓  Export CSV"
                 Style="{StaticResource FixItActionButton}" Margin="0,0,0,8" Click="Export_Click"
                 ToolTip="Export the current history list as a CSV file"/>
-        <Button x:Name="ErrorReportButton" Grid.Row="1" Grid.Column="0" Content="📋  Error report"
+        <Button x:Name="ErrorReportButton" Grid.Row="2" Grid.Column="0" Content="📋  Error report"
                 Style="{StaticResource FixItActionButton}" Margin="0,0,8,0" Click="ErrorReport_Click"
                 ToolTip="AI troubleshooting prompt from the last Windows Update fix"/>
-        <Button x:Name="WuaStatusReportButton" Grid.Row="1" Grid.Column="1" Content="📄  WUA status report"
+        <Button x:Name="WuaStatusReportButton" Grid.Row="2" Grid.Column="1" Content="📄  WUA status report"
                 Style="{StaticResource FixItActionButton}" Margin="0,0,8,0" Click="WuaStatusReport_Click"
                 ToolTip="Open the latest or a previous WUA deep check report"/>
-        <Button x:Name="DiagnosticsButton" Grid.Row="1" Grid.Column="2" Content="⚙  Diagnostics"
+        <Button x:Name="DiagnosticsButton" Grid.Row="2" Grid.Column="2" Content="⚙  Diagnostics"
                 Style="{StaticResource FixItActionButton}" Margin="0,0,8,0" Click="Diagnostics_Click"
                 ToolTip="Collect WUA diagnostics and open the report in Notepad"/>
-        <Button x:Name="HealthButton" Grid.Row="1" Grid.Column="3" Content="✓  Check Status"
+        <Button x:Name="HealthButton" Grid.Row="2" Grid.Column="3" Content="✓  Check Status"
                 Style="{StaticResource FixItActionButton}" Margin="0" Click="Health_Click"
                 ToolTip="Refresh history and pending updates (health check)"/>
       </Grid>

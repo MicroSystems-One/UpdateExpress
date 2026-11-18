@@ -15,6 +15,7 @@ public partial class FixItWindow : Window
         Owner = owner;
     }
 
+    private void ProblemPc_Click(object sender, RoutedEventArgs e) => _owner.FixItProblemPcPipeline();
     private void WindowsUpdateFix_Click(object sender, RoutedEventArgs e) => _owner.FixItWindowsUpdateFix();
     private void WuaDeepCheck_Click(object sender, RoutedEventArgs e) => _owner.FixItWuaDeepCheck();
     private void History_Click(object sender, RoutedEventArgs e) => _owner.FixItHistory();
@@ -58,6 +59,8 @@ public partial class FixItWindow : Window
                 button.Content = norwegian ? norwegianText : english;
         }
 
+        SetButton(ProblemPcButton, "🛠  Problem PC pipeline (diagnose → fix → retry)",
+            "Problem-PC-løype (diagnose → fiks → nytt søk)");
         SetButton(WindowsUpdateFixButton, "⚒  Windows Update fix", "Windows Update-fiks");
         SetButton(WuaDeepCheckButton, "🔍  WUA deep check", "WUA dybdesjekk");
         SetButton(HistoryButton, "☷  Installation History", "Installasjonshistorikk");
@@ -72,6 +75,9 @@ public partial class FixItWindow : Window
         void SetTip(System.Windows.Controls.Button button, string english, string norwegianText) =>
             button.ToolTip = norwegian ? norwegianText : english;
 
+        SetTip(ProblemPcButton,
+            "Runs WUA deep check, Medium/Deep fix when needed, then retries the update search and writes a report for RMM.",
+            "Kjører WUA dybdesjekk, Middels/Dyp fiks ved behov, deretter nytt oppdateringssøk og skriver rapport for RMM.");
         SetTip(WindowsUpdateFixButton,
             "Quick / Medium / Deep repair for stuck or empty Windows Update",
             "Hurtig / Middels / Dyp reparasjon for fastlåst eller tom Windows Update");

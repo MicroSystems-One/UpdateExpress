@@ -424,6 +424,10 @@
    </Border>
     </StackPanel>
   </StackPanel></Expander.Header><StackPanel Margin="0,8,0,0">
+   <TextBlock x:Name="PatchConflictBanner" Text="" Visibility="Collapsed"
+              Foreground="#9B5A00" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"
+              Margin="0,0,0,6" Cursor="Hand" ToolTip="Click for PME control"
+              MouseLeftButtonUp="PatchConflictBanner_Click"/>
    <TextBlock x:Name="RebootNeededBanner" Text="⚠  Reboot needed" Visibility="Collapsed"
               FontSize="15" FontWeight="Bold" Foreground="#C62828"
               HorizontalAlignment="Center" Margin="0,0,0,8" Cursor="Hand" Background="Transparent"

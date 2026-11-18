@@ -1,5 +1,6 @@
 ﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows.Data;
 using System.IO;
 using System.Text.Json;
@@ -1244,7 +1245,36 @@ public partial class MainWindow : Window
             RebootNeededBanner.Text = RebootBannerText();
         }
         RefreshLongUptimeHint();
+        RefreshPatchConflictBanner();
     }
+
+    private void RefreshPatchConflictBanner()
+    {
+        if (PatchConflictBanner is null) return;
+        try
+        {
+            var conflict = PatchConflictGuard.Evaluate(_policy);
+            bool norwegian = _schedule.Language == "no";
+            if (!conflict.ShowBanner)
+            {
+                PatchConflictBanner.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            PatchConflictBanner.Visibility = Visibility.Visible;
+            PatchConflictBanner.Text = norwegian
+                ? "⚠  Konflikt: N-able PME kjører samtidig med Update Express-automatisering. Klikk for PME-kontroll."
+                : "⚠  Conflict: N-able PME is active while Update Express automation is on. Click for PME control.";
+            PatchConflictBanner.ToolTip = conflict.Summary;
+        }
+        catch
+        {
+            PatchConflictBanner.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void PatchConflictBanner_Click(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+        PmeControl_Click(sender, e);
 
     private void RefreshLongUptimeHint()
     {
@@ -1566,6 +1596,16 @@ public partial class MainWindow : Window
         RefreshRebootNeededBanner();
         Loaded += async (_, _) =>
         {
+            try
+            {
+                if (FleetPolicy.TryApplyOnStartup())
+                {
+                    _policy = UpdatePolicy.Load();
+                    LoadAutomationPolicyIntoUi();
+                }
+            }
+            catch (Exception ex) { AgentLog.Write("Fleet policy startup apply failed: " + ex.Message); }
+            RmmStatusExport.WriteBestEffort("mainwindow-loaded", force: true);
             CheckReminder();
             _ = LoadMachineIdentityAsync();
             await RefreshDefenderAsync();
@@ -2272,6 +2312,7 @@ public partial class MainWindow : Window
     }
 
     internal void FixItWindowsUpdateFix() => _ = RunWindowsUpdateFixAsync();
+    internal void FixItProblemPcPipeline() => _ = RunProblemPcPipelineAsync();
     internal void FixItWuaDeepCheck() => RunWuaDeepCheck();
     internal void FixItHistory() => _ = LoadAsync(WindowsUpdateReader.HistoryForDisplay);
     internal void FixItExportCsv() => Export_Click(_fixItWindow ?? (object)this, new RoutedEventArgs());
@@ -2287,6 +2328,95 @@ public partial class MainWindow : Window
         dlg.ShowDialog();
         if (dlg.FixCompleted)
             await ReloadAfterWindowsUpdateFixAsync(dlg.ReplacedUpdateCache, dlg.ScanCompleted);
+    }
+
+    private async Task RunProblemPcPipelineAsync()
+    {
+        if (_busy) return;
+        bool norwegian = _schedule.Language == "no";
+        var confirm = AppDialog.Show(
+            _fixItWindow as Window ?? this,
+            norwegian
+                ? "Problem-PC-løypen kjører dybdesjekk, deretter Middels/Dyp Windows Update-fiks ved behov, og til slutt et nytt søk.\n\nDette kan ta lang tid og krever administrator. Fortsette?"
+                : "The Problem PC pipeline runs a deep check, then Medium/Deep Windows Update fix when needed, and finally retries the search.\n\nThis can take a long time and requires administrator. Continue?",
+            norwegian ? "Problem-PC-løype" : "Problem PC pipeline",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        if (!ElevationHelper.IsElevated)
+        {
+            var elevate = AppDialog.Show(
+                _fixItWindow as Window ?? this,
+                norwegian
+                    ? "Administratorrettigheter kreves. Starte Update Express på nytt som administrator?"
+                    : "Administrator privileges are required. Restart Update Express as administrator?",
+                norwegian ? "Problem-PC-løype" : "Problem PC pipeline",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            if (elevate != MessageBoxResult.Yes) return;
+            try
+            {
+                ElevationHelper.RestartElevated("--installed");
+                Application.Current.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(_fixItWindow as Window ?? this, ex.Message,
+                    norwegian ? "Problem-PC-løype" : "Problem PC pipeline",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            return;
+        }
+
+        _busy = true;
+        ScanButton.IsEnabled = false;
+        StatusText.Visibility = Visibility.Visible;
+        StatusText.Text = norwegian ? "Problem-PC-løype kjører…" : "Problem PC pipeline running…";
+        try
+        {
+            var progress = new Progress<string>(msg =>
+            {
+                try { StatusText.Text = msg; } catch { /* closing */ }
+            });
+            var report = await ProblemPcRepair.RunAsync(
+                progress,
+                IncludeOptionalUpdates.IsChecked == true,
+                ShowAllDrivers.IsChecked == true).ConfigureAwait(true);
+
+            await ReloadAfterWindowsUpdateFixAsync(replacedUpdateCache: report.FixCompleted, scanCompleted: false)
+                .ConfigureAwait(true);
+            try
+            {
+                if (File.Exists(ProblemPcRepair.LastTextPath))
+                    Process.Start(new ProcessStartInfo(ProblemPcRepair.LastTextPath) { UseShellExecute = true });
+            }
+            catch { /* ignore */ }
+
+            MessageBox.Show(
+                _fixItWindow as Window ?? this,
+                norwegian
+                    ? $"Ferdig.\n\nDybdesjekk: FAIL={report.DeepCheckFail}, WARN={report.DeepCheckWarn}\nFiks: {report.FixLevel ?? "hoppet over"}\nVentende etter søk: {report.PendingAfter}\n\nRapport: {ProblemPcRepair.LastTextPath}"
+                    : $"Finished.\n\nDeep check: FAIL={report.DeepCheckFail}, WARN={report.DeepCheckWarn}\nFix: {report.FixLevel ?? "skipped"}\nPending after search: {report.PendingAfter}\n\nReport: {ProblemPcRepair.LastTextPath}",
+                norwegian ? "Problem-PC-løype" : "Problem PC pipeline",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            RefreshPatchConflictBanner();
+            RmmStatusExport.WriteBestEffort("problem-pc-ui-complete", force: true);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(_fixItWindow as Window ?? this, ex.Message,
+                norwegian ? "Problem-PC-løype" : "Problem PC pipeline",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusText.Text = norwegian ? "Problem-PC-løype feilet." : "Problem PC pipeline failed.";
+        }
+        finally
+        {
+            _busy = false;
+            ScanButton.IsEnabled = true;
+            UpdateSelectionControls();
+        }
     }
 
     internal async Task ReloadAfterWindowsUpdateFixAsync(bool replacedUpdateCache, bool scanCompleted)

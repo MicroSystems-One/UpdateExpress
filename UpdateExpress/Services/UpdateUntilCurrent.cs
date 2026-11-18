@@ -129,16 +129,27 @@ internal static class UpdateUntilCurrent
         Save(state);
     }
 
-    /// <summary>After sign-in, open the elevated app once so a reboot can continue the cycle.</summary>
+    /// <summary>
+    /// After sign-in / wake, open the elevated app so a reboot (or interrupted cycle) can continue.
+    /// Throttle is short so sleep/hibernate does not strand an active cycle for 15 minutes.
+    /// </summary>
     internal static bool TryLaunchResume()
     {
         var state = Load();
-        if (!state.Active || !state.ResumeAfterReboot) return false;
-        if (state.LastResumeLaunch is DateTime last && DateTime.Now - last < TimeSpan.FromMinutes(15))
+        if (!state.Active) return false;
+        // Prefer explicit reboot flag; also recover interrupted installing/searching after unexpected power loss.
+        bool shouldResume = state.ResumeAfterReboot
+            || string.Equals(state.Phase, "reboot", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state.Phase, "installing", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state.Phase, "searching", StringComparison.OrdinalIgnoreCase);
+        if (!shouldResume) return false;
+        if (state.LastResumeLaunch is DateTime last && DateTime.Now - last < TimeSpan.FromMinutes(5))
             return false;
+        state.ResumeAfterReboot = true;
         state.LastResumeLaunch = DateTime.Now;
         Save(state);
-        AgentLog.Write("Update until current: launching elevated app to continue after restart.");
+        RmmStatusExport.WriteBestEffort("until-current-resume-launch", force: true);
+        AgentLog.Write("Update until current: launching elevated app to continue after restart/interrupt.");
         ElevationHelper.RestartElevated("--installed --update-until-current");
         return true;
     }
