@@ -22,6 +22,11 @@ public sealed class ReminderSchedule
     public DateTime? LastPromptedOccurrence { get; set; }
     public DateTime? ConfirmedOccurrence { get; set; }
     public DateTime? SnoozedUntil { get; set; }
+    /// <summary>
+    /// Calendar date of a maintenance day that rolled past midnight without Confirm.
+    /// Shown once on the next reminder, then cleared.
+    /// </summary>
+    public DateTime? MissedUnconfirmedDate { get; set; }
 
     private static string DirectoryPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "UpdateExpress");
     public static string SettingsPath => Path.Combine(DirectoryPath, "schedule.json");
@@ -108,5 +113,34 @@ public sealed class ReminderSchedule
         DateTime candidate = now.Date.AddDays(delta).Add(at);
         if (candidate < now) candidate = candidate.AddDays(Weekday == 7 ? 1 : 7);
         return candidate;
+    }
+
+    /// <summary>
+    /// Next :00 or :30 strictly after <paramref name="now"/>.
+    /// Returns null when that would cross midnight (caller should defer to next day).
+    /// </summary>
+    public static DateTime? NextHalfHourSlot(DateTime now)
+    {
+        DateTime candidate;
+        if (now.Minute == 0 && now.Second == 0 && now.Millisecond == 0)
+            candidate = now.AddMinutes(30);
+        else if (now.Minute < 30)
+            candidate = new DateTime(now.Year, now.Month, now.Day, now.Hour, 30, 0);
+        else
+            candidate = new DateTime(now.Year, now.Month, now.Day, now.Hour, 0, 0).AddHours(1);
+
+        return candidate.Date > now.Date ? null : candidate;
+    }
+
+    /// <summary>
+    /// Slot to show for today's reminder: the scheduled time until it has passed,
+    /// then the next half/full hour, or null when rolling would pass midnight.
+    /// </summary>
+    public static DateTime? EffectiveReminderSlot(DateTime now, TimeSpan scheduledTime)
+    {
+        var due = now.Date.Add(scheduledTime);
+        if (now < due) return null; // not due yet
+        if (now <= due.AddMinutes(1)) return due;
+        return NextHalfHourSlot(now);
     }
 }
