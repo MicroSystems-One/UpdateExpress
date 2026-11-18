@@ -74,6 +74,46 @@
       </Setter.Value>
     </Setter>
   </Style>
+  <!-- Same as SectionExpander but without the open/close chevron (Health Check). Header click still expands. -->
+  <Style x:Key="SectionExpanderNoChevron" TargetType="Expander" BasedOn="{StaticResource SectionExpander}">
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Expander">
+          <DockPanel LastChildFill="True">
+            <ToggleButton x:Name="HeaderSite" DockPanel.Dock="Top" Background="Transparent" BorderThickness="0"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          Focusable="False" Padding="0"
+                          Content="{TemplateBinding Header}"
+                          ContentTemplate="{TemplateBinding HeaderTemplate}"
+                          ContentTemplateSelector="{TemplateBinding HeaderTemplateSelector}"
+                          IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+              <ToggleButton.Template>
+                <ControlTemplate TargetType="ToggleButton">
+                  <Border Background="Transparent" Padding="0,2">
+                    <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"/>
+                  </Border>
+                </ControlTemplate>
+              </ToggleButton.Template>
+            </ToggleButton>
+            <ContentPresenter x:Name="ExpandSite" Margin="0" Visibility="Collapsed"
+                              Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+          </DockPanel>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsExpanded" Value="True">
+              <Setter TargetName="ExpandSite" Property="Visibility" Value="Visible"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
   <Style x:Key="CompactActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Height" Value="30"/><Setter Property="MinHeight" Value="30"/><Setter Property="Padding" Value="9,3"/><Setter Property="Margin" Value="0"/><Setter Property="FontSize" Value="11"/><Setter Property="MinWidth" Value="0"/></Style>
   <!-- Fixed 27px row buttons (Pilot schedule actions) — same baseline, no WrapPanel drift. -->
   <Style x:Key="PilotRowButton" TargetType="Button">
@@ -301,7 +341,7 @@
            ToolTip="Search Windows Update for available updates"
            AutomationProperties.Name="Check for updates"/>
   </Grid>
-  <Border Grid.Row="1" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="WindowsUpdateControlExpander" Style="{StaticResource SectionExpander}" IsExpanded="False"><Expander.Header><StackPanel><Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="Windows Update Status – Health Check" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,16,0"/><TextBlock x:Name="OsSupportIcon" Text="?" FontSize="14" FontWeight="Bold" Foreground="#B7791F" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock x:Name="OsVersionLabel" Text="Checking Windows…" FontSize="12" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center"/><Button x:Name="OsSupportInfo" Content="ⓘ" Click="OsSupportInfo_Click" ToolTip="Windows lifecycle and security support" FontSize="12" Padding="3,0" Margin="3,0,0,0" Height="20" MinHeight="20" MinWidth="20" VerticalAlignment="Center"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0"><Viewbox Width="22" Height="22" Margin="0,0,8,0" ToolTip="Antivirus protection status"><Canvas Width="96" Height="96"><Path x:Name="DefenderShield" Fill="#9099A6" Data="M48,5 L83,18 L83,43 C83,67 68,82 48,91 C28,82 13,67 13,43 L13,18 Z"/><Path Stroke="White" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M31,48 L43,60 L66,35"/></Canvas></Viewbox><TextBlock Text="Microsoft Defender" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderLabel" Text="Checking…" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderChecked" Text="Not checked" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,10,0"/><Button x:Name="DefenderRefreshButton" Content="Refresh" Click="DefenderRefresh_Click" FontSize="12" Padding="8,3" MinHeight="26" Height="26" Margin="0" VerticalAlignment="Center"/></StackPanel></Grid>
+  <Border Grid.Row="1" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="WindowsUpdateControlExpander" Style="{StaticResource SectionExpanderNoChevron}" IsExpanded="False"><Expander.Header><StackPanel><Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="Windows Update Status – Health Check" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,16,0"/><TextBlock x:Name="OsSupportIcon" Text="?" FontSize="14" FontWeight="Bold" Foreground="#B7791F" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock x:Name="OsVersionLabel" Text="Checking Windows…" FontSize="12" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center"/><Button x:Name="OsSupportInfo" Content="ⓘ" Click="OsSupportInfo_Click" ToolTip="Windows lifecycle and security support" FontSize="12" Padding="3,0" Margin="3,0,0,0" Height="20" MinHeight="20" MinWidth="20" VerticalAlignment="Center"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0"><Viewbox Width="22" Height="22" Margin="0,0,8,0" ToolTip="Antivirus protection status"><Canvas Width="96" Height="96"><Path x:Name="DefenderShield" Fill="#9099A6" Data="M48,5 L83,18 L83,43 C83,67 68,82 48,91 C28,82 13,67 13,43 L13,18 Z"/><Path Stroke="White" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M31,48 L43,60 L66,35"/></Canvas></Viewbox><TextBlock Text="Microsoft Defender" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderLabel" Text="Checking…" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderChecked" Text="Not checked" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,10,0"/><Button x:Name="DefenderRefreshButton" Content="Refresh" Click="DefenderRefresh_Click" FontSize="12" Padding="8,3" MinHeight="26" Height="26" Margin="0" VerticalAlignment="Center"/></StackPanel></Grid>
     <StackPanel Margin="0,8,0,0">
 <!-- Aligned connectivity and firewall status: same row, same Segoe UI 11px. -->
    <Grid Margin="0,8,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -389,8 +429,6 @@
     <Expander x:Name="WindowsHelpExpander" Style="{StaticResource SectionExpander}" IsExpanded="False" Margin="0,0,-1,0">
      <Expander.Header>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-       <Image Source="Assets/UpdateExpress-U.png" Width="24" Height="24" Stretch="Uniform" Margin="0,0,10,0"
-              RenderOptions.BitmapScalingMode="HighQuality"/>
        <TextBlock x:Name="WindowsHelpHeading" Text="Fix your Windows update issues here...." FontSize="15" FontWeight="Medium"
                   Foreground="#1C1C1C" VerticalAlignment="Center"/>
        <Image Source="Assets/HelpRowTools.png" Width="24" Height="24" Stretch="Uniform" Margin="8,0,0,0"
@@ -398,7 +436,7 @@
               ToolTip="Repair and diagnose Windows Update problems"/>
       </StackPanel>
      </Expander.Header>
-     <StackPanel Margin="34,10,0,2">
+     <StackPanel Margin="0,10,0,2">
       <TextBlock x:Name="WindowsHelpBody" FontSize="12" Foreground="#5D5D5D" TextWrapping="Wrap" Margin="0,0,0,10"
                  Text="Repair stuck updates, open Windows Settings, or review installation help."/>
       <WrapPanel>
