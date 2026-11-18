@@ -288,7 +288,7 @@
  </Window.Resources>
  <!-- Scroll when content overflows; Grid MinHeight fills viewport so * rows still stretch when tall enough. -->
  <ScrollViewer x:Name="MainScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="False">
- <Grid x:Name="MainLayout" Margin="16,0,16,12" MinHeight="{Binding ActualHeight, ElementName=MainScroll}"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition x:Name="ResultsRow" Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+ <Grid x:Name="MainLayout" Margin="16,0,16,12" MinHeight="{Binding ActualHeight, ElementName=MainScroll}"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition x:Name="ResultsRow" Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <!-- Header: left brand U; right Check for updates (text-only). -->
   <Grid Grid.Row="0" Margin="0,8,0,12" MinHeight="88"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
@@ -435,7 +435,7 @@
     <ProgressBar x:Name="InstallProgressBar" Height="7" IsIndeterminate="True" Foreground="#0067C0"/>
    </StackPanel>
   </StackPanel></Expander></Border>
-  <Border Grid.Row="2" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top">
+  <Border Grid.Row="3" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top">
     <Expander x:Name="WindowsHelpExpander" Style="{StaticResource SectionExpander}" IsExpanded="False" Margin="0,0,-1,0">
      <Expander.Header>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -460,7 +460,7 @@
      </StackPanel>
     </Expander>
   </Border>
-  <Border Grid.Row="3" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="ResultsExpander" Style="{StaticResource SectionExpander}" IsExpanded="False" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" Expanded="ResultsExpander_Expanded" Collapsed="ResultsExpander_Collapsed" SizeChanged="ResultsExpander_SizeChanged"><Expander.Header><Grid x:Name="ResultsHeaderBar" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock x:Name="ListHeading" Text="Check for Updates &amp; Results" Foreground="#1C1C1C" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></StackPanel><StackPanel x:Name="ResultsHeaderActions" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0">
+  <Border Grid.Row="2" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="ResultsExpander" Style="{StaticResource SectionExpander}" IsExpanded="False" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" Expanded="ResultsExpander_Expanded" Collapsed="ResultsExpander_Collapsed" SizeChanged="ResultsExpander_SizeChanged"><Expander.Header><Grid x:Name="ResultsHeaderBar" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock x:Name="ListHeading" Text="Check for Updates &amp; Results" Foreground="#1C1C1C" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></StackPanel><StackPanel x:Name="ResultsHeaderActions" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0">
  <Button x:Name="ToolsGearButton" Click="ToolsGear_Click" PreviewMouseLeftButtonDown="ToolsGear_PreviewMouseDown" Width="28" Height="28" Padding="0" Margin="0,0,0,0"
          Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
          ToolTip="Tools" AutomationProperties.Name="Tools">
