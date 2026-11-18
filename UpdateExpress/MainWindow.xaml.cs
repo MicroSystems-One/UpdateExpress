@@ -1294,41 +1294,18 @@ public partial class MainWindow : Window
     {
         bool no = _schedule.Language == "no";
         var status = MonitorStatus.Read();
+        if (MonitorDetailsText is null || MonitorUpdatesText is null) { RefreshResultsHeading(); return; }
         if (status is null)
         {
-            MonitorStateText.Text = no
-                ? "Bakgrunnsovervåking: ingen status ennå"
-                : "Background monitoring: no status yet";
             MonitorDetailsText.Text = no
                 ? "Installer/start bakgrunnsagenten for å se status"
                 : "Install/start the background agent to see status";
             MonitorUpdatesText.Text = no ? "Oppdateringer: —" : "Updates: —";
-            MonitorElapsedText.Text = "";
+            if (AutomationStatusText is not null)
+                AutomationStatusText.Text = no ? "Windows-automatisering: —" : "Windows automation: —";
+            RefreshResultsHeading();
             return;
         }
-        string state = status.State switch
-        {
-            "scanning" => no
-                ? "Bakgrunnsovervåking: søker etter oppdateringer …"
-                : "Background monitoring: checking for updates …",
-            "completed" => no
-                ? "Bakgrunnsovervåking: siste sjekk fullført"
-                : "Background monitoring: last check completed",
-            "failed" => no
-                ? "Bakgrunnsovervåking: siste sjekk feilet"
-                : "Background monitoring: last check failed",
-            _ => no
-                ? "Bakgrunnsovervåking: venter på neste sjekk"
-                : "Background monitoring: waiting for next check"
-        };
-        string last = status.LastCompleted?.ToString("dd.MM HH:mm") ?? "—";
-        string next = status.NextScheduled == default
-            ? "—"
-            : status.NextScheduled.ToString("HH:mm");
-        // Inline after monitoring text: three spaces between each segment.
-        MonitorStateText.Text = no
-            ? $"{state}   Sist: {last}   Neste planlagt: {next}"
-            : $"{state}   Last: {last}   Next scheduled: {next}";
         MonitorDetailsText.Text = no
             ? $"Tilgjengelig: {status.Pending}  |  Nye: {status.New}"
             : $"Available: {status.Pending}  |  New: {status.New}";
@@ -1338,13 +1315,6 @@ public partial class MainWindow : Window
         MonitorUpdatesText.ToolTip = status.Updates.Length == 0
             ? (no ? "Ingen registrerte oppdateringer" : "No recorded updates")
             : string.Join(Environment.NewLine, status.Updates);
-        MonitorElapsedText.Text = status.State == "scanning" && status.Started.HasValue
-            ? (no
-                ? $"Sjekker: {(int)Math.Max(0, (DateTime.Now - status.Started.Value).TotalSeconds)} s"
-                : $"Checking: {(int)Math.Max(0, (DateTime.Now - status.Started.Value).TotalSeconds)} s")
-            : status.State == "failed"
-                ? (status.Error ?? (no ? "Feil – se agent.log" : "Error – see agent.log"))
-                : "";
         RefreshResultsHeading();
     }
 
@@ -1775,7 +1745,9 @@ public partial class MainWindow : Window
         ["Updates: —"] = "Oppdateringer: —",
         ["Windows automation: —"] = "Windows-automatisering: —",
         ["Preparing installation…"] = "Forbereder installasjon…",
-        ["Ready"] = "Klar"
+        ["Ready"] = "Klar",
+        ["Show"] = "Vis",
+        ["Hide"] = "Skjul"
     };
     private void ApplyLanguage()
     {
@@ -1796,8 +1768,8 @@ public partial class MainWindow : Window
                     or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus"
                     or "FooterSafetyText" or "RebootNeededBanner" or "LongUptimeHint" or "UpdateUntilCurrentStatus"
                     or "UpToDateTitle" or "UpToDateSubtitle" or "AppSubtitle" or "ListHeading"
-                    or "WindowsHelpHeading" or "WindowsHelpBody" or "MonitorStateText" or "MonitorDetailsText"
-                    or "MonitorUpdatesText" or "MonitorElapsedText" or "InternetStatusText" or "UpdateServerStatusText"
+                    or "WindowsHelpHeading" or "WindowsHelpBody" or "MonitorDetailsText"
+                    or "MonitorUpdatesText" or "InternetStatusText" or "UpdateServerStatusText"
                     or "WuaStatusText" or "ProxyStatusText" or "OsVersionLabel" or "OsSupportIcon"
                     or "MaintenanceSummaryText")
                 && !string.IsNullOrEmpty(block.Text))
@@ -1844,6 +1816,7 @@ public partial class MainWindow : Window
         RefreshUpdateUntilCurrentUi();
         RefreshMonitorPanel(); // also refreshes Results heading times
         RefreshResultsHeading();
+        RefreshResultsMonitorVisButton();
         RefreshMaintenanceSummary();
         BuildInstallDayChips();
         RefreshAutomationStatusTexts();
@@ -3208,12 +3181,26 @@ public partial class MainWindow : Window
         btn.ContextMenu.IsOpen = true;
     }
 
-    private void MonitorDetailsToggle_Changed(object sender, RoutedEventArgs e)
+    private void ResultsMonitorVis_Click(object sender, RoutedEventArgs e)
     {
-        if (MonitorDetailsPanel is null || MonitorDetailsToggle is null) return;
-        bool open = MonitorDetailsToggle.IsChecked == true;
+        if (MonitorDetailsPanel is null) return;
+        bool open = MonitorDetailsPanel.Visibility != Visibility.Visible;
         MonitorDetailsPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        MonitorDetailsToggle.ToolTip = open ? "Hide monitoring details" : "Show monitoring details";
+        RefreshResultsMonitorVisButton();
+    }
+
+    private void RefreshResultsMonitorVisButton()
+    {
+        if (ResultsMonitorVisButton is null || MonitorDetailsPanel is null) return;
+        bool no = _schedule.Language == "no";
+        bool open = MonitorDetailsPanel.Visibility == Visibility.Visible;
+        ResultsMonitorVisButton.Content = open
+            ? (no ? "Skjul" : "Hide")
+            : (no ? "Vis" : "Show");
+        ResultsMonitorVisButton.ToolTip = open
+            ? (no ? "Skjul overvåkingsdetaljer" : "Hide monitoring details")
+            : (no ? "Vis overvåkingsdetaljer" : "Show monitoring details");
+        ResultsMonitorVisButton.Tag = open ? "Hide" : "Show";
     }
 
     private void BrandSiteLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
