@@ -1583,7 +1583,9 @@ public partial class MainWindow : Window
         ["Repair stuck updates, open Windows Settings, or review installation help."] =
             "Reparer fastlåste oppdateringer, åpne Windows-innstillinger, eller se installasjonshjelp.",
         ["Open FIX IT!"] = "Åpne FIX IT!",
-        ["Check for Updates"] = "Søk etter oppdateringer", ["Open Windows Update"] = "Åpne Windows Update", ["Open Windows Update to install"] = "Åpne Windows Update for å installere",
+        ["Check for Updates"] = "Se etter oppdateringer",
+        ["Check for updates"] = "Se etter oppdateringer",
+        ["Open Windows Update"] = "Åpne Windows Update", ["Open Windows Update to install"] = "Åpne Windows Update for å installere",
         ["Manufacturer"] = "Produsent", ["Model"] = "Modell/nr", ["Product no."] = "Produktnr.", ["Serial no."] = "Serienr.", ["Device name"] = "Enhetsnavn", ["Uptime"] = "Oppetid",
         ["Copy"] = "Kopier",
         ["Install Selected Updates"] = "Installer valgte oppdateringer", ["Installation History"] = "Installasjonshistorikk",
@@ -1683,10 +1685,8 @@ public partial class MainWindow : Window
         // Translate() restores ScanButton from Tag; keep the busy label while a scan is running.
         if (_scanButtonSearching)
             ScanButton.Content = norwegian ? "Søker...." : "Searching....";
-        if (FixItOpenButton is not null)
-            FixItOpenButton.ToolTip = norwegian
-                ? "Åpne FIX IT! – reparer og diagnostiser Windows Update-problemer"
-                : "Open FIX IT! – repair and diagnose Windows Update problems";
+        else
+            ResetScanButtonLabel();
         if (FooterSafetyText is not null)
         {
             const string footerEn =
@@ -1798,15 +1798,16 @@ public partial class MainWindow : Window
     private void ResetScanButtonLabel()
     {
         _scanButtonSearching = false;
-        const string english = "⌕  Check for Updates";
+        const string english = "Check for updates";
         // ApplyLanguage stores the first text it sees in Tag. A busy "Searching...." /
         // "Søker...." label captured there would be restored on the next language pass.
         if (ScanButton.Tag is not string tag
             || tag.Contains("Searching", StringComparison.Ordinal)
-            || tag.Contains("Søker", StringComparison.Ordinal))
+            || tag.Contains("Søker", StringComparison.Ordinal)
+            || tag.Contains("⌕", StringComparison.Ordinal))
             ScanButton.Tag = english;
         ScanButton.Content = _schedule.Language == "no"
-            ? "⌕  Søk etter oppdateringer"
+            ? "Se etter oppdateringer"
             : english;
     }
 
