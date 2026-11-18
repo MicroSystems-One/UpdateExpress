@@ -1254,7 +1254,7 @@ public partial class MainWindow : Window
             MonitorElapsedText.Text = "";
             return;
         }
-        MonitorStateText.Text = status.State switch
+        string state = status.State switch
         {
             "scanning" => "Background monitoring: checking for updates …",
             "completed" => "Background monitoring: last check completed",
@@ -1262,7 +1262,12 @@ public partial class MainWindow : Window
             _ => "Background monitoring: waiting for next check"
         };
         string last = status.LastCompleted?.ToString("dd.MM HH:mm") ?? "—";
-        MonitorDetailsText.Text = $"Last: {last}  |  Available: {status.Pending}  |  New: {status.New}  |  Next scheduled: {status.NextScheduled:HH:mm}";
+        string next = status.NextScheduled == default
+            ? "—"
+            : status.NextScheduled.ToString("HH:mm");
+        // Inline after monitoring text: three spaces between each segment.
+        MonitorStateText.Text = $"{state}   Next scheduled: {next}   Last: {last}";
+        MonitorDetailsText.Text = $"Available: {status.Pending}  |  New: {status.New}";
         MonitorUpdatesText.Text = status.Updates.Length == 0 ? "Updates: none recorded" : "Updates: " + string.Join("; ", status.Updates.Take(3));
         MonitorUpdatesText.ToolTip = status.Updates.Length == 0 ? "No recorded updates" : string.Join(Environment.NewLine, status.Updates);
         MonitorElapsedText.Text = status.State == "scanning" && status.Started.HasValue
