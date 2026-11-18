@@ -18,7 +18,10 @@ internal static class DriverAutomation
     private const string Category = "drivers";
     private const string DisplayName = "Drivers";
     private const string ElevateArg = "--apply-drivers-install";
-    private const int MinIntervalMinutes = 1440;
+    /// <summary>Default driver scan interval (1 day).</summary>
+    internal const int DefaultIntervalMinutes = 1440;
+    /// <summary>Hard floor for driver scan cadence (1 day).</summary>
+    internal const int AbsoluteFloorMinutes = 1440;
 
     private static int _running;
     private static Action<string, string>? _balloon;
@@ -40,6 +43,7 @@ internal static class DriverAutomation
 
             var schedule = policy.WindowsAutomation.Critical;
             string preferred = AutomationSchedule.PreferredOrDefault(schedule.PreferredInstallTime);
+            int intervalMinutes = ResolveIntervalMinutes(policy);
             var prompt = CategoryPromptState.LoadAndReconcile(Category);
 
             if (prompt.State == "installing")
@@ -69,7 +73,7 @@ internal static class DriverAutomation
             var entry = status.Drivers;
             DateTime nextDue = entry.NextDue ?? AutomationSchedule.NextPreferredOccurrence(preferred);
             if (entry.LastRun is DateTime last && entry.NextDue is null)
-                nextDue = NextDue(last, schedule, preferred);
+                nextDue = NextDue(last, intervalMinutes, preferred);
             if (DateTime.Now < nextDue && entry.LastRun is not null)
                 return;
 
@@ -85,7 +89,7 @@ internal static class DriverAutomation
             }
             catch (Exception ex)
             {
-                WindowsAutomationStatus.WriteCategory(Category, "Failed", "Scan failed: " + ex.Message, NextDue(DateTime.Now, schedule, preferred));
+                WindowsAutomationStatus.WriteCategory(Category, "Failed", "Scan failed: " + ex.Message, NextDue(DateTime.Now, intervalMinutes, preferred));
                 ActivityLog.TryWrite("DriversAutomation", "ScanFailed", ex.ToString(), mode: "Automatic", source: "TrayAgent");
                 AgentLog.Write("Drivers automation scan failed: " + ex);
                 return;
@@ -97,7 +101,7 @@ internal static class DriverAutomation
                 CategoryPromptState.Clear(Category);
                 WindowsAutomationStatus.WriteCategory(
                     Category, "None pending", "No assigned WUA drivers pending.",
-                    NextDue(DateTime.Now, schedule, preferred));
+                    NextDue(DateTime.Now, intervalMinutes, preferred));
                 ActivityLog.TryWrite("DriversAutomation", "NonePending", new { Count = 0 }, mode: "Automatic", source: "TrayAgent");
                 AgentLog.Write("Drivers automation: no matching drivers pending.");
                 return;
@@ -141,7 +145,7 @@ internal static class DriverAutomation
                 Category,
                 "Awaiting confirmation",
                 $"{matches.Count} driver(s) ready · downloaded={downloaded}",
-                NextDue(DateTime.Now, schedule, preferred));
+                NextDue(DateTime.Now, intervalMinutes, preferred));
 
             await PresentPromptAsync(dispatcher, prompt, preferred,
                 $"{matches.Count} assigned driver update(s) available.").ConfigureAwait(false);
@@ -152,8 +156,15 @@ internal static class DriverAutomation
         }
     }
 
-    private static DateTime NextDue(DateTime from, CategoryAutomationPolicy cat, string preferred) =>
-        AutomationSchedule.ComputeNextDue(from, cat.IntervalMinutes, preferred, MinIntervalMinutes);
+    internal static int ResolveIntervalMinutes(UpdatePolicy? policy = null)
+    {
+        policy ??= UpdatePolicy.Load();
+        policy.Normalize();
+        return Math.Max(AbsoluteFloorMinutes, policy.DriversIntervalMinutes);
+    }
+
+    private static DateTime NextDue(DateTime from, int intervalMinutes, string preferred) =>
+        AutomationSchedule.ComputeNextDue(from, intervalMinutes, preferred, AbsoluteFloorMinutes);
 
     private static async Task PresentPromptAsync(
         Dispatcher dispatcher,
@@ -273,7 +284,7 @@ internal static class DriverAutomation
             WindowsAutomationStatus.WriteCategory(
                 Category, "Installing",
                 "Elevated driver installer started. Update Express will not reboot Windows.",
-                NextDue(DateTime.Now, schedule, preferred));
+                NextDue(DateTime.Now, ResolveIntervalMinutes(), preferred));
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
@@ -394,15 +405,14 @@ internal static class DriverAutomation
 
             var policy = UpdatePolicy.Load();
             policy.Normalize();
-            var schedule = policy.WindowsAutomation.Critical;
-            string preferred = AutomationSchedule.PreferredOrDefault(schedule.PreferredInstallTime);
+            string preferred = AutomationSchedule.PreferredOrDefault(policy.WindowsAutomation.Critical.PreferredInstallTime);
             WindowsAutomationStatus.WriteCategory(
                 Category,
                 rebootHint ? "Installed (restart needed)" : "Installed",
                 rebootHint
                     ? $"{ok}/{selected.Count} completed. Restart may be required."
                     : $"{ok}/{selected.Count} completed.",
-                NextDue(DateTime.Now, schedule, preferred));
+                NextDue(DateTime.Now, ResolveIntervalMinutes(policy), preferred));
             ActivityLog.TryWrite("DriversAutomation", "Installed", new { ok, Total = selected.Count, rebootHint }, mode: "Automatic", source: "ElevatedHelper");
 
             manager.Finish();

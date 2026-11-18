@@ -498,6 +498,21 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "Reboot countdown must be between 60 and 3600 seconds.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
+        if (!int.TryParse(ApplicationsCheckHours.Text.Trim(), out int appsHours) || appsHours < 1)
+        {
+            MessageBox.Show(this, "Applications check interval must be at least 1 hour.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (!int.TryParse(DriversCheckHours.Text.Trim(), out int driversHours) || driversHours < 24)
+        {
+            MessageBox.Show(this, "Drivers check interval must be at least 24 hours.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (!int.TryParse(WindowsMonitorHours.Text.Trim(), out int monitorHours) || monitorHours < 1)
+        {
+            MessageBox.Show(this, "Windows monitor interval must be at least 1 hour.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
 
         _policy.WindowsAutomation.Enabled = WindowsAutomationEnabled.IsChecked == true;
         _policy.WindowsAutomation.Defender.Enabled = DefenderAutoEnabled.IsChecked == true;
@@ -525,6 +540,9 @@ public partial class MainWindow : Window
 
         _policy.AutomaticDrivers = AutoDrivers.IsChecked == true;
         _policy.AutomaticApplications = AutoApplications.IsChecked == true;
+        _policy.ApplicationsIntervalMinutes = appsHours * 60;
+        _policy.DriversIntervalMinutes = driversHours * 60;
+        _policy.WindowsMonitorIntervalMinutes = monitorHours * 60;
         _policy.AutomaticApplicationIds ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var app in _appEntries)
         {
@@ -579,6 +597,12 @@ public partial class MainWindow : Window
         RebootCountdownSeconds.Text = wa.AutoReboot.CountdownSeconds.ToString();
         AutoDrivers.IsChecked = _policy.AutomaticDrivers;
         AutoApplications.IsChecked = _policy.AutomaticApplications;
+        if (ApplicationsCheckHours is not null)
+            ApplicationsCheckHours.Text = Math.Max(1, (_policy.ApplicationsIntervalMinutes + 59) / 60).ToString();
+        if (DriversCheckHours is not null)
+            DriversCheckHours.Text = Math.Max(24, (_policy.DriversIntervalMinutes + 59) / 60).ToString();
+        if (WindowsMonitorHours is not null)
+            WindowsMonitorHours.Text = Math.Max(1, (_policy.WindowsMonitorIntervalMinutes + 59) / 60).ToString();
         BuildInstallDayChips();
         RefreshMaintenanceSummary();
         RefreshAutomationStatusTexts();
@@ -1697,6 +1721,13 @@ public partial class MainWindow : Window
         ["Drivers automatic"] = "Drivere automatisk",
         ["Application automatic"] = "Programmer automatisk",
         ["Firmware: manual only"] = "Fastvare: kun manuelt", ["Save Policy"] = "Lagre policy",
+        ["Automatic check intervals"] = "Automatiske sjekkintervaller",
+        ["How often the background agent looks for updates. Applications default to 4 hours; drivers to 24 hours; Windows pending-update monitor to 6 hours. Firmware stays manual."] =
+            "Hvor ofte bakgrunnsagenten ser etter oppdateringer. Programmer er standard 4 timer; drivere 24 timer; Windows-overvåking 6 timer. Fastvare forblir manuell.",
+        ["Applications (hours)"] = "Programmer (timer)",
+        ["Drivers (hours)"] = "Drivere (timer)",
+        ["Windows monitor (hours)"] = "Windows-overvåking (timer)",
+        ["Advanced categories (intervals)"] = "Avanserte kategorier (intervaller)",
         ["Interval (minutes)"] = "Intervall (minutter)", ["Preferred time"] = "Foretrukket tid",
         ["Mode: Auto-install (K1)"] = "Modus: Auto-installasjon (K1)",
         ["Mode: Download + ask (soon)"] = "Modus: Last ned + spør (kommer)",
