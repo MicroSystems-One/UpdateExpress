@@ -9,7 +9,12 @@ public partial class ReminderDialog : Window
 {
     public string Decision { get; private set; } = "dismissed";
 
-    public ReminderDialog(bool isTest, DateTime occurrence, bool norwegian = false, bool showMissedPreviousDay = false)
+    public ReminderDialog(
+        bool isTest,
+        DateTime occurrence,
+        bool norwegian = false,
+        bool showMissedPreviousDay = false,
+        string reasonKey = "")
     {
         InitializeComponent();
         AppIcon.Apply(this);
@@ -36,6 +41,26 @@ public partial class ReminderDialog : Window
             MissedNoticeText.Text = norwegian
                 ? "Vi minner om at planlagt vedlikehold i går ikke ble gjennomført, fordi det manglet bekreftelse."
                 : "Reminder: yesterday's scheduled maintenance was not completed because it was not confirmed.";
+        }
+
+        if (!isTest && !string.IsNullOrWhiteSpace(reasonKey))
+        {
+            ReasonText.Visibility = Visibility.Visible;
+            ReasonText.Text = reasonKey switch
+            {
+                "pending" => norwegian
+                    ? "Årsak: det finnes oppdateringer på vent."
+                    : "Reason: updates are waiting.",
+                "reboot" => norwegian
+                    ? "Årsak: Windows venter på omstart."
+                    : "Reason: Windows is waiting for a restart.",
+                "uptime" => norwegian
+                    ? "Årsak: oppetiden er 7 dager eller mer (anbefalt vedlikeholdsomstart)."
+                    : "Reason: uptime is 7 days or more (recommended maintenance restart).",
+                _ => ""
+            };
+            if (string.IsNullOrWhiteSpace(ReasonText.Text))
+                ReasonText.Visibility = Visibility.Collapsed;
         }
 
         if (norwegian)

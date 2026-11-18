@@ -2008,7 +2008,39 @@ public partial class MainWindow : Window
         }
 
         if (_schedule.LastPromptedOccurrence == slot.Value) return;
+        // Only prompt when maintenance is useful: pending updates, Windows reboot pending,
+        // or long uptime (same 7-day floor as the Oppetid hint). Skip quietly otherwise so a
+        // clean PC is not asked to confirm a restart for no reason.
+        if (!TryGetMaintenanceReminderReason(out _))
+            return;
         ShowReminder(false, slot.Value);
+    }
+
+    /// <summary>
+    /// Real (non-test) reminders need a concrete reason: updates waiting, reboot pending, or uptime ≥ 7 days.
+    /// </summary>
+    private bool TryGetMaintenanceReminderReason(out string reasonKey)
+    {
+        reasonKey = "";
+        int pending = CountAvailableUpdates();
+        if (pending > 0)
+        {
+            reasonKey = "pending";
+            return true;
+        }
+        if (RebootPendingReader.IsRebootPending())
+        {
+            reasonKey = "reboot";
+            return true;
+        }
+        var up = DateTime.Now - _bootedAt;
+        if (up < TimeSpan.Zero) up = TimeSpan.Zero;
+        if (up >= LongUptimeThreshold)
+        {
+            reasonKey = "uptime";
+            return true;
+        }
+        return false;
     }
 
     private void MarkMissedUnconfirmedDay(DateTime day)
@@ -2025,6 +2057,10 @@ public partial class MainWindow : Window
         bool showMissed = !isTest
             && _schedule.MissedUnconfirmedDate is DateTime missed
             && missed.Date < DateTime.Now.Date;
+
+        string reasonKey = "";
+        if (!isTest)
+            TryGetMaintenanceReminderReason(out reasonKey);
 
         if (!isTest)
         {
@@ -2044,7 +2080,7 @@ public partial class MainWindow : Window
                 if (IsLoaded) Activate();
 
                 bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
-                var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no", showMissed)
+                var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no", showMissed, reasonKey)
                 {
                     Owner = ownerOk ? this : null,
                     WindowStartupLocation = ownerOk
@@ -2052,7 +2088,7 @@ public partial class MainWindow : Window
                         : WindowStartupLocation.CenterScreen
                 };
                 dialog.ShowDialog();
-                ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision);
+                ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision + (string.IsNullOrEmpty(reasonKey) ? "" : "|" + reasonKey));
                 if (!isTest)
                 {
                     if (showMissed)
