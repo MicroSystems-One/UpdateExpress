@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.36",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.36/UpdateExpress_v0.7.2.36.exe",
-  "sha256": "aed0d16309f4d43f73ac0c6825d278fb48e0a985f12da9361aa27809579ed461",
-  "publishedAt": "2026-11-18T19:08:52Z",
-  "releaseNotes": "RMM status, fleet policy, Problem PC pipeline, PME conflict banner, stronger until-current resume. Tip 1c91354."
+  "version": "0.7.2.37",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.37/UpdateExpress_v0.7.2.37.exe",
+  "sha256": "7f99a2e37d0ea2f7315f8d0b34faf3bc7966daeeeb5219fea97daa67fcce306e",
+  "publishedAt": "2026-11-18T19:29:11Z",
+  "releaseNotes": "Overview info, gated reminder, Reminder buttons one row. Tip 9e45957."
 }
