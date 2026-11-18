@@ -1345,6 +1345,27 @@ public partial class MainWindow : Window
             : status.State == "failed"
                 ? (status.Error ?? (no ? "Feil – se agent.log" : "Error – see agent.log"))
                 : "";
+        RefreshResultsHeading();
+    }
+
+    /// <summary>
+    /// Results expander title: “Søke resultater” / “Search results” plus three spaces and
+    /// “Sist sjekket: HH:mm - neste sjekk: HH:mm” (language-aware).
+    /// </summary>
+    private void RefreshResultsHeading()
+    {
+        if (ListHeading is null) return;
+        bool no = _schedule.Language == "no";
+        string title = no ? "Søke resultater" : "Search results";
+        var status = MonitorStatus.Read();
+        DateTime? lastAt = _lastSuccessfulScan ?? status?.LastCompleted;
+        string last = lastAt is DateTime t ? t.ToString("HH:mm") : "—";
+        string next = status is not null && status.NextScheduled != default
+            ? status.NextScheduled.ToString("HH:mm")
+            : "—";
+        ListHeading.Text = no
+            ? $"{title}   Sist sjekket: {last} - neste sjekk: {next}"
+            : $"{title}   Last checked: {last} - next check: {next}";
     }
 
     public void ShowProxySettings()
@@ -1811,7 +1832,6 @@ public partial class MainWindow : Window
         if (RebootNeededBanner is not null) RebootNeededBanner.Text = RebootBannerText();
         RefreshLongUptimeHint();
         RefreshAppChromeLanguage();
-        ListHeading.Text = norwegian ? "Søke resultater" : "Search results";
         if (WindowsHelpHeading is not null)
             WindowsHelpHeading.Text = norwegian
                 ? "Fiks Windows Update-problemene dine her...."
@@ -1822,7 +1842,8 @@ public partial class MainWindow : Window
                 : "Repair stuck updates, open Windows Settings, or review installation help.";
         RefreshScheduleStatus();
         RefreshUpdateUntilCurrentUi();
-        RefreshMonitorPanel();
+        RefreshMonitorPanel(); // also refreshes Results heading times
+        RefreshResultsHeading();
         RefreshMaintenanceSummary();
         BuildInstallDayChips();
         RefreshAutomationStatusTexts();
@@ -2050,6 +2071,7 @@ public partial class MainWindow : Window
             }
             RefreshHealthSummary();
             RefreshUpToDatePanel();
+            RefreshResultsHeading();
             SyncResultsExpandedForPending(CountAvailableUpdates());
         }
         catch (Exception ex)
