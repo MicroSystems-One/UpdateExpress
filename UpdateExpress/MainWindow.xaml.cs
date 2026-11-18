@@ -189,6 +189,7 @@ public partial class MainWindow : Window
         UpdateSelectionControls();
         if (_languageReady) ApplyLanguage();
         RefreshFeatureUpdateButton();
+        RefreshUpToDatePanel();
     }
     private static void PaintResultTab(Button button, bool selected)
     {
@@ -1645,7 +1646,9 @@ public partial class MainWindow : Window
         ["Not running"] = "Kjører ikke",
         ["Enabled"] = "Aktivert",
         ["Every day"] = "Hver dag", ["Monday"] = "Mandag", ["Tuesday"] = "Tirsdag", ["Wednesday"] = "Onsdag",
-        ["Thursday"] = "Torsdag", ["Friday"] = "Fredag", ["Saturday"] = "Lørdag", ["Sunday"] = "Søndag"
+        ["Thursday"] = "Torsdag", ["Friday"] = "Fredag", ["Saturday"] = "Lørdag", ["Sunday"] = "Søndag",
+        ["You're up to date"] = "Du er oppdatert",
+        ["Last checked: —"] = "Sist sjekket: —"
     };
     private void ApplyLanguage()
     {
@@ -1659,7 +1662,7 @@ public partial class MainWindow : Window
                 var match = Norwegian.Keys.FirstOrDefault(k => original == k || original.EndsWith("  " + k, StringComparison.Ordinal));
                 if (match != null) control.Content = norwegian ? original.Replace(match, Norwegian[match]) : original;
             }
-            if (element is System.Windows.Controls.TextBlock block && block.Name is not ("DefenderLabel" or "DefenderChecked" or "HealthSummary" or "StatusText" or "ScheduleStatus" or "AppsInfo" or "AppsSelectedCount" or "SelectedCountText" or "AutomationStatusText" or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus" or "FooterSafetyText" or "RebootNeededBanner" or "LongUptimeHint" or "UpdateUntilCurrentStatus") && !string.IsNullOrEmpty(block.Text))
+            if (element is System.Windows.Controls.TextBlock block && block.Name is not ("DefenderLabel" or "DefenderChecked" or "HealthSummary" or "StatusText" or "ScheduleStatus" or "AppsInfo" or "AppsSelectedCount" or "SelectedCountText" or "AutomationStatusText" or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus" or "FooterSafetyText" or "RebootNeededBanner" or "LongUptimeHint" or "UpdateUntilCurrentStatus" or "UpToDateTitle" or "UpToDateSubtitle") && !string.IsNullOrEmpty(block.Text))
             {
                 if (block.Tag is not string original) { original = block.Text; block.Tag = original; }
                 if (Norwegian.TryGetValue(original, out var translated)) block.Text = norwegian ? translated : original;
@@ -1699,6 +1702,7 @@ public partial class MainWindow : Window
             FooterSafetyText.Text = norwegian && Norwegian.TryGetValue(footerEn, out var footerNo) ? footerNo : footerEn;
         }
         _fixItWindow?.ApplyLanguage(norwegian);
+        RefreshUpToDatePanel();
     }
     private void RefreshScheduleStatus()
     {
@@ -1890,6 +1894,8 @@ public partial class MainWindow : Window
                 StatusText.Text = $"Windows scan complete; WinGet failed: {ex.Message}";
             }
             RefreshHealthSummary();
+            RefreshUpToDatePanel();
+            SyncResultsExpandedForPending(CountAvailableUpdates());
         }
         catch (Exception ex)
         {
@@ -1997,6 +2003,8 @@ public partial class MainWindow : Window
             _historySnapshot = history;
             RefreshHealthSummary();
             SetTab(_activeTab);
+            if (scanCompleted)
+                SyncResultsExpandedForPending(CountAvailableUpdates());
             int fixedCount = history.Count(entry => entry.IsHistoryFixed);
             StatusText.Text = scanCompleted
                 ? $"History kept: {history.Count} events ({fixedCount} marked Fixed). Pending updates were scanned again."
@@ -2646,12 +2654,62 @@ public partial class MainWindow : Window
         try { ActivityLog.TryWrite(source, status, detail); } catch { /* ignore */ }
     }
 
-    /// <summary>Collapsed when 0 pending; expand when ≥1 so scan results are visible.</summary>
+    /// <summary>
+    /// Expand Results when updates are pending, or when a successful scan found none
+    /// so the “You’re up to date” panel is visible.
+    /// </summary>
     private void SyncResultsExpandedForPending(int pendingCount)
     {
         if (ResultsExpander is null) return;
-        ResultsExpander.IsExpanded = pendingCount >= 1;
+        ResultsExpander.IsExpanded = pendingCount >= 1 || IsFullyUpToDate();
         ApplyResultsRowLayout();
+    }
+
+    private int CountAvailableUpdates()
+    {
+        int windows = _pendingSnapshot.Count(x => x.Category != "Driver / firmware" &&
+            (!string.IsNullOrEmpty(x.UpdateId) || x.Source == FeatureUpdateOfferReader.Source));
+        int drivers = _pendingSnapshot.Count(x => x.Category == "Driver / firmware" && !string.IsNullOrEmpty(x.UpdateId));
+        return windows + drivers + _appEntries.Count;
+    }
+
+    private bool IsFullyUpToDate() =>
+        _lastSuccessfulScan is not null && !_showingHistory && CountAvailableUpdates() == 0;
+
+    private void RefreshUpToDatePanel()
+    {
+        if (UpToDatePanel is null || UpToDateTitle is null || UpToDateSubtitle is null) return;
+        bool show = IsFullyUpToDate();
+        UpToDatePanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (show)
+        {
+            bool norwegian = _schedule.Language == "no";
+            UpToDateTitle.Text = norwegian ? "Du er oppdatert" : "You're up to date";
+            UpToDateSubtitle.Text = FormatLastCheckedSubtitle(_lastSuccessfulScan!.Value, norwegian);
+            WindowsUpdatesTable.Visibility = Visibility.Collapsed;
+            AppsActions.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        bool showWindowsGrid = _activeTab is not "apps";
+        bool showAppsGrid = _activeTab == "apps";
+        if (WindowsUpdatesTable is not null)
+            WindowsUpdatesTable.Visibility = showWindowsGrid ? Visibility.Visible : Visibility.Collapsed;
+        if (AppsActions is not null)
+            AppsActions.Visibility = showAppsGrid ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static string FormatLastCheckedSubtitle(DateTime when, bool norwegian)
+    {
+        var local = when.Kind == DateTimeKind.Utc ? when.ToLocalTime() : when;
+        var today = DateTime.Now.Date;
+        string dayPart = local.Date == today
+            ? (norwegian ? "i dag" : "today")
+            : local.Date == today.AddDays(-1)
+                ? (norwegian ? "i går" : "yesterday")
+                : local.ToString("dd.MM.yyyy");
+        string prefix = norwegian ? "Sist sjekket:" : "Last checked:";
+        return $"{prefix} {dayPart} {local:HH:mm}";
     }
 
     /// <summary>
