@@ -51,17 +51,24 @@ public sealed class InstallationManagerWindow : Window
     private readonly Button _cancel;
     private readonly DispatcherTimer _clock;
     private readonly TextBlock _elapsed;
+    private readonly bool _norwegian;
     private DateTime _started;
     private bool _running;
     private readonly System.Windows.Controls.ListView _list;
-    public InstallationManagerWindow(List<InstallationQueueItem> items, string? subtitle = null)
+    public InstallationManagerWindow(List<InstallationQueueItem> items, string? subtitle = null, bool norwegian = false)
     {
-        Title = "Update Express – Installation Manager";
+        _norwegian = norwegian;
+        Title = norwegian ? "Update Express – Installasjonsbehandling" : "Update Express – Installation Manager";
         AppIcon.Apply(this);
         Width = 760; Height = 530; MinWidth = 590; MinHeight = 400;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(247, 249, 252));
         _items = new ObservableCollection<InstallationQueueItem>(items);
+        foreach (var item in _items)
+        {
+            if (item.State is "Pending" or "Venter")
+                item.State = norwegian ? "Venter" : "Pending";
+        }
         var root = new DockPanel { Margin = new Thickness(20) };
         Content = root;
         // Fixed-height footer grid: both buttons share exactly one 27-DIP row.
@@ -74,8 +81,22 @@ public sealed class InstallationManagerWindow : Window
         DockPanel.SetDock(bottom, Dock.Bottom);
         root.Children.Add(bottom);
         var buttonStyle = CreateFooterButtonStyle();
-        _start = new Button { Content = "Install selected updates", Style = buttonStyle, Height = 27, MinHeight = 27, MaxHeight = 27, Padding = new Thickness(8, 0, 8, 0), HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch, VerticalAlignment = System.Windows.VerticalAlignment.Stretch };
-        _cancel = new Button { Content = "Close", Style = buttonStyle, Height = 27, MinHeight = 27, MaxHeight = 27, Padding = new Thickness(8, 0, 8, 0), HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch, VerticalAlignment = System.Windows.VerticalAlignment.Stretch };
+        _start = new Button
+        {
+            Content = norwegian ? "Installer valgte oppdateringer" : "Install selected updates",
+            Style = buttonStyle, Height = 27, MinHeight = 27, MaxHeight = 27,
+            Padding = new Thickness(8, 0, 8, 0),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
+            VerticalAlignment = System.Windows.VerticalAlignment.Stretch
+        };
+        _cancel = new Button
+        {
+            Content = norwegian ? "Lukk" : "Close",
+            Style = buttonStyle, Height = 27, MinHeight = 27, MaxHeight = 27,
+            Padding = new Thickness(8, 0, 8, 0),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
+            VerticalAlignment = System.Windows.VerticalAlignment.Stretch
+        };
         _start.Click += (_, _) => { };
         _cancel.Click += (_, _) => Close();
         Grid.SetRow(_start, 0); Grid.SetColumn(_start, 0);
@@ -83,32 +104,57 @@ public sealed class InstallationManagerWindow : Window
         bottom.Children.Add(_start);
         bottom.Children.Add(_cancel);
         var top = new StackPanel(); DockPanel.SetDock(top, Dock.Top); root.Children.Add(top);
-        top.Children.Add(new TextBlock { Text = "Installation Manager", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
-        top.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(subtitle) ? "Review the combined Windows Update / driver / WinGet queue. No automatic restart." : subtitle, FontSize = 12, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap });
+        top.Children.Add(new TextBlock
+        {
+            Text = norwegian ? "Installasjonsbehandling" : "Installation Manager",
+            FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8)
+        });
+        string defaultSubtitle = norwegian
+            ? "Gå gjennom den kombinerte køen for Windows Update / drivern / WinGet. Ingen automatisk omstart."
+            : "Review the combined Windows Update / driver / WinGet queue. No automatic restart.";
+        top.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(subtitle) ? defaultSubtitle : subtitle,
+            FontSize = 12, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap
+        });
         _notice = new TextBlock
         {
-            Text = WuaProgressText.PleaseWait(WuaProgressText.Norwegian),
+            Text = WuaProgressText.PleaseWait(norwegian),
             FontSize = 12,
             Foreground = new SolidColorBrush(Color.FromRgb(82, 97, 122)),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10)
         };
         top.Children.Add(_notice);
-        _stage = new TextBlock { Text = "Ready to install", FontSize = 13, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+        _stage = new TextBlock
+        {
+            Text = norwegian ? "Klar til å installere" : "Ready to install",
+            FontSize = 13, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap
+        };
         top.Children.Add(_stage);
         _bar = new System.Windows.Controls.ProgressBar { Minimum = 0, Maximum = items.Count, Value = 0, Height = 9, Margin = new Thickness(0, 9, 0, 8) };
         top.Children.Add(_bar);
         var meta = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
-        _counter = new TextBlock { Text = $"0 of {items.Count} processed", FontSize = 12, Width = 170 };
-        _elapsed = new TextBlock { Text = "Elapsed: 00:00", FontSize = 12 };
+        _counter = new TextBlock { Text = FormatProcessed(0, items.Count), FontSize = 12, Width = 200 };
+        _elapsed = new TextBlock { Text = FormatElapsed(TimeSpan.Zero), FontSize = 12 };
         meta.Children.Add(_counter); meta.Children.Add(_elapsed); top.Children.Add(meta);
         var list = new System.Windows.Controls.ListView { ItemsSource = _items, BorderThickness = new Thickness(0), Background = Brushes.White, Margin = new Thickness(1), HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch };
         _list = list;
         var view = new GridView();
-        view.Columns.Add(new GridViewColumn { Header = "Source", Width = 125, DisplayMemberBinding = new System.Windows.Data.Binding("Source") });
-        view.Columns.Add(new GridViewColumn { Header = "Update", Width = 410, DisplayMemberBinding = new System.Windows.Data.Binding("Name") });
+        view.Columns.Add(new GridViewColumn
+        {
+            Header = norwegian ? "Kilde" : "Source",
+            Width = 125,
+            DisplayMemberBinding = new System.Windows.Data.Binding("Source")
+        });
+        view.Columns.Add(new GridViewColumn
+        {
+            Header = norwegian ? "Oppdatering" : "Update",
+            Width = 410,
+            DisplayMemberBinding = new System.Windows.Data.Binding("Name")
+        });
         // Status ~30% wider than previous 140; non-success terminal states are clickable for help.
-        var statusColumn = new GridViewColumn { Header = "Status", Width = 182 };
+        var statusColumn = new GridViewColumn { Header = norwegian ? "Status" : "Status", Width = 182 };
         var statusFactory = new FrameworkElementFactory(typeof(TextBlock));
         statusFactory.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(InstallationQueueItem.State)));
         statusFactory.SetBinding(FrameworkElement.ToolTipProperty, new System.Windows.Data.Binding(nameof(InstallationQueueItem.Tip)));
@@ -221,13 +267,20 @@ public sealed class InstallationManagerWindow : Window
     public void PulseElapsed()
     {
         if (!_running && !_clock.IsEnabled) return;
-        _elapsed.Text = "Elapsed: " + (DateTime.Now - _started).ToString(@"hh\:mm\:ss");
+        _elapsed.Text = FormatElapsed(DateTime.Now - _started);
     }
+
+    private string FormatElapsed(TimeSpan span) =>
+        (_norwegian ? "Medgått: " : "Elapsed: ") + span.ToString(@"hh\:mm\:ss");
+
+    private string FormatProcessed(double done, int total) =>
+        _norwegian ? $"{done:0} av {total} behandlet" : $"{done:0} of {total} processed";
 
     public static string StatusCompleted(bool norwegian) => norwegian ? "Fullført" : "Completed";
     public static string StatusVerifying(bool norwegian) => norwegian ? "Verifiserer" : "Verifying";
     public static string StatusNotVerified(bool norwegian) => norwegian ? "Ikke verifisert" : "Not verified";
     public static string StatusVerifyTimedOut(bool norwegian) => norwegian ? "Verifisering tidsavbrutt" : "Verify timed out";
+    public static string StatusInstalling(bool norwegian) => norwegian ? "Installerer…" : "Installing...";
 
     public static bool IsCompletedState(string state) =>
         state is "Completed" or "Fullført";
@@ -287,7 +340,7 @@ public sealed class InstallationManagerWindow : Window
     public void BeginItem(int index, string stage)
     {
         if (!IsLoaded) return;
-        if (index >= 0 && index < _items.Count) _items[index].State = "Installing...";
+        if (index >= 0 && index < _items.Count) _items[index].State = StatusInstalling(_norwegian);
         SetStage(stage);
     }
     public void SetNotice(string text)
@@ -337,7 +390,7 @@ public sealed class InstallationManagerWindow : Window
         {
             "download" => norwegian ? $"Laster ned {number} av {total}" : $"Downloading {number} of {total}",
             "install" => norwegian ? $"Installerer {number} av {total}" : $"Installing {number} of {total}",
-            _ => $"{number} of {total}"
+            _ => norwegian ? $"{number} av {total}" : $"{number} of {total}"
         };
         double slot = total <= 0 ? 0 : (Math.Max(number, 1) - 1 + (activity.Percent < 0 ? 0.08 : activity.Percent / 100.0)) / total;
         double fraction = activity.Phase == "install" ? 0.5 + slot * 0.5 : slot * 0.5;
@@ -358,7 +411,8 @@ public sealed class InstallationManagerWindow : Window
         state.StartsWith("Downloading", StringComparison.Ordinal) || state.StartsWith("Laster ned", StringComparison.Ordinal);
 
     private static bool IsStillRunning(string state) =>
-        state is "Pending" or "Installing..." or "Verifying" or "Verifiserer" or "Downloaded" or "Lastet ned"
+        state is "Pending" or "Venter" or "Installing..." or "Installerer…" or "Verifying" or "Verifiserer"
+            or "Downloaded" or "Lastet ned"
         || state.StartsWith("Downloading", StringComparison.Ordinal)
         || state.StartsWith("Installing", StringComparison.Ordinal)
         || state.StartsWith("Laster ned", StringComparison.Ordinal)
@@ -378,7 +432,7 @@ public sealed class InstallationManagerWindow : Window
         PulseElapsed();
         _bar.IsIndeterminate = false;
         _bar.Value = _items.Count(x => !IsStillRunning(x.State));
-        _counter.Text = $"{_bar.Value:0} of {_items.Count} processed";
+        _counter.Text = FormatProcessed(_bar.Value, _items.Count);
     }
 
     public void SetStage(string stage)
@@ -401,7 +455,7 @@ public sealed class InstallationManagerWindow : Window
             int unverifiedGone = Math.Max(0, _items.Count - failedGone - completedGone);
             return (completedGone, failedGone, unverifiedGone);
         }
-        _elapsed.Text = "Elapsed: " + (DateTime.Now - _started).ToString(@"hh\:mm\:ss");
+        _elapsed.Text = FormatElapsed(DateTime.Now - _started);
         // Verifying means the installer already reported success — promote to Completed.
         // Only unmatched / still-running rows become the unresolved label.
         for (int i = 0; i < _items.Count; i++)
@@ -413,7 +467,7 @@ public sealed class InstallationManagerWindow : Window
         }
         _bar.IsIndeterminate = false;
         _bar.Value = _items.Count;
-        _counter.Text = $"{_items.Count} of {_items.Count} processed";
+        _counter.Text = FormatProcessed(_items.Count, _items.Count);
         int failed = _items.Count(x =>
             x.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase) ||
             x.State.StartsWith("Feilet", StringComparison.OrdinalIgnoreCase));
@@ -435,7 +489,7 @@ public sealed class InstallationManagerWindow : Window
         _cancel.Content = norwegian ? "Lukk" : "Close";
         _cancel.IsEnabled = true;
         Dispatcher.BeginInvoke(RefreshStatusCellVisuals, DispatcherPriority.Loaded);
-        ScheduleAutoClose(TimeSpan.FromSeconds(60));
+        ScheduleAutoClose(TimeSpan.FromSeconds(15));
         return (completed, failed, unverified);
     }
 

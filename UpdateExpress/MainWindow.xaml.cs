@@ -2408,15 +2408,21 @@ public partial class MainWindow : Window
                 $"Install {drivers.Count} manually selected driver or firmware update(s), sequentially?\n\n{summary}\n\nEach one is rechecked against WUA and its hardware ID. A failure will not stop the next one. Nothing is installed automatically, and there is no automatic restart.",
                 "Confirm driver installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         }
+        bool norwegian = _schedule.Language == "no";
         var queue = new List<InstallationQueueItem>();
         queue.AddRange(software.Select(x => new InstallationQueueItem("Windows Update", x.Title)));
         queue.AddRange(drivers.Select(x => new InstallationQueueItem("Driver", x.Title)));
         queue.AddRange(apps.Select(x => new InstallationQueueItem("WinGet", x.DisplayName)));
-        var manager = new InstallationManagerWindow(queue) { Owner = this };
-        if (AppDialog.Show(this, $"Install {queue.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}\n\nNo automatic restart will be performed.", "Confirm combined installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        var manager = new InstallationManagerWindow(queue, norwegian: norwegian) { Owner = this };
+        if (AppDialog.Show(this,
+                norwegian
+                    ? $"Installere {queue.Count} valgte oppdateringer fra alle faner?\n\nWindows-oppdateringer: {software.Count}\nDrivere: {drivers.Count}\nWinGet: {apps.Count}\n\nIngen automatisk omstart."
+                    : $"Install {queue.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}\n\nNo automatic restart will be performed.",
+                norwegian ? "Bekreft kombinert installasjon" : "Confirm combined installation",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         _busy = true;
         InstallButtonActive = true;
-        InstallButton.Content = "Installing updates…";
+        InstallButton.Content = norwegian ? "Installerer oppdateringer…" : "Installing updates…";
         ScanButton.IsEnabled = AppsScanButton.IsEnabled = false;
         SetHistoryActionsEnabled(false);
         UpdateSelectionControls();
@@ -2432,7 +2438,6 @@ public partial class MainWindow : Window
             ActivityLog.TryWrite("InstallationManager", status, detail, source: source, runId: runId);
         }
         int cursor = 0;
-        bool norwegian = _schedule.Language == "no";
         string completedLabel = InstallationManagerWindow.StatusCompleted(norwegian);
         string verifyingLabel = InstallationManagerWindow.StatusVerifying(norwegian);
         string notVerifiedLabel = InstallationManagerWindow.StatusNotVerified(norwegian);
@@ -2497,7 +2502,7 @@ public partial class MainWindow : Window
             foreach (var d in drivers)
             {
                 int idx = cursor++;
-                manager.SetStage("Rechecking driver identity: " + d.Title + "…");
+                manager.SetStage((norwegian ? "Sjekker driveridentitet på nytt: " : "Rechecking driver identity: ") + d.Title + "…");
                 try
                 {
                     bool acceptUiProgress = true;
@@ -2546,13 +2551,13 @@ public partial class MainWindow : Window
                     }
                     manager.CompleteItem(idx, "Failed" + hresult, true, tip);
                     Log("Driver", "Failed", new { d.Title, d.UpdateId, d.DriverHardwareId, Exception = ex.ToString(), InnerException = ex.InnerException?.ToString() });
-                    manager.SetStage("Driver failed: " + ex.Message);
+                    manager.SetStage((norwegian ? "Driver feilet: " : "Driver failed: ") + ex.Message);
                 }
             }
             foreach (var app in apps)
             {
                 int idx = cursor++;
-                manager.BeginItem(idx, "Installing " + app.DisplayName + "…");
+                manager.BeginItem(idx, norwegian ? ("Installerer " + app.DisplayName + "…") : ("Installing " + app.DisplayName + "…"));
                 int code; string output;
                 try { using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(20)); (code, output) = await WingetReader.UpgradeAsync(app.Id, timeout.Token); }
                 catch (Exception ex) { code = -1; output = ex.ToString(); }
@@ -2654,7 +2659,7 @@ public partial class MainWindow : Window
                         if (InstallationManagerWindow.IsVerifyingState(queue[i].State))
                             manager.CompleteItem(i, completedLabel, false);
                 }
-                catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage("Windows Update rescan failed: " + ex.Message); }
+                catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage((norwegian ? "Ny skanning av Windows Update feilet: " : "Windows Update rescan failed: ") + ex.Message); }
             }
 
             if (needWingetVerify)
@@ -2697,7 +2702,7 @@ public partial class MainWindow : Window
                             manager.CompleteItem(qi, timedOutLabel, true);
                     }
                 }
-                catch (Exception ex) { Log("WinGet", "Rescan failed", ex.Message); manager.SetStage("WinGet rescan failed: " + ex.Message); }
+                catch (Exception ex) { Log("WinGet", "Rescan failed", ex.Message); manager.SetStage((norwegian ? "Ny skanning av WinGet feilet: " : "WinGet rescan failed: ") + ex.Message); }
             }
             else if (apps.Count > 0)
             {
@@ -2716,13 +2721,13 @@ public partial class MainWindow : Window
             var outcome = manager.Finish(norwegian, guidance, verifyTimedOut ? timedOutLabel : notVerifiedLabel);
             SetInstallOutcome(outcome.Completed, outcome.Failed, queue);
             StatusText.Text = norwegian
-                ? "Installasjon ferdig. Installation Manager lukkes automatisk om ca. 60 sekunder."
-                : "Installation finished. Installation Manager closes automatically in about 60 seconds.";
+                ? "Installasjon ferdig. Installasjonsbehandling lukkes automatisk om 15 sekunder."
+                : "Installation finished. Installation Manager closes automatically in 15 seconds.";
         }
         catch (Exception ex)
         {
             Log("InstallationManager", "Failed", ex.ToString());
-            manager.SetStage("Installation interrupted: " + ex.Message);
+            manager.SetStage((norwegian ? "Installasjon avbrutt: " : "Installation interrupted: ") + ex.Message);
             var outcome = manager.Finish(norwegian, retryGuidance, notVerifiedLabel);
             SetInstallOutcome(outcome.Completed, outcome.Failed, queue);
             MessageBox.Show(this, ex.Message, "Installation Manager", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -3068,7 +3073,7 @@ public partial class MainWindow : Window
                 string subtitle = norwegian
                     ? "Oppdater til ferdig. Windows starter på nytt når en runde krever det, og søket kjøres på nytt etterpå."
                     : "Update until current. Windows restarts when a round requires it, then the search runs again.";
-                var manager = new InstallationManagerWindow(queue, subtitle) { Owner = this };
+                var manager = new InstallationManagerWindow(queue, subtitle, norwegian) { Owner = this };
                 manager.Show();
                 manager.PrepareRunning();
                 manager.SetNotice(WuaProgressText.PleaseWait(norwegian));
