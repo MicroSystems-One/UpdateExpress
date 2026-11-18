@@ -328,19 +328,18 @@
     <TextBlock x:Name="UpdateServerStatusText" Text="Microsoft TCP: checking …" FontSize="12" Foreground="#5D5D5D" Margin="0,0,18,0"/>
     <Ellipse x:Name="WuaLamp" Width="9" Height="9" Fill="#9099A6" Margin="0,0,6,0"/>
     <TextBlock x:Name="WuaStatusText" Text="WUA: Not confirmed" FontSize="12" Foreground="#5D5D5D" Margin="0,0,18,0"/>
-    <TextBlock x:Name="ProxyStatusText" Text="Proxy: checking …" FontSize="12" Foreground="#5D5D5D"/>
-   </StackPanel>
-   <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
-     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0">
-    <!-- Borderless proxy settings icon in the firewall group. -->
-    <Button Click="ProxyDetails_Click" ToolTip="Proxy Settings" Width="22" Height="22" Padding="2" Margin="0,0,8,0" Background="Transparent" BorderThickness="0" VerticalAlignment="Center" Cursor="Hand" Focusable="True" AutomationProperties.Name="View proxy details">
+    <TextBlock x:Name="ProxyStatusText" Text="Proxy: checking …" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center"/>
+    <!-- Proxy settings icon: one space after Proxy status text. -->
+    <Button Click="ProxyDetails_Click" ToolTip="Proxy Settings" Width="22" Height="22" Padding="2" Margin="4,0,0,0" Background="Transparent" BorderThickness="0" VerticalAlignment="Center" Cursor="Hand" Focusable="True" AutomationProperties.Name="View proxy details">
      <Viewbox Width="14" Height="14" Stretch="Uniform">
       <Canvas Width="24" Height="24">
        <Path Stroke="#0067C0" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M12,2 A10,10 0 1 1 11.99,2 Z M2,12 L22,12 M12,2 C5,7 5,17 12,22 M12,2 C19,7 19,17 12,22"/>
       </Canvas>
      </Viewbox>
     </Button>
-
+   </StackPanel>
+   <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0">
       <TextBlock Text="▦" FontSize="14" VerticalAlignment="Center" Margin="0,0,7,0" ToolTip="Windows Defender Firewall profiles"/>
       <TextBlock Text="Private" VerticalAlignment="Center" FontSize="12" Margin="0,0,4,0"/>
       <Border x:Name="PrivateLamp" Width="32" Height="16" Background="#9099A6" CornerRadius="8" Margin="0,0,10,0"><TextBlock x:Name="PrivateLampText" Text="?" FontSize="12" Foreground="White" HorizontalAlignment="Center"/></Border>
