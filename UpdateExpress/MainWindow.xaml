@@ -301,41 +301,10 @@
            ToolTip="Search Windows Update for available updates"
            AutomationProperties.Name="Check for updates"/>
   </Grid>
-  <Border Grid.Row="1" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="WindowsUpdateControlExpander" Style="{StaticResource SectionExpander}" IsExpanded="True"><Expander.Header><Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="Windows Update Status – Health Check" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,16,0"/><TextBlock x:Name="OsSupportIcon" Text="?" FontSize="14" FontWeight="Bold" Foreground="#B7791F" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock x:Name="OsVersionLabel" Text="Checking Windows…" FontSize="12" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center"/><Button x:Name="OsSupportInfo" Content="ⓘ" Click="OsSupportInfo_Click" ToolTip="Windows lifecycle and security support" FontSize="12" Padding="3,0" Margin="3,0,0,0" Height="20" MinHeight="20" MinWidth="20" VerticalAlignment="Center"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0"><Viewbox Width="22" Height="22" Margin="0,0,8,0" ToolTip="Antivirus protection status"><Canvas Width="96" Height="96"><Path x:Name="DefenderShield" Fill="#9099A6" Data="M48,5 L83,18 L83,43 C83,67 68,82 48,91 C28,82 13,67 13,43 L13,18 Z"/><Path Stroke="White" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M31,48 L43,60 L66,35"/></Canvas></Viewbox><TextBlock Text="Microsoft Defender" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderLabel" Text="Checking…" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderChecked" Text="Not checked" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,10,0"/><Button x:Name="DefenderRefreshButton" Content="Refresh" Click="DefenderRefresh_Click" FontSize="12" Padding="8,3" MinHeight="26" Height="26" Margin="0" VerticalAlignment="Center"/></StackPanel></Grid></Expander.Header><StackPanel Margin="0,8,0,0">
-   <Border Background="#F9F9F9" CornerRadius="8" BorderBrush="#E5E5E5" BorderThickness="1" Padding="8,5" Margin="0,0,0,8">
-    <WrapPanel VerticalAlignment="Center">
-     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
-      <TextBlock x:Name="MachineManufacturerLabel" Text="Manufacturer" FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
-      <TextBox x:Name="MachineManufacturerValue" Style="{StaticResource IdentityValue}" Text="…"/>
-     </StackPanel>
-     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
-      <TextBlock x:Name="MachineProductLabel" Text="Product no." FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
-      <TextBox x:Name="MachineProductValue" Style="{StaticResource IdentityValue}" Text="…"/>
-      <Button x:Name="MachineProductCopy" Style="{StaticResource IdentityCopyButton}" AutomationProperties.Name="Copy" Click="CopyMachineField_Click"/>
-     </StackPanel>
-     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
-      <TextBlock x:Name="MachineModelLabel" Text="Model" FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
-      <TextBox x:Name="MachineModelValue" Style="{StaticResource IdentityValue}" Text="…"/>
-      <Button x:Name="MachineModelCopy" Style="{StaticResource IdentityCopyButton}" AutomationProperties.Name="Copy" Click="CopyMachineField_Click"/>
-     </StackPanel>
-     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
-      <TextBlock x:Name="MachineSerialLabel" Text="Serial no." FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
-      <TextBox x:Name="MachineSerialValue" Style="{StaticResource IdentityValue}" Text="…"/>
-      <Button x:Name="MachineSerialCopy" Style="{StaticResource IdentityCopyButton}" AutomationProperties.Name="Copy" Click="CopyMachineField_Click"/>
-     </StackPanel>
-     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
-      <TextBlock x:Name="MachineDeviceLabel" Text="Device name" FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
-      <TextBox x:Name="MachineDeviceValue" Style="{StaticResource IdentityValue}" Text="…"/>
-      <Button x:Name="MachineDeviceCopy" Style="{StaticResource IdentityCopyButton}" AutomationProperties.Name="Copy" Click="CopyMachineField_Click"/>
-     </StackPanel>
-     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
-      <TextBlock x:Name="UptimeLabel" Text="Uptime" FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
-      <TextBox x:Name="UptimeValue" Style="{StaticResource IdentityValue}" Text="…" IsReadOnly="True" ToolTip="Last reboot"/>
-     </StackPanel>
-    </WrapPanel>
-   </Border>
-   <!-- Aligned connectivity and firewall status: same row, same Segoe UI 11px. -->
-   <Grid Margin="0,4,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+  <Border Grid.Row="1" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="WindowsUpdateControlExpander" Style="{StaticResource SectionExpander}" IsExpanded="False"><Expander.Header><StackPanel><Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="Windows Update Status – Health Check" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,16,0"/><TextBlock x:Name="OsSupportIcon" Text="?" FontSize="14" FontWeight="Bold" Foreground="#B7791F" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock x:Name="OsVersionLabel" Text="Checking Windows…" FontSize="12" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center"/><Button x:Name="OsSupportInfo" Content="ⓘ" Click="OsSupportInfo_Click" ToolTip="Windows lifecycle and security support" FontSize="12" Padding="3,0" Margin="3,0,0,0" Height="20" MinHeight="20" MinWidth="20" VerticalAlignment="Center"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0"><Viewbox Width="22" Height="22" Margin="0,0,8,0" ToolTip="Antivirus protection status"><Canvas Width="96" Height="96"><Path x:Name="DefenderShield" Fill="#9099A6" Data="M48,5 L83,18 L83,43 C83,67 68,82 48,91 C28,82 13,67 13,43 L13,18 Z"/><Path Stroke="White" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M31,48 L43,60 L66,35"/></Canvas></Viewbox><TextBlock Text="Microsoft Defender" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderLabel" Text="Checking…" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderChecked" Text="Not checked" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,10,0"/><Button x:Name="DefenderRefreshButton" Content="Refresh" Click="DefenderRefresh_Click" FontSize="12" Padding="8,3" MinHeight="26" Height="26" Margin="0" VerticalAlignment="Center"/></StackPanel></Grid>
+    <StackPanel Margin="0,8,0,0">
+<!-- Aligned connectivity and firewall status: same row, same Segoe UI 11px. -->
+   <Grid Margin="0,8,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <!-- Network diagnostics: independent HTTPS probes, not a Windows Update Agent test. -->
    <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="5,0,8,0" VerticalAlignment="Center">
     <Ellipse x:Name="InternetLamp" Width="9" Height="9" Fill="#9099A6" Margin="0,0,6,0"/>
@@ -367,7 +336,40 @@
      </StackPanel>
    </StackPanel>
    </Grid>
-   <!-- Agent status: chevron sits in the same trailing 28px column as SectionExpander (outside the gray fill). -->
+   <Border Background="#F9F9F9" CornerRadius="8" BorderBrush="#E5E5E5" BorderThickness="1" Padding="8,5" Margin="0,0,0,0">
+    <WrapPanel VerticalAlignment="Center">
+     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
+      <TextBlock x:Name="MachineManufacturerLabel" Text="Manufacturer" FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
+      <TextBox x:Name="MachineManufacturerValue" Style="{StaticResource IdentityValue}" Text="…"/>
+     </StackPanel>
+     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
+      <TextBlock x:Name="MachineProductLabel" Text="Product no." FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
+      <TextBox x:Name="MachineProductValue" Style="{StaticResource IdentityValue}" Text="…"/>
+      <Button x:Name="MachineProductCopy" Style="{StaticResource IdentityCopyButton}" AutomationProperties.Name="Copy" Click="CopyMachineField_Click"/>
+     </StackPanel>
+     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
+      <TextBlock x:Name="MachineModelLabel" Text="Model" FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
+      <TextBox x:Name="MachineModelValue" Style="{StaticResource IdentityValue}" Text="…"/>
+      <Button x:Name="MachineModelCopy" Style="{StaticResource IdentityCopyButton}" AutomationProperties.Name="Copy" Click="CopyMachineField_Click"/>
+     </StackPanel>
+     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
+      <TextBlock x:Name="MachineSerialLabel" Text="Serial no." FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
+      <TextBox x:Name="MachineSerialValue" Style="{StaticResource IdentityValue}" Text="…"/>
+      <Button x:Name="MachineSerialCopy" Style="{StaticResource IdentityCopyButton}" AutomationProperties.Name="Copy" Click="CopyMachineField_Click"/>
+     </StackPanel>
+     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
+      <TextBlock x:Name="MachineDeviceLabel" Text="Device name" FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
+      <TextBox x:Name="MachineDeviceValue" Style="{StaticResource IdentityValue}" Text="…"/>
+      <Button x:Name="MachineDeviceCopy" Style="{StaticResource IdentityCopyButton}" AutomationProperties.Name="Copy" Click="CopyMachineField_Click"/>
+     </StackPanel>
+     <StackPanel Orientation="Horizontal" Margin="0,2,14,2" VerticalAlignment="Center">
+      <TextBlock x:Name="UptimeLabel" Text="Uptime" FontSize="12" Foreground="#5D5D5D" Margin="0,0,5,0"/>
+      <TextBox x:Name="UptimeValue" Style="{StaticResource IdentityValue}" Text="…" IsReadOnly="True" ToolTip="Last reboot"/>
+     </StackPanel>
+    </WrapPanel>
+   </Border>
+    </StackPanel>
+  </StackPanel></Expander.Header><StackPanel Margin="0,8,0,0">   <!-- Agent status: chevron sits in the same trailing 28px column as SectionExpander (outside the gray fill). -->
    <DockPanel Margin="0,2,0,8" LastChildFill="True">
     <ToggleButton DockPanel.Dock="Right" x:Name="MonitorDetailsToggle" Width="28" Height="28"
                   Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"

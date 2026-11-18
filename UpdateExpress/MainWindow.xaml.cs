@@ -1327,8 +1327,8 @@ public partial class MainWindow : Window
             : status.NextScheduled.ToString("HH:mm");
         // Inline after monitoring text: three spaces between each segment.
         MonitorStateText.Text = no
-            ? $"{state}   Neste planlagt: {next}   Sist: {last}"
-            : $"{state}   Next scheduled: {next}   Last: {last}";
+            ? $"{state}   Sist: {last}   Neste planlagt: {next}"
+            : $"{state}   Last: {last}   Next scheduled: {next}";
         MonitorDetailsText.Text = no
             ? $"Tilgjengelig: {status.Pending}  |  Nye: {status.New}"
             : $"Available: {status.Pending}  |  New: {status.New}";
