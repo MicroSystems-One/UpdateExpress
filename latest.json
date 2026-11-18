@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.29",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.29/UpdateExpress_v0.7.2.29.exe",
-  "sha256": "45a70bdb528a6e17de29f2ba996d931742d0020dc18d375e766eed94c452ab5f",
-  "publishedAt": "2026-11-17T22:18:26Z",
-  "releaseNotes": "Install wizard 3 steps; service DisplayName Update Express. Tip 46e14b9."
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.30/UpdateExpress_v0.7.2.30.exe",
+  "publishedAt": "2026-11-18T10:30:56Z",
+  "releaseNotes": "Header Check/footer URL; monitoring Next/Last; Fix-it top-level; Du er oppdatert status. Tip 9e1a874.",
+  "version": "0.7.2.30",
+  "sha256": "0553b37abc572a3806b4390cddb64a023186a49f835cde71deafc4b7f3f7c9a1"
 }
