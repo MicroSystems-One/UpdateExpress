@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.35",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.35/UpdateExpress_v0.7.2.35.exe",
-  "sha256": "3b9da059985fe3c576085385262e0d8f57296f1daa4c6350d1e543742a37aef8",
-  "publishedAt": "2026-11-18T13:36:59Z",
-  "releaseNotes": "Header status icons restored beside two-line text. Tip 4055205."
+  "version": "0.7.2.36",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.36/UpdateExpress_v0.7.2.36.exe",
+  "sha256": "aed0d16309f4d43f73ac0c6825d278fb48e0a985f12da9361aa27809579ed461",
+  "publishedAt": "2026-11-18T19:08:52Z",
+  "releaseNotes": "RMM status, fleet policy, Problem PC pipeline, PME conflict banner, stronger until-current resume. Tip 1c91354."
 }
