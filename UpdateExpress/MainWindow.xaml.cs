@@ -1683,7 +1683,7 @@ public partial class MainWindow : Window
         ["Reboot needed"] = "Omstart nødvendig",
         ["Export CSV"] = "Eksporter CSV", ["Diagnostics"] = "Diagnostikk", ["Check Status"] = "Kontroller status",
         ["Refresh"] = "Oppdater", ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
-        ["Check for Updates & Results"] = "Søk etter oppdateringer og resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
+        ["Search results"] = "Søke resultater", ["Check for Updates & Results"] = "Søke resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
         ["All"] = "Alle",
         ["Windows Updates"] = "Windows-oppdateringer", ["Drivers / Firmware"] = "Drivere / fastvare",
         ["Applications"] = "Programmer", ["History"] = "Historikk", ["Select All"] = "Velg alle",
@@ -1811,7 +1811,7 @@ public partial class MainWindow : Window
         if (RebootNeededBanner is not null) RebootNeededBanner.Text = RebootBannerText();
         RefreshLongUptimeHint();
         RefreshAppChromeLanguage();
-        ListHeading.Text = norwegian ? "Søk etter oppdateringer og resultater" : "Check for Updates & Results";
+        ListHeading.Text = norwegian ? "Søke resultater" : "Search results";
         if (WindowsHelpHeading is not null)
             WindowsHelpHeading.Text = norwegian
                 ? "Fiks Windows Update-problemene dine her...."
@@ -2810,13 +2810,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Expand Results when updates are pending, or when a successful scan found none
-    /// so the “You’re up to date” panel is visible.
+    /// Results stays open by default. Expand when updates are pending or when a
+    /// successful scan found none so the “You’re up to date” panel is visible;
+    /// never force-collapse (user may leave it open empty).
     /// </summary>
     private void SyncResultsExpandedForPending(int pendingCount)
     {
         if (ResultsExpander is null) return;
-        ResultsExpander.IsExpanded = pendingCount >= 1 || IsFullyUpToDate();
+        if (pendingCount >= 1 || IsFullyUpToDate())
+            ResultsExpander.IsExpanded = true;
         ApplyResultsRowLayout();
     }
 
