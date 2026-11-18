@@ -2838,22 +2838,10 @@ public partial class MainWindow : Window
         if (UpToDatePanel is null || UpToDateTitle is null || UpToDateSubtitle is null) return;
         bool show = IsFullyUpToDate();
         UpToDatePanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        if (show)
-        {
-            bool norwegian = _schedule.Language == "no";
-            UpToDateTitle.Text = norwegian ? "Du er oppdatert" : "You're up to date";
-            UpToDateSubtitle.Text = FormatLastCheckedSubtitle(_lastSuccessfulScan!.Value, norwegian);
-            WindowsUpdatesTable.Visibility = Visibility.Collapsed;
-            AppsActions.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        bool showWindowsGrid = _activeTab is not "apps";
-        bool showAppsGrid = _activeTab == "apps";
-        if (WindowsUpdatesTable is not null)
-            WindowsUpdatesTable.Visibility = showWindowsGrid ? Visibility.Visible : Visibility.Collapsed;
-        if (AppsActions is not null)
-            AppsActions.Visibility = showAppsGrid ? Visibility.Visible : Visibility.Collapsed;
+        if (!show) return;
+        bool norwegian = _schedule.Language == "no";
+        UpToDateTitle.Text = norwegian ? "Du er oppdatert" : "You're up to date";
+        UpToDateSubtitle.Text = FormatLastCheckedSubtitle(_lastSuccessfulScan!.Value, norwegian);
     }
 
     private static string FormatLastCheckedSubtitle(DateTime when, bool norwegian)
