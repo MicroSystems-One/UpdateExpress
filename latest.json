@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.31",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.31/UpdateExpress_v0.7.2.31.exe",
-  "sha256": "5502c34f3c1d34b7f5609c31224df7f9f0321b61b43e3aa325e2240c400c092b",
-  "publishedAt": "2026-11-18T10:51:04Z",
-  "releaseNotes": "Results above Fix-it; language-consistent UI. Tip 63eebbd."
+  "version": "0.7.2.32",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.32/UpdateExpress_v0.7.2.32.exe",
+  "sha256": "4d2a83116057cabe6ebd349e419ec4a5e16dee982575709f944e6ceeb3adf49c",
+  "publishedAt": "2026-11-18T11:05:35Z",
+  "releaseNotes": "Søke resultater open; Health Check collapsed; header Du er oppdatert 96px left of Check. Tip fb25ccb."
 }
