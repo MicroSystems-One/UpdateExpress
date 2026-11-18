@@ -67,6 +67,12 @@ internal sealed class UpdateExpressServiceWorker : BackgroundService
                 else
                 {
                     await DefenderAutomation.RunDueJobAsync().ConfigureAwait(false);
+                    // Honor reminder-confirmed reboots without UI (Session 0; no prompts).
+                    try { RebootCoordinator.RunDueJob(allowUiPrompt: false); }
+                    catch (Exception rex)
+                    {
+                        AgentLog.WriteInstall("Service reminder reboot poll failed: " + rex.Message);
+                    }
                 }
             }
             catch (Exception ex)
@@ -75,7 +81,22 @@ internal sealed class UpdateExpressServiceWorker : BackgroundService
                 _log.LogWarning(ex, "Service automation tick failed");
             }
 
-            try { await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken).ConfigureAwait(false); }
+            // Poll sooner when a reminder-confirmed reboot is armed.
+            TimeSpan delay = TimeSpan.FromMinutes(5);
+            try
+            {
+                var pending = RebootCoordinator.LoadPending();
+                if (pending is { Cancelled: false, EarliestRebootAt: DateTime due }
+                    && string.Equals(pending.Source, "reminder", StringComparison.OrdinalIgnoreCase))
+                {
+                    var until = due - DateTime.Now;
+                    if (until <= TimeSpan.Zero) delay = TimeSpan.FromSeconds(15);
+                    else if (until < delay) delay = until + TimeSpan.FromSeconds(2);
+                }
+            }
+            catch { /* keep default */ }
+
+            try { await Task.Delay(delay, stoppingToken).ConfigureAwait(false); }
             catch (OperationCanceledException) { break; }
         }
 

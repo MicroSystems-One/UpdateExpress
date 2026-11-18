@@ -57,6 +57,10 @@ public sealed class UpdatePolicy
     public bool AutomaticApplications { get; set; } = false;
     /// <summary>Minutes between automatic WinGet application scans. Default 240; floor 60.</summary>
     public int ApplicationsIntervalMinutes { get; set; } = ApplicationAutomation.DefaultIntervalMinutes;
+    /// <summary>Minutes between automatic assigned-driver scans. Default 1440 (1 day); floor 1440.</summary>
+    public int DriversIntervalMinutes { get; set; } = DriverAutomation.DefaultIntervalMinutes;
+    /// <summary>Minutes between tray WUA pending-update monitor scans. Default 360 (6h); floor 60.</summary>
+    public int WindowsMonitorIntervalMinutes { get; set; } = 360;
     /// <summary>Optional WinGet package-ID whitelist. Empty = all pending upgrades when AutomaticApplications is on.</summary>
     public HashSet<string> AutomaticApplicationIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -209,6 +213,16 @@ public sealed class UpdatePolicy
             ApplicationsIntervalMinutes = ApplicationAutomation.AbsoluteFloorMinutes;
         if (ApplicationsIntervalMinutes <= 0)
             ApplicationsIntervalMinutes = ApplicationAutomation.DefaultIntervalMinutes;
+
+        if (DriversIntervalMinutes < DriverAutomation.AbsoluteFloorMinutes)
+            DriversIntervalMinutes = DriverAutomation.AbsoluteFloorMinutes;
+        if (DriversIntervalMinutes <= 0)
+            DriversIntervalMinutes = DriverAutomation.DefaultIntervalMinutes;
+
+        if (WindowsMonitorIntervalMinutes < 60)
+            WindowsMonitorIntervalMinutes = 60;
+        if (WindowsMonitorIntervalMinutes <= 0)
+            WindowsMonitorIntervalMinutes = 360;
 
         AutomaticApplicationIds ??= new(StringComparer.OrdinalIgnoreCase);
     }

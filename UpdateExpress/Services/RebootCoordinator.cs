@@ -162,8 +162,12 @@ internal static class RebootCoordinator
         catch (Exception ex) { AgentLog.Write("Could not clear pending reboot: " + ex.Message); }
     }
 
-    /// <summary>Tray poll: if a deferred reboot is due, ask once then start countdown.</summary>
-    internal static void RunDueJob()
+    /// <summary>
+    /// Poll pending reboot file. Reminder-confirmed reboots run without a second prompt
+    /// (and without requiring AutoReboot.Enabled). Other sources may prompt when
+    /// <paramref name="allowUiPrompt"/> is true (tray); the Windows service passes false.
+    /// </summary>
+    internal static void RunDueJob(bool allowUiPrompt = true)
     {
         var pending = LoadPending();
         if (pending is null || pending.Cancelled || pending.EarliestRebootAt is null) return;
@@ -172,6 +176,22 @@ internal static class RebootCoordinator
         var policy = UpdatePolicy.Load();
         policy.Normalize();
         var reboot = policy.WindowsAutomation.AutoReboot;
+        int countdown = Math.Clamp(reboot.CountdownSeconds, 60, 3600);
+
+        // User already confirmed the maintenance reminder — honor it from tray or service.
+        if (string.Equals(pending.Source, "reminder", StringComparison.OrdinalIgnoreCase))
+        {
+            ClearPending();
+            bool norwegian = string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase);
+            StartCountdownReboot(
+                "reminder",
+                countdown,
+                norwegian
+                    ? "Update Express: omstart etter bekreftet vedlikeholdspåminnelse. Lagre arbeidet."
+                    : "Update Express: restart after confirmed maintenance reminder. Save your work.");
+            return;
+        }
+
         if (!reboot.Enabled)
         {
             ClearPending();
@@ -185,10 +205,16 @@ internal static class RebootCoordinator
             return;
         }
 
+        if (!allowUiPrompt)
+        {
+            // Session-0 service cannot prompt; leave pending for the tray agent.
+            return;
+        }
+
         var choice = System.Windows.Forms.MessageBox.Show(
             $"A deferred restart from Update Express is due.\n\n" +
             $"Source: {pending.Source}\n{pending.Reason}\n\n" +
-            $"Restart Windows now with a {reboot.CountdownSeconds}-second countdown?",
+            $"Restart Windows now with a {countdown}-second countdown?",
             "Update Express – deferred restart",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
@@ -206,7 +232,7 @@ internal static class RebootCoordinator
         }
 
         ClearPending();
-        StartCountdownReboot(pending.Source, reboot.CountdownSeconds,
+        StartCountdownReboot(pending.Source, countdown,
             "Update Express: deferred restart after Windows updates. Save your work.");
     }
 

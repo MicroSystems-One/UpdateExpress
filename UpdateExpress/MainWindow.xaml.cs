@@ -1,5 +1,6 @@
 ﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows.Data;
 using System.IO;
 using System.Text.Json;
@@ -498,6 +499,21 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "Reboot countdown must be between 60 and 3600 seconds.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
+        if (!int.TryParse(ApplicationsCheckHours.Text.Trim(), out int appsHours) || appsHours < 1)
+        {
+            MessageBox.Show(this, "Applications check interval must be at least 1 hour.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (!int.TryParse(DriversCheckHours.Text.Trim(), out int driversHours) || driversHours < 24)
+        {
+            MessageBox.Show(this, "Drivers check interval must be at least 24 hours.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (!int.TryParse(WindowsMonitorHours.Text.Trim(), out int monitorHours) || monitorHours < 1)
+        {
+            MessageBox.Show(this, "Windows monitor interval must be at least 1 hour.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
 
         _policy.WindowsAutomation.Enabled = WindowsAutomationEnabled.IsChecked == true;
         _policy.WindowsAutomation.Defender.Enabled = DefenderAutoEnabled.IsChecked == true;
@@ -525,6 +541,9 @@ public partial class MainWindow : Window
 
         _policy.AutomaticDrivers = AutoDrivers.IsChecked == true;
         _policy.AutomaticApplications = AutoApplications.IsChecked == true;
+        _policy.ApplicationsIntervalMinutes = appsHours * 60;
+        _policy.DriversIntervalMinutes = driversHours * 60;
+        _policy.WindowsMonitorIntervalMinutes = monitorHours * 60;
         _policy.AutomaticApplicationIds ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var app in _appEntries)
         {
@@ -579,6 +598,12 @@ public partial class MainWindow : Window
         RebootCountdownSeconds.Text = wa.AutoReboot.CountdownSeconds.ToString();
         AutoDrivers.IsChecked = _policy.AutomaticDrivers;
         AutoApplications.IsChecked = _policy.AutomaticApplications;
+        if (ApplicationsCheckHours is not null)
+            ApplicationsCheckHours.Text = Math.Max(1, (_policy.ApplicationsIntervalMinutes + 59) / 60).ToString();
+        if (DriversCheckHours is not null)
+            DriversCheckHours.Text = Math.Max(24, (_policy.DriversIntervalMinutes + 59) / 60).ToString();
+        if (WindowsMonitorHours is not null)
+            WindowsMonitorHours.Text = Math.Max(1, (_policy.WindowsMonitorIntervalMinutes + 59) / 60).ToString();
         BuildInstallDayChips();
         RefreshMaintenanceSummary();
         RefreshAutomationStatusTexts();
@@ -1175,6 +1200,7 @@ public partial class MainWindow : Window
     private readonly DateTime _bootedAt = DateTime.Now - TimeSpan.FromMilliseconds(Environment.TickCount64);
     private static readonly TimeSpan LongUptimeThreshold = TimeSpan.FromDays(7);
     private readonly DispatcherTimer _rebootBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(1600) };
+    private DispatcherTimer? _confirmedRebootTimer;
     private bool _rebootPrompt;
     private bool _windowsRebootPending;
     private readonly DispatcherTimer _installOutcomeBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
@@ -1219,7 +1245,36 @@ public partial class MainWindow : Window
             RebootNeededBanner.Text = RebootBannerText();
         }
         RefreshLongUptimeHint();
+        RefreshPatchConflictBanner();
     }
+
+    private void RefreshPatchConflictBanner()
+    {
+        if (PatchConflictBanner is null) return;
+        try
+        {
+            var conflict = PatchConflictGuard.Evaluate(_policy);
+            bool norwegian = _schedule.Language == "no";
+            if (!conflict.ShowBanner)
+            {
+                PatchConflictBanner.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            PatchConflictBanner.Visibility = Visibility.Visible;
+            PatchConflictBanner.Text = norwegian
+                ? "⚠  Konflikt: N-able PME kjører samtidig med Update Express-automatisering. Klikk for PME-kontroll."
+                : "⚠  Conflict: N-able PME is active while Update Express automation is on. Click for PME control.";
+            PatchConflictBanner.ToolTip = conflict.Summary;
+        }
+        catch
+        {
+            PatchConflictBanner.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void PatchConflictBanner_Click(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+        PmeControl_Click(sender, e);
 
     private void RefreshLongUptimeHint()
     {
@@ -1541,6 +1596,16 @@ public partial class MainWindow : Window
         RefreshRebootNeededBanner();
         Loaded += async (_, _) =>
         {
+            try
+            {
+                if (FleetPolicy.TryApplyOnStartup())
+                {
+                    _policy = UpdatePolicy.Load();
+                    LoadAutomationPolicyIntoUi();
+                }
+            }
+            catch (Exception ex) { AgentLog.Write("Fleet policy startup apply failed: " + ex.Message); }
+            RmmStatusExport.WriteBestEffort("mainwindow-loaded", force: true);
             CheckReminder();
             _ = LoadMachineIdentityAsync();
             await RefreshDefenderAsync();
@@ -1638,6 +1703,13 @@ public partial class MainWindow : Window
             "\n\nReference: https://learn.microsoft.com/windows/release-health/supported-versions-windows-client",
             "Windows Security Support", MessageBoxButton.OK, MessageBoxImage.Information);
     }
+
+    private void ProductOverviewInfo_Click(object sender, RoutedEventArgs e)
+    {
+        bool norwegian = _schedule.Language == "no";
+        var dlg = new ProductOverviewWindow(norwegian) { Owner = this };
+        dlg.ShowDialog();
+    }
     private string FormatTime(DateTime time) => _schedule.Format(time);
     private void ReloadDisplaySettings()
     {
@@ -1696,6 +1768,13 @@ public partial class MainWindow : Window
         ["Drivers automatic"] = "Drivere automatisk",
         ["Application automatic"] = "Programmer automatisk",
         ["Firmware: manual only"] = "Fastvare: kun manuelt", ["Save Policy"] = "Lagre policy",
+        ["Automatic check intervals"] = "Automatiske sjekkintervaller",
+        ["How often the background agent looks for updates. Applications default to 4 hours; drivers to 24 hours; Windows pending-update monitor to 6 hours. Firmware stays manual."] =
+            "Hvor ofte bakgrunnsagenten ser etter oppdateringer. Programmer er standard 4 timer; drivere 24 timer; Windows-overvåking 6 timer. Fastvare forblir manuell.",
+        ["Applications (hours)"] = "Programmer (timer)",
+        ["Drivers (hours)"] = "Drivere (timer)",
+        ["Windows monitor (hours)"] = "Windows-overvåking (timer)",
+        ["Advanced categories (intervals)"] = "Avanserte kategorier (intervaller)",
         ["Interval (minutes)"] = "Intervall (minutter)", ["Preferred time"] = "Foretrukket tid",
         ["Mode: Auto-install (K1)"] = "Modus: Auto-installasjon (K1)",
         ["Mode: Download + ask (soon)"] = "Modus: Last ned + spør (kommer)",
@@ -1730,6 +1809,7 @@ public partial class MainWindow : Window
         ["Include optional"] = "Inkluder valgfrie",
         ["All WUA drivers"] = "Alle WUA-drivere",
         ["Change setup…"] = "Endre oppsett…",
+        ["About Update Express vs Windows Update"] = "Om Update Express vs Windows Update",
         ["Maintenance window"] = "Vedlikeholdsvindu",
         ["Install days (same clock for all)"] = "Installasjonsdager (samme klokke for alle)",
         ["Install time"] = "Installasjonstid",
@@ -1821,6 +1901,10 @@ public partial class MainWindow : Window
         RefreshMaintenanceSummary();
         BuildInstallDayChips();
         RefreshAutomationStatusTexts();
+        if (ProductOverviewInfo is not null)
+            ProductOverviewInfo.ToolTip = norwegian
+                ? "Om Update Express vs Windows Update"
+                : "About Update Express vs Windows Update";
         if (_lastDefender is not null) ApplyDefenderUi(_lastDefender);
         else if (DefenderChecked is not null && (DefenderChecked.Text == "Not checked" || DefenderChecked.Text == "Ikke sjekket"))
             DefenderChecked.Text = norwegian ? "Ikke sjekket" : "Not checked";
@@ -1917,30 +2001,194 @@ public partial class MainWindow : Window
         }
         else if (_schedule.Weekday != 7 && todayIndex != _schedule.Weekday) return;
         if (!TimeSpan.TryParseExact(_schedule.Time, @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out var at)) return;
+
+        // Already confirmed for today — do not keep prompting.
+        if (_schedule.ConfirmedOccurrence is DateTime confirmed && confirmed.Date == now.Date) return;
+
         var due = now.Date.Add(at);
-        if (now < due || now >= due.AddHours(2)) return;
-        if (_schedule.LastPromptedOccurrence == due && _schedule.SnoozedUntil is null) return;
-        if (_schedule.LastPromptedOccurrence == due && _schedule.SnoozedUntil is DateTime later && now < later) return;
-        ShowReminder(false, due);
+        var slot = ReminderSchedule.EffectiveReminderSlot(now, at);
+        if (slot is null)
+        {
+            // Past the last :00/:30 before midnight with no confirm → remember for next day's dialog.
+            if (now >= due
+                && ReminderSchedule.NextHalfHourSlot(now) is null
+                && _schedule.ConfirmedOccurrence?.Date != now.Date)
+            {
+                MarkMissedUnconfirmedDay(now.Date);
+            }
+            return;
+        }
+
+        if (_schedule.LastPromptedOccurrence == slot.Value) return;
+        // Only prompt when maintenance is useful: pending updates, Windows reboot pending,
+        // or long uptime (same 7-day floor as the Oppetid hint). Skip quietly otherwise so a
+        // clean PC is not asked to confirm a restart for no reason.
+        if (!TryGetMaintenanceReminderReason(out _))
+            return;
+        ShowReminder(false, slot.Value);
     }
+
+    /// <summary>
+    /// Real (non-test) reminders need a concrete reason: updates waiting, reboot pending, or uptime ≥ 7 days.
+    /// </summary>
+    private bool TryGetMaintenanceReminderReason(out string reasonKey)
+    {
+        reasonKey = "";
+        int pending = CountAvailableUpdates();
+        if (pending > 0)
+        {
+            reasonKey = "pending";
+            return true;
+        }
+        if (RebootPendingReader.IsRebootPending())
+        {
+            reasonKey = "reboot";
+            return true;
+        }
+        var up = DateTime.Now - _bootedAt;
+        if (up < TimeSpan.Zero) up = TimeSpan.Zero;
+        if (up >= LongUptimeThreshold)
+        {
+            reasonKey = "uptime";
+            return true;
+        }
+        return false;
+    }
+
+    private void MarkMissedUnconfirmedDay(DateTime day)
+    {
+        var date = day.Date;
+        if (_schedule.MissedUnconfirmedDate?.Date == date) return;
+        _schedule.MissedUnconfirmedDate = date;
+        _schedule.Save();
+        ReminderSchedule.Log("reminder_deferred_next_day", date.ToString("yyyy-MM-dd"));
+    }
+
     private void ShowReminder(bool isTest, DateTime occurrence)
     {
+        bool showMissed = !isTest
+            && _schedule.MissedUnconfirmedDate is DateTime missed
+            && missed.Date < DateTime.Now.Date;
+
+        string reasonKey = "";
+        if (!isTest)
+            TryGetMaintenanceReminderReason(out reasonKey);
+
         if (!isTest)
         {
             _schedule.LastPromptedOccurrence = occurrence;
             _schedule.SnoozedUntil = null;
             _schedule.Save();
         }
-        var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no") { Owner = this };
-        dialog.ShowDialog();
-        ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision);
-        if (!isTest)
+
+        // Defer until ApplicationIdle so a reminder that fires during lock/sleep/display
+        // wake does not open a blank white WPF frame over a half-ready desktop.
+        void Present()
         {
-            if (dialog.Decision == "confirmed") _schedule.ConfirmedOccurrence = occurrence;
-            if (dialog.Decision == "snoozed") _schedule.SnoozedUntil = DateTime.Now.AddMinutes(30);
-            _schedule.Save();
+            try
+            {
+                if (WindowState == WindowState.Minimized)
+                    WindowState = WindowState.Normal;
+                if (IsLoaded) Activate();
+
+                bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
+                var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no", showMissed, reasonKey)
+                {
+                    Owner = ownerOk ? this : null,
+                    WindowStartupLocation = ownerOk
+                        ? WindowStartupLocation.CenterOwner
+                        : WindowStartupLocation.CenterScreen
+                };
+                dialog.ShowDialog();
+                ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision + (string.IsNullOrEmpty(reasonKey) ? "" : "|" + reasonKey));
+                if (!isTest)
+                {
+                    if (showMissed)
+                        _schedule.MissedUnconfirmedDate = null;
+
+                    if (dialog.Decision == "confirmed")
+                    {
+                        _schedule.ConfirmedOccurrence = occurrence;
+                        _schedule.SnoozedUntil = null;
+                        ScheduleConfirmedReboot(occurrence);
+                    }
+                    else if (dialog.Decision == "snoozed")
+                    {
+                        _schedule.SnoozedUntil = DateTime.Now.AddMinutes(30);
+                    }
+                    else
+                    {
+                        // No choice: roll forward to next :00/:30; past midnight → next scheduled day.
+                        var next = ReminderSchedule.NextHalfHourSlot(DateTime.Now);
+                        if (next is DateTime rolled)
+                        {
+                            _schedule.SnoozedUntil = rolled;
+                            ReminderSchedule.Log("reminder_rolled", rolled.ToString("o"));
+                        }
+                        else
+                        {
+                            MarkMissedUnconfirmedDay(occurrence.Date);
+                        }
+                    }
+                    _schedule.Save();
+                }
+                RefreshScheduleStatus();
+            }
+            catch (Exception ex)
+            {
+                ReminderSchedule.Log(isTest ? "test_reminder_error" : "reminder_error", ex.Message);
+            }
         }
-        RefreshScheduleStatus();
+
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, Present);
+    }
+
+    /// <summary>
+    /// After the user confirms the reminder, persist a pending reboot so tray/service
+    /// can fire it even if MainWindow is closed. UI timer is a fast path while open.
+    /// </summary>
+    private void ScheduleConfirmedReboot(DateTime occurrence)
+    {
+        bool norwegian = _schedule.Language == "no";
+        _confirmedRebootTimer?.Stop();
+        _confirmedRebootTimer = null;
+
+        int countdown = Math.Clamp(_policy.WindowsAutomation.AutoReboot.CountdownSeconds, 60, 3600);
+        var when = occurrence <= DateTime.Now ? DateTime.Now : occurrence;
+        var delay = when - DateTime.Now;
+        string reason = norwegian
+            ? "Bekreftet vedlikeholdspåminnelse."
+            : "Confirmed maintenance reminder.";
+        string comment = norwegian
+            ? "Update Express: omstart etter bekreftet vedlikeholdspåminnelse. Lagre arbeidet."
+            : "Update Express: restart after confirmed maintenance reminder. Save your work.";
+
+        // Persist for tray agent / Windows service (survives closing MainWindow).
+        RebootCoordinator.SchedulePending("reminder", when, reason);
+        ReminderSchedule.Log("confirmed_reboot_armed", when.ToString("o"));
+
+        if (delay <= TimeSpan.FromSeconds(5))
+        {
+            StatusText.Text = norwegian
+                ? $"Omstart planlagt — Windows starter på nytt om {countdown} sekunder."
+                : $"Restart scheduled — Windows will restart in {countdown} seconds.";
+            RebootCoordinator.ClearPending();
+            RebootCoordinator.StartCountdownReboot("reminder", countdown, comment);
+            return;
+        }
+
+        StatusText.Text = norwegian
+            ? $"Omstart bekreftet for {_schedule.Format(when)}. PC-en starter på nytt da (også hvis vinduet lukkes)."
+            : $"Restart confirmed for {_schedule.Format(when)}. This PC will restart then (even if you close this window).";
+
+        _confirmedRebootTimer = new DispatcherTimer { Interval = delay };
+        _confirmedRebootTimer.Tick += (_, _) =>
+        {
+            _confirmedRebootTimer?.Stop();
+            _confirmedRebootTimer = null;
+            RebootCoordinator.RunDueJob(allowUiPrompt: false);
+        };
+        _confirmedRebootTimer.Start();
     }
     private void ResetInstallButtonLabel()
     {
@@ -2112,6 +2360,7 @@ public partial class MainWindow : Window
     }
 
     internal void FixItWindowsUpdateFix() => _ = RunWindowsUpdateFixAsync();
+    internal void FixItProblemPcPipeline() => _ = RunProblemPcPipelineAsync();
     internal void FixItWuaDeepCheck() => RunWuaDeepCheck();
     internal void FixItHistory() => _ = LoadAsync(WindowsUpdateReader.HistoryForDisplay);
     internal void FixItExportCsv() => Export_Click(_fixItWindow ?? (object)this, new RoutedEventArgs());
@@ -2127,6 +2376,95 @@ public partial class MainWindow : Window
         dlg.ShowDialog();
         if (dlg.FixCompleted)
             await ReloadAfterWindowsUpdateFixAsync(dlg.ReplacedUpdateCache, dlg.ScanCompleted);
+    }
+
+    private async Task RunProblemPcPipelineAsync()
+    {
+        if (_busy) return;
+        bool norwegian = _schedule.Language == "no";
+        var confirm = AppDialog.Show(
+            _fixItWindow as Window ?? this,
+            norwegian
+                ? "Problem-PC-løypen kjører dybdesjekk, deretter Middels/Dyp Windows Update-fiks ved behov, og til slutt et nytt søk.\n\nDette kan ta lang tid og krever administrator. Fortsette?"
+                : "The Problem PC pipeline runs a deep check, then Medium/Deep Windows Update fix when needed, and finally retries the search.\n\nThis can take a long time and requires administrator. Continue?",
+            norwegian ? "Problem-PC-løype" : "Problem PC pipeline",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        if (!ElevationHelper.IsElevated)
+        {
+            var elevate = AppDialog.Show(
+                _fixItWindow as Window ?? this,
+                norwegian
+                    ? "Administratorrettigheter kreves. Starte Update Express på nytt som administrator?"
+                    : "Administrator privileges are required. Restart Update Express as administrator?",
+                norwegian ? "Problem-PC-løype" : "Problem PC pipeline",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            if (elevate != MessageBoxResult.Yes) return;
+            try
+            {
+                ElevationHelper.RestartElevated("--installed");
+                Application.Current.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(_fixItWindow as Window ?? this, ex.Message,
+                    norwegian ? "Problem-PC-løype" : "Problem PC pipeline",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            return;
+        }
+
+        _busy = true;
+        ScanButton.IsEnabled = false;
+        StatusText.Visibility = Visibility.Visible;
+        StatusText.Text = norwegian ? "Problem-PC-løype kjører…" : "Problem PC pipeline running…";
+        try
+        {
+            var progress = new Progress<string>(msg =>
+            {
+                try { StatusText.Text = msg; } catch { /* closing */ }
+            });
+            var report = await ProblemPcRepair.RunAsync(
+                progress,
+                IncludeOptionalUpdates.IsChecked == true,
+                ShowAllDrivers.IsChecked == true).ConfigureAwait(true);
+
+            await ReloadAfterWindowsUpdateFixAsync(replacedUpdateCache: report.FixCompleted, scanCompleted: false)
+                .ConfigureAwait(true);
+            try
+            {
+                if (File.Exists(ProblemPcRepair.LastTextPath))
+                    Process.Start(new ProcessStartInfo(ProblemPcRepair.LastTextPath) { UseShellExecute = true });
+            }
+            catch { /* ignore */ }
+
+            MessageBox.Show(
+                _fixItWindow as Window ?? this,
+                norwegian
+                    ? $"Ferdig.\n\nDybdesjekk: FAIL={report.DeepCheckFail}, WARN={report.DeepCheckWarn}\nFiks: {report.FixLevel ?? "hoppet over"}\nVentende etter søk: {report.PendingAfter}\n\nRapport: {ProblemPcRepair.LastTextPath}"
+                    : $"Finished.\n\nDeep check: FAIL={report.DeepCheckFail}, WARN={report.DeepCheckWarn}\nFix: {report.FixLevel ?? "skipped"}\nPending after search: {report.PendingAfter}\n\nReport: {ProblemPcRepair.LastTextPath}",
+                norwegian ? "Problem-PC-løype" : "Problem PC pipeline",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            RefreshPatchConflictBanner();
+            RmmStatusExport.WriteBestEffort("problem-pc-ui-complete", force: true);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(_fixItWindow as Window ?? this, ex.Message,
+                norwegian ? "Problem-PC-løype" : "Problem PC pipeline",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            StatusText.Text = norwegian ? "Problem-PC-løype feilet." : "Problem PC pipeline failed.";
+        }
+        finally
+        {
+            _busy = false;
+            ScanButton.IsEnabled = true;
+            UpdateSelectionControls();
+        }
     }
 
     internal async Task ReloadAfterWindowsUpdateFixAsync(bool replacedUpdateCache, bool scanCompleted)
@@ -2408,15 +2746,21 @@ public partial class MainWindow : Window
                 $"Install {drivers.Count} manually selected driver or firmware update(s), sequentially?\n\n{summary}\n\nEach one is rechecked against WUA and its hardware ID. A failure will not stop the next one. Nothing is installed automatically, and there is no automatic restart.",
                 "Confirm driver installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         }
+        bool norwegian = _schedule.Language == "no";
         var queue = new List<InstallationQueueItem>();
         queue.AddRange(software.Select(x => new InstallationQueueItem("Windows Update", x.Title)));
         queue.AddRange(drivers.Select(x => new InstallationQueueItem("Driver", x.Title)));
         queue.AddRange(apps.Select(x => new InstallationQueueItem("WinGet", x.DisplayName)));
-        var manager = new InstallationManagerWindow(queue) { Owner = this };
-        if (AppDialog.Show(this, $"Install {queue.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}\n\nNo automatic restart will be performed.", "Confirm combined installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        var manager = new InstallationManagerWindow(queue, norwegian: norwegian) { Owner = this };
+        if (AppDialog.Show(this,
+                norwegian
+                    ? $"Installere {queue.Count} valgte oppdateringer fra alle faner?\n\nWindows-oppdateringer: {software.Count}\nDrivere: {drivers.Count}\nWinGet: {apps.Count}\n\nIngen automatisk omstart."
+                    : $"Install {queue.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}\n\nNo automatic restart will be performed.",
+                norwegian ? "Bekreft kombinert installasjon" : "Confirm combined installation",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         _busy = true;
         InstallButtonActive = true;
-        InstallButton.Content = "Installing updates…";
+        InstallButton.Content = norwegian ? "Installerer oppdateringer…" : "Installing updates…";
         ScanButton.IsEnabled = AppsScanButton.IsEnabled = false;
         SetHistoryActionsEnabled(false);
         UpdateSelectionControls();
@@ -2432,7 +2776,6 @@ public partial class MainWindow : Window
             ActivityLog.TryWrite("InstallationManager", status, detail, source: source, runId: runId);
         }
         int cursor = 0;
-        bool norwegian = _schedule.Language == "no";
         string completedLabel = InstallationManagerWindow.StatusCompleted(norwegian);
         string verifyingLabel = InstallationManagerWindow.StatusVerifying(norwegian);
         string notVerifiedLabel = InstallationManagerWindow.StatusNotVerified(norwegian);
@@ -2497,7 +2840,7 @@ public partial class MainWindow : Window
             foreach (var d in drivers)
             {
                 int idx = cursor++;
-                manager.SetStage("Rechecking driver identity: " + d.Title + "…");
+                manager.SetStage((norwegian ? "Sjekker driveridentitet på nytt: " : "Rechecking driver identity: ") + d.Title + "…");
                 try
                 {
                     bool acceptUiProgress = true;
@@ -2546,13 +2889,13 @@ public partial class MainWindow : Window
                     }
                     manager.CompleteItem(idx, "Failed" + hresult, true, tip);
                     Log("Driver", "Failed", new { d.Title, d.UpdateId, d.DriverHardwareId, Exception = ex.ToString(), InnerException = ex.InnerException?.ToString() });
-                    manager.SetStage("Driver failed: " + ex.Message);
+                    manager.SetStage((norwegian ? "Driver feilet: " : "Driver failed: ") + ex.Message);
                 }
             }
             foreach (var app in apps)
             {
                 int idx = cursor++;
-                manager.BeginItem(idx, "Installing " + app.DisplayName + "…");
+                manager.BeginItem(idx, norwegian ? ("Installerer " + app.DisplayName + "…") : ("Installing " + app.DisplayName + "…"));
                 int code; string output;
                 try { using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(20)); (code, output) = await WingetReader.UpgradeAsync(app.Id, timeout.Token); }
                 catch (Exception ex) { code = -1; output = ex.ToString(); }
@@ -2654,7 +2997,7 @@ public partial class MainWindow : Window
                         if (InstallationManagerWindow.IsVerifyingState(queue[i].State))
                             manager.CompleteItem(i, completedLabel, false);
                 }
-                catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage("Windows Update rescan failed: " + ex.Message); }
+                catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage((norwegian ? "Ny skanning av Windows Update feilet: " : "Windows Update rescan failed: ") + ex.Message); }
             }
 
             if (needWingetVerify)
@@ -2697,7 +3040,7 @@ public partial class MainWindow : Window
                             manager.CompleteItem(qi, timedOutLabel, true);
                     }
                 }
-                catch (Exception ex) { Log("WinGet", "Rescan failed", ex.Message); manager.SetStage("WinGet rescan failed: " + ex.Message); }
+                catch (Exception ex) { Log("WinGet", "Rescan failed", ex.Message); manager.SetStage((norwegian ? "Ny skanning av WinGet feilet: " : "WinGet rescan failed: ") + ex.Message); }
             }
             else if (apps.Count > 0)
             {
@@ -2716,13 +3059,13 @@ public partial class MainWindow : Window
             var outcome = manager.Finish(norwegian, guidance, verifyTimedOut ? timedOutLabel : notVerifiedLabel);
             SetInstallOutcome(outcome.Completed, outcome.Failed, queue);
             StatusText.Text = norwegian
-                ? "Installasjon ferdig. Installation Manager lukkes automatisk om ca. 60 sekunder."
-                : "Installation finished. Installation Manager closes automatically in about 60 seconds.";
+                ? "Installasjon ferdig. Installasjonsbehandling lukkes automatisk om 15 sekunder."
+                : "Installation finished. Installation Manager closes automatically in 15 seconds.";
         }
         catch (Exception ex)
         {
             Log("InstallationManager", "Failed", ex.ToString());
-            manager.SetStage("Installation interrupted: " + ex.Message);
+            manager.SetStage((norwegian ? "Installasjon avbrutt: " : "Installation interrupted: ") + ex.Message);
             var outcome = manager.Finish(norwegian, retryGuidance, notVerifiedLabel);
             SetInstallOutcome(outcome.Completed, outcome.Failed, queue);
             MessageBox.Show(this, ex.Message, "Installation Manager", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -3068,7 +3411,7 @@ public partial class MainWindow : Window
                 string subtitle = norwegian
                     ? "Oppdater til ferdig. Windows starter på nytt når en runde krever det, og søket kjøres på nytt etterpå."
                     : "Update until current. Windows restarts when a round requires it, then the search runs again.";
-                var manager = new InstallationManagerWindow(queue, subtitle) { Owner = this };
+                var manager = new InstallationManagerWindow(queue, subtitle, norwegian) { Owner = this };
                 manager.Show();
                 manager.PrepareRunning();
                 manager.SetNotice(WuaProgressText.PleaseWait(norwegian));
