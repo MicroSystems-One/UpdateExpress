@@ -2832,7 +2832,7 @@ public partial class MainWindow : Window
         _lastSuccessfulScan is not null && !_showingHistory && CountAvailableUpdates() > 0;
 
     /// <summary>
-    /// Header two-line status (no icons): title + last-checked, left of Check for updates.
+    /// Header status: one PNG (up-to-date or not) + two-line text left of Check for updates.
     /// </summary>
     private void RefreshUpdateStatusPanel()
     {
@@ -2841,6 +2841,10 @@ public partial class MainWindow : Window
         bool notUpToDate = IsOutOfDateAfterScan();
         bool show = upToDate || notUpToDate;
         UpdateStatusPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (UpdateStatusIconUpToDate is not null)
+            UpdateStatusIconUpToDate.Visibility = upToDate ? Visibility.Visible : Visibility.Collapsed;
+        if (UpdateStatusIconNotUpToDate is not null)
+            UpdateStatusIconNotUpToDate.Visibility = notUpToDate ? Visibility.Visible : Visibility.Collapsed;
         if (!show) return;
 
         bool norwegian = _schedule.Language == "no";

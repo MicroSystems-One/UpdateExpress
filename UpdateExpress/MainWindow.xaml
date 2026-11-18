@@ -335,12 +335,20 @@
     <Border Width="55" Height="55" CornerRadius="8" Background="Transparent" Margin="0,0,18,0"><Image Source="Assets/UpdateExpress-U.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/></Border>
     <StackPanel VerticalAlignment="Center"><TextBlock FontSize="28" FontWeight="SemiBold"><Run Text="Update " Foreground="#1C1C1C"/><Run Text="Express" Foreground="#0067C0"/></TextBlock><TextBlock x:Name="AppSubtitle" Text="Windows Update Management · Background Monitoring" Foreground="#5D5D5D" FontSize="12" Margin="0,4,0,0"/></StackPanel>
    </StackPanel>
-   <StackPanel x:Name="UpdateStatusPanel" Grid.Column="1" Visibility="Collapsed" VerticalAlignment="Center"
-               HorizontalAlignment="Right" Margin="12,0,96,0">
-    <TextBlock x:Name="UpdateStatusTitle" Text="" FontSize="14" FontWeight="Normal" Foreground="#1C1C1C"
-               TextAlignment="Right" HorizontalAlignment="Right"/>
-    <TextBlock x:Name="UpdateStatusChecked" Text="" FontSize="12" FontWeight="Normal" Foreground="#5D5D5D" Margin="0,2,0,0"
-               TextAlignment="Right" HorizontalAlignment="Right"/>
+   <StackPanel x:Name="UpdateStatusPanel" Grid.Column="1" Visibility="Collapsed" Orientation="Horizontal"
+               VerticalAlignment="Center" HorizontalAlignment="Right" Margin="12,0,96,0">
+    <Image x:Name="UpdateStatusIconUpToDate" Source="Assets/StatusUpToDate.png" Width="48" Height="48" Stretch="Uniform"
+           Visibility="Collapsed" RenderOptions.BitmapScalingMode="HighQuality" Margin="0,0,12,0"
+           VerticalAlignment="Center"/>
+    <Image x:Name="UpdateStatusIconNotUpToDate" Source="Assets/StatusNotUpToDate.png" Width="48" Height="48" Stretch="Uniform"
+           Visibility="Collapsed" RenderOptions.BitmapScalingMode="HighQuality" Margin="0,0,12,0"
+           VerticalAlignment="Center"/>
+    <StackPanel VerticalAlignment="Center">
+     <TextBlock x:Name="UpdateStatusTitle" Text="" FontSize="14" FontWeight="Normal" Foreground="#1C1C1C"
+                TextAlignment="Left" HorizontalAlignment="Left"/>
+     <TextBlock x:Name="UpdateStatusChecked" Text="" FontSize="12" FontWeight="Normal" Foreground="#5D5D5D" Margin="0,2,0,0"
+                TextAlignment="Left" HorizontalAlignment="Left"/>
+    </StackPanel>
    </StackPanel>
    <Button x:Name="ScanButton" Grid.Column="2" Content="Check for updates" Style="{StaticResource RowPrimaryButton}"
            Click="Scan_Click" VerticalAlignment="Center" HorizontalAlignment="Right"
