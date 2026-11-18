@@ -3,7 +3,7 @@ setlocal EnableExtensions
 set "ROOT=%~dp0"
 set "PROJECT=%ROOT%UpdateExpress"
 set "OUT=%ROOT%Publisert"
-set "TARGET=%OUT%\UpdateExpress_v0.7.2.30.exe"
+set "TARGET=%OUT%\UpdateExpress_v0.7.2.31.exe"
 cd /d "%PROJECT%" || exit /b 1
 where dotnet >nul 2>&1
 if errorlevel 1 (
@@ -14,7 +14,7 @@ if errorlevel 1 (
 if not exist "%OUT%" mkdir "%OUT%"
 if exist "%TARGET%" del /q "%TARGET%"
 echo.
-echo === Publish Update Express v0.7.2.30 ===
+echo === Publish Update Express v0.7.2.31 ===
 dotnet publish UpdateExpress.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o "%OUT%"
 if errorlevel 1 goto :failed
 if not exist "%OUT%\UpdateExpress.exe" goto :failed
