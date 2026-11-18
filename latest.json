@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.32",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.32/UpdateExpress_v0.7.2.32.exe",
-  "sha256": "4d2a83116057cabe6ebd349e419ec4a5e16dee982575709f944e6ceeb3adf49c",
-  "publishedAt": "2026-11-18T11:05:35Z",
-  "releaseNotes": "Søke resultater open; Health Check collapsed; header Du er oppdatert 96px left of Check. Tip fb25ccb."
+  "version": "0.7.2.33",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.33/UpdateExpress_v0.7.2.33.exe",
+  "sha256": "bd96e9d63b6d71440fe340117cf3f5b8925527737487d0eae0227cd2391319af",
+  "publishedAt": "11/18/2026 12:35:51",
+  "releaseNotes": "Results status icons; Vis monitor; heading times; proxy icon spacing. Tip 29677bc."
 }
