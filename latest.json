@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.34",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.34/UpdateExpress_v0.7.2.34.exe",
-  "sha256": "9cd0cd6ae7bf4f06a023867bb6c02c634c5e40222799f820e993025382533400",
-  "publishedAt": "2026-11-18T12:51:25Z",
-  "releaseNotes": "Header two-line status; Pilot gone; tab blue; Health Check/Fix-it cleanup. Tip ed26815."
+  "version": "0.7.2.35",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.35/UpdateExpress_v0.7.2.35.exe",
+  "sha256": "3b9da059985fe3c576085385262e0d8f57296f1daa4c6350d1e543742a37aef8",
+  "publishedAt": "2026-11-18T13:36:59Z",
+  "releaseNotes": "Header status icons restored beside two-line text. Tip 4055205."
 }
