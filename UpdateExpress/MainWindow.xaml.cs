@@ -1175,6 +1175,7 @@ public partial class MainWindow : Window
     private readonly DateTime _bootedAt = DateTime.Now - TimeSpan.FromMilliseconds(Environment.TickCount64);
     private static readonly TimeSpan LongUptimeThreshold = TimeSpan.FromDays(7);
     private readonly DispatcherTimer _rebootBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(1600) };
+    private DispatcherTimer? _confirmedRebootTimer;
     private bool _rebootPrompt;
     private bool _windowsRebootPending;
     private readonly DispatcherTimer _installOutcomeBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
@@ -1917,12 +1918,17 @@ public partial class MainWindow : Window
         }
         else if (_schedule.Weekday != 7 && todayIndex != _schedule.Weekday) return;
         if (!TimeSpan.TryParseExact(_schedule.Time, @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out var at)) return;
-        var due = now.Date.Add(at);
-        if (now < due || now >= due.AddHours(2)) return;
-        if (_schedule.LastPromptedOccurrence == due && _schedule.SnoozedUntil is null) return;
-        if (_schedule.LastPromptedOccurrence == due && _schedule.SnoozedUntil is DateTime later && now < later) return;
-        ShowReminder(false, due);
+
+        // Already confirmed for today — do not keep prompting.
+        if (_schedule.ConfirmedOccurrence is DateTime confirmed && confirmed.Date == now.Date) return;
+
+        var slot = ReminderSchedule.EffectiveReminderSlot(now, at);
+        if (slot is null) return; // not due yet, or past last half-hour before midnight → next day
+
+        if (_schedule.LastPromptedOccurrence == slot.Value) return;
+        ShowReminder(false, slot.Value);
     }
+
     private void ShowReminder(bool isTest, DateTime occurrence)
     {
         if (!isTest)
@@ -1954,8 +1960,30 @@ public partial class MainWindow : Window
                 ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision);
                 if (!isTest)
                 {
-                    if (dialog.Decision == "confirmed") _schedule.ConfirmedOccurrence = occurrence;
-                    if (dialog.Decision == "snoozed") _schedule.SnoozedUntil = DateTime.Now.AddMinutes(30);
+                    if (dialog.Decision == "confirmed")
+                    {
+                        _schedule.ConfirmedOccurrence = occurrence;
+                        _schedule.SnoozedUntil = null;
+                        ScheduleConfirmedReboot(occurrence);
+                    }
+                    else if (dialog.Decision == "snoozed")
+                    {
+                        _schedule.SnoozedUntil = DateTime.Now.AddMinutes(30);
+                    }
+                    else
+                    {
+                        // No choice: roll forward to next :00/:30; past midnight → next scheduled day.
+                        var next = ReminderSchedule.NextHalfHourSlot(DateTime.Now);
+                        if (next is DateTime rolled)
+                        {
+                            _schedule.SnoozedUntil = rolled;
+                            ReminderSchedule.Log("reminder_rolled", rolled.ToString("o"));
+                        }
+                        else
+                        {
+                            ReminderSchedule.Log("reminder_deferred_next_day", occurrence.ToString("o"));
+                        }
+                    }
                     _schedule.Save();
                 }
                 RefreshScheduleStatus();
@@ -1967,6 +1995,65 @@ public partial class MainWindow : Window
         }
 
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, Present);
+    }
+
+    /// <summary>
+    /// After the user confirms the reminder, restart in that maintenance window
+    /// (immediately with countdown if the slot is due now; otherwise wait until the slot).
+    /// </summary>
+    private void ScheduleConfirmedReboot(DateTime occurrence)
+    {
+        bool norwegian = _schedule.Language == "no";
+        _confirmedRebootTimer?.Stop();
+        _confirmedRebootTimer = null;
+
+        int countdown = Math.Clamp(_policy.WindowsAutomation.AutoReboot.CountdownSeconds, 60, 3600);
+        var delay = occurrence - DateTime.Now;
+        if (delay < TimeSpan.Zero) delay = TimeSpan.Zero;
+
+        void StartCountdownReboot()
+        {
+            try
+            {
+                StatusText.Text = norwegian
+                    ? $"Omstart planlagt — Windows starter på nytt om {countdown} sekunder."
+                    : $"Restart scheduled — Windows will restart in {countdown} seconds.";
+                ReminderSchedule.Log("confirmed_reboot", $"countdown={countdown}; slot={occurrence:o}");
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "shutdown.exe",
+                    Arguments = $"/r /t {countdown}",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            catch (Exception ex)
+            {
+                ReminderSchedule.Log("confirmed_reboot_error", ex.Message);
+                MessageBox.Show(this, ex.Message,
+                    norwegian ? "Omstart" : "Restart computer",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        if (delay <= TimeSpan.FromSeconds(5))
+        {
+            StartCountdownReboot();
+            return;
+        }
+
+        StatusText.Text = norwegian
+            ? $"Omstart bekreftet for {_schedule.Format(occurrence)}. PC-en starter på nytt da."
+            : $"Restart confirmed for {_schedule.Format(occurrence)}. This PC will restart then.";
+        ReminderSchedule.Log("confirmed_reboot_armed", occurrence.ToString("o"));
+        _confirmedRebootTimer = new DispatcherTimer { Interval = delay };
+        _confirmedRebootTimer.Tick += (_, _) =>
+        {
+            _confirmedRebootTimer?.Stop();
+            _confirmedRebootTimer = null;
+            StartCountdownReboot();
+        };
+        _confirmedRebootTimer.Start();
     }
     private void ResetInstallButtonLabel()
     {

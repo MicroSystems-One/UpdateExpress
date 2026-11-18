@@ -16,7 +16,6 @@ public partial class ReminderDialog : Window
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
         // After long idle / locked session, DWM sometimes leaves this dialog blank.
-        // Software composition for this small modal avoids that empty white frame.
         Loaded += (_, _) =>
         {
             ForceRepaint();
@@ -35,9 +34,8 @@ public partial class ReminderDialog : Window
             Title = "Update Express – Påminnelse";
             DialogHeading.Text = "Planlagt Windows-vedlikehold";
             SaveWorkText.Text = "Lagre arbeidet og lukk programmer før du går. Oppdateringer eller omstart kan ellers føre til tap av ulagrede data.";
-            PowerText.Text = "La PC-en stå på, koblet til strøm og internett, og unngå hvilemodus. Oppdateringer kan kreve omstart.";
-            PilotText.Text = "PILOT: Dette varselet starter ikke oppdateringer eller omstart av Windows.";
-            AcknowledgeButton.Content = "Bekreft";
+            PowerText.Text = "La PC-en stå på, koblet til strøm og internett, og unngå hvilemodus. Bekreft planlegger omstart i dette tidsrommet.";
+            AcknowledgeButton.Content = "Bekreft omstart";
             SnoozeButton.Content = "Påminn meg om 30 minutter";
             CloseButton.Content = "Lukk";
         }
