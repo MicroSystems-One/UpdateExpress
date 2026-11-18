@@ -1931,16 +1931,42 @@ public partial class MainWindow : Window
             _schedule.SnoozedUntil = null;
             _schedule.Save();
         }
-        var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no") { Owner = this };
-        dialog.ShowDialog();
-        ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision);
-        if (!isTest)
+
+        // Defer until ApplicationIdle so a reminder that fires during lock/sleep/display
+        // wake does not open a blank white WPF frame over a half-ready desktop.
+        void Present()
         {
-            if (dialog.Decision == "confirmed") _schedule.ConfirmedOccurrence = occurrence;
-            if (dialog.Decision == "snoozed") _schedule.SnoozedUntil = DateTime.Now.AddMinutes(30);
-            _schedule.Save();
+            try
+            {
+                if (WindowState == WindowState.Minimized)
+                    WindowState = WindowState.Normal;
+                if (IsLoaded) Activate();
+
+                bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
+                var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no")
+                {
+                    Owner = ownerOk ? this : null,
+                    WindowStartupLocation = ownerOk
+                        ? WindowStartupLocation.CenterOwner
+                        : WindowStartupLocation.CenterScreen
+                };
+                dialog.ShowDialog();
+                ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision);
+                if (!isTest)
+                {
+                    if (dialog.Decision == "confirmed") _schedule.ConfirmedOccurrence = occurrence;
+                    if (dialog.Decision == "snoozed") _schedule.SnoozedUntil = DateTime.Now.AddMinutes(30);
+                    _schedule.Save();
+                }
+                RefreshScheduleStatus();
+            }
+            catch (Exception ex)
+            {
+                ReminderSchedule.Log(isTest ? "test_reminder_error" : "reminder_error", ex.Message);
+            }
         }
-        RefreshScheduleStatus();
+
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, Present);
     }
     private void ResetInstallButtonLabel()
     {
