@@ -1703,6 +1703,13 @@ public partial class MainWindow : Window
             "\n\nReference: https://learn.microsoft.com/windows/release-health/supported-versions-windows-client",
             "Windows Security Support", MessageBoxButton.OK, MessageBoxImage.Information);
     }
+
+    private void ProductOverviewInfo_Click(object sender, RoutedEventArgs e)
+    {
+        bool norwegian = _schedule.Language == "no";
+        var dlg = new ProductOverviewWindow(norwegian) { Owner = this };
+        dlg.ShowDialog();
+    }
     private string FormatTime(DateTime time) => _schedule.Format(time);
     private void ReloadDisplaySettings()
     {
@@ -1802,6 +1809,7 @@ public partial class MainWindow : Window
         ["Include optional"] = "Inkluder valgfrie",
         ["All WUA drivers"] = "Alle WUA-drivere",
         ["Change setup…"] = "Endre oppsett…",
+        ["About Update Express vs Windows Update"] = "Om Update Express vs Windows Update",
         ["Maintenance window"] = "Vedlikeholdsvindu",
         ["Install days (same clock for all)"] = "Installasjonsdager (samme klokke for alle)",
         ["Install time"] = "Installasjonstid",
@@ -1893,6 +1901,10 @@ public partial class MainWindow : Window
         RefreshMaintenanceSummary();
         BuildInstallDayChips();
         RefreshAutomationStatusTexts();
+        if (ProductOverviewInfo is not null)
+            ProductOverviewInfo.ToolTip = norwegian
+                ? "Om Update Express vs Windows Update"
+                : "About Update Express vs Windows Update";
         if (_lastDefender is not null) ApplyDefenderUi(_lastDefender);
         else if (DefenderChecked is not null && (DefenderChecked.Text == "Not checked" || DefenderChecked.Text == "Ikke sjekket"))
             DefenderChecked.Text = norwegian ? "Ikke sjekket" : "Not checked";
