@@ -2,6 +2,6 @@
   "version": "0.7.2.33",
   "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.33/UpdateExpress_v0.7.2.33.exe",
   "sha256": "bd96e9d63b6d71440fe340117cf3f5b8925527737487d0eae0227cd2391319af",
-  "publishedAt": "11/18/2026 12:35:51",
+  "publishedAt": "2026-11-18T12:35:51Z",
   "releaseNotes": "Results status icons; Vis monitor; heading times; proxy icon spacing. Tip 29677bc."
 }
