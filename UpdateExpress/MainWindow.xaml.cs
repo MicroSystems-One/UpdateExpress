@@ -173,12 +173,8 @@ public partial class MainWindow : Window
         bool showWindowsGrid = tab is not "apps";
         bool showAppsGrid = tab == "apps";
         bool showAppsToolbar = tab is "apps" or "all";
-        // RefreshUpdateStatusPanel owns grid visibility when a post-scan status is showing.
-        if (!IsFullyUpToDate() && !IsOutOfDateAfterScan())
-        {
-            WindowsUpdatesTable.Visibility = showWindowsGrid ? Visibility.Visible : Visibility.Collapsed;
-            AppsActions.Visibility = showAppsGrid ? Visibility.Visible : Visibility.Collapsed;
-        }
+        WindowsUpdatesTable.Visibility = showWindowsGrid ? Visibility.Visible : Visibility.Collapsed;
+        AppsActions.Visibility = showAppsGrid ? Visibility.Visible : Visibility.Collapsed;
         WindowsResultsRow.Height = showWindowsGrid ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         AppsResultsRow.Height = showAppsGrid ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         // Strip stays hidden; WinGet actions appear in the gear menu on apps/all tabs.
@@ -1772,7 +1768,7 @@ public partial class MainWindow : Window
                     or "AppsInfo" or "AppsSelectedCount" or "SelectedCountText" or "AutomationStatusText"
                     or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus"
                     or "FooterSafetyText" or "RebootNeededBanner" or "LongUptimeHint" or "UpdateUntilCurrentStatus"
-                    or "UpdateStatusText" or "AppSubtitle" or "ListHeading"
+                    or "UpdateStatusTitle" or "UpdateStatusChecked" or "AppSubtitle" or "ListHeading"
                     or "WindowsHelpHeading" or "WindowsHelpBody" or "MonitorDetailsText"
                     or "MonitorUpdatesText" or "InternetStatusText" or "UpdateServerStatusText"
                     or "WuaStatusText" or "ProxyStatusText" or "OsVersionLabel" or "OsSupportIcon"
@@ -2810,9 +2806,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Results stays open by default. Expand when updates are pending or when a
-    /// successful scan found none so the “You’re up to date” panel is visible;
-    /// never force-collapse (user may leave it open empty).
+    /// Results stays open by default when updates are pending or a successful scan
+    /// found none (header status is visible either way); never force-collapse.
     /// </summary>
     private void SyncResultsExpandedForPending(int pendingCount)
     {
@@ -2837,31 +2832,16 @@ public partial class MainWindow : Window
         _lastSuccessfulScan is not null && !_showingHistory && CountAvailableUpdates() > 0;
 
     /// <summary>
-    /// Centered Results status: green icon when up to date, red icon when updates remain.
-    /// Only one icon is visible at a time (64px PNGs).
+    /// Header two-line status (no icons): title + last-checked, left of Check for updates.
     /// </summary>
     private void RefreshUpdateStatusPanel()
     {
-        if (UpdateStatusPanel is null || UpdateStatusText is null) return;
+        if (UpdateStatusPanel is null || UpdateStatusTitle is null || UpdateStatusChecked is null) return;
         bool upToDate = IsFullyUpToDate();
         bool notUpToDate = IsOutOfDateAfterScan();
         bool show = upToDate || notUpToDate;
         UpdateStatusPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        if (UpdateStatusIconUpToDate is not null)
-            UpdateStatusIconUpToDate.Visibility = upToDate ? Visibility.Visible : Visibility.Collapsed;
-        if (UpdateStatusIconNotUpToDate is not null)
-            UpdateStatusIconNotUpToDate.Visibility = notUpToDate ? Visibility.Visible : Visibility.Collapsed;
-
-        bool showWindowsGrid = _activeTab is not "apps";
-        bool showAppsGrid = _activeTab == "apps";
-        if (!show)
-        {
-            if (WindowsUpdatesTable is not null)
-                WindowsUpdatesTable.Visibility = showWindowsGrid ? Visibility.Visible : Visibility.Collapsed;
-            if (AppsActions is not null)
-                AppsActions.Visibility = showAppsGrid ? Visibility.Visible : Visibility.Collapsed;
-            return;
-        }
+        if (!show) return;
 
         bool norwegian = _schedule.Language == "no";
         var when = _lastSuccessfulScan!.Value;
@@ -2869,31 +2849,21 @@ public partial class MainWindow : Window
         bool today = local.Date == DateTime.Now.Date;
         if (upToDate)
         {
-            UpdateStatusText.Text = norwegian
+            UpdateStatusTitle.Text = norwegian ? "Du er oppdatert" : "You're up to date";
+            UpdateStatusChecked.Text = norwegian
                 ? (today
-                    ? $"Du er oppdatert, sist sjekket i dag: {local:HH:mm}"
-                    : $"Du er oppdatert, sist sjekket: {local:dd.MM.yyyy} {local:HH:mm}")
+                    ? $"Sist sjekket i dag: {local:HH:mm}"
+                    : $"Sist sjekket: {local:dd.MM.yyyy} {local:HH:mm}")
                 : (today
-                    ? $"You're up to date, last checked today: {local:HH:mm}"
-                    : $"You're up to date, last checked: {local:dd.MM.yyyy} {local:HH:mm}");
-            if (WindowsUpdatesTable is not null) WindowsUpdatesTable.Visibility = Visibility.Collapsed;
-            if (AppsActions is not null) AppsActions.Visibility = Visibility.Collapsed;
-            if (WindowsResultsRow is not null) WindowsResultsRow.Height = new GridLength(0);
-            if (AppsResultsRow is not null) AppsResultsRow.Height = new GridLength(0);
+                    ? $"Last checked today: {local:HH:mm}"
+                    : $"Last checked: {local:dd.MM.yyyy} {local:HH:mm}");
         }
         else
         {
-            UpdateStatusText.Text = norwegian
-                ? $"Du er ikke oppdatert, sist sjekket: {local:dd.MM.yyyy} {local:HH:mm}"
-                : $"You're not up to date, last checked: {local:dd.MM.yyyy} {local:HH:mm}";
-            if (WindowsUpdatesTable is not null)
-                WindowsUpdatesTable.Visibility = showWindowsGrid ? Visibility.Visible : Visibility.Collapsed;
-            if (AppsActions is not null)
-                AppsActions.Visibility = showAppsGrid ? Visibility.Visible : Visibility.Collapsed;
-            if (WindowsResultsRow is not null)
-                WindowsResultsRow.Height = showWindowsGrid ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-            if (AppsResultsRow is not null)
-                AppsResultsRow.Height = showAppsGrid ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            UpdateStatusTitle.Text = norwegian ? "Du er ikke oppdatert" : "You're not up to date";
+            UpdateStatusChecked.Text = norwegian
+                ? $"Sist sjekket: {local:dd.MM.yyyy} {local:HH:mm}"
+                : $"Last checked: {local:dd.MM.yyyy} {local:HH:mm}";
         }
     }
 
