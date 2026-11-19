@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.37",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.37/UpdateExpress_v0.7.2.37.exe",
-  "sha256": "7f99a2e37d0ea2f7315f8d0b34faf3bc7966daeeeb5219fea97daa67fcce306e",
-  "publishedAt": "2026-11-18T19:29:11Z",
-  "releaseNotes": "Overview info, gated reminder, Reminder buttons one row. Tip 9e45957."
+  "version": "0.7.2.38",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.38/UpdateExpress_v0.7.2.38.exe",
+  "sha256": "778311d760d273575730fd91fc0ef61055988f4748413df0376de196b473421a",
+  "publishedAt": "2026-11-19T20:56:49Z",
+  "releaseNotes": "Reminder lists pending updates by name/KB/version; buttons stay one row. Tip 99a2c67."
 }
