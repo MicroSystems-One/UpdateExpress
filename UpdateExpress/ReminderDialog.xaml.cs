@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -14,7 +16,8 @@ public partial class ReminderDialog : Window
         DateTime occurrence,
         bool norwegian = false,
         bool showMissedPreviousDay = false,
-        string reasonKey = "")
+        string reasonKey = "",
+        IReadOnlyList<string>? pendingUpdateLines = null)
     {
         InitializeComponent();
         AppIcon.Apply(this);
@@ -61,6 +64,14 @@ public partial class ReminderDialog : Window
             };
             if (string.IsNullOrWhiteSpace(ReasonText.Text))
                 ReasonText.Visibility = Visibility.Collapsed;
+        }
+
+        if (!isTest
+            && string.Equals(reasonKey, "pending", StringComparison.OrdinalIgnoreCase)
+            && pendingUpdateLines is { Count: > 0 })
+        {
+            PendingListPanel.Visibility = Visibility.Visible;
+            PendingUpdatesList.ItemsSource = pendingUpdateLines.ToList();
         }
 
         if (norwegian)

@@ -2055,6 +2055,58 @@ public partial class MainWindow : Window
         return false;
     }
 
+    /// <summary>
+    /// Compact lines for the reminder dialog (name / KB / version), same sources as Results.
+    /// </summary>
+    private List<string> BuildPendingReminderLines()
+    {
+        var lines = new List<string>();
+        const int maxLines = 12;
+
+        foreach (var entry in _pendingSnapshot)
+        {
+            if (lines.Count >= maxLines) break;
+            bool include = !string.IsNullOrWhiteSpace(entry.UpdateId)
+                || entry.Source == FeatureUpdateOfferReader.Source;
+            if (!include) continue;
+
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(entry.KB))
+                parts.Add(entry.KB.Trim());
+            string title = (entry.DisplayTitle ?? "").Trim();
+            if (!string.IsNullOrWhiteSpace(title))
+                parts.Add(title);
+            string version = (entry.UnifiedVersion ?? "").Trim();
+            if (!string.IsNullOrWhiteSpace(version) &&
+                !title.Contains(version, StringComparison.OrdinalIgnoreCase))
+                parts.Add(version);
+            if (parts.Count == 0) continue;
+            lines.Add("•  " + string.Join("  ·  ", parts));
+        }
+
+        foreach (var app in _appEntries)
+        {
+            if (lines.Count >= maxLines) break;
+            string name = (app.DisplayName ?? app.Name ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            string ver = (app.VersionSummary ?? "").Trim();
+            lines.Add(string.IsNullOrWhiteSpace(ver)
+                ? "•  " + name
+                : "•  " + name + "  ·  " + ver);
+        }
+
+        int total = CountAvailableUpdates();
+        if (total > lines.Count)
+        {
+            bool norwegian = _schedule.Language == "no";
+            lines.Add(norwegian
+                ? $"… og {total - lines.Count} til (se Søke resultater)."
+                : $"… and {total - lines.Count} more (see Search results).");
+        }
+
+        return lines;
+    }
+
     private void MarkMissedUnconfirmedDay(DateTime day)
     {
         var date = day.Date;
@@ -2074,6 +2126,10 @@ public partial class MainWindow : Window
         if (!isTest)
             TryGetMaintenanceReminderReason(out reasonKey);
 
+        IReadOnlyList<string>? pendingLines = null;
+        if (!isTest && string.Equals(reasonKey, "pending", StringComparison.OrdinalIgnoreCase))
+            pendingLines = BuildPendingReminderLines();
+
         if (!isTest)
         {
             _schedule.LastPromptedOccurrence = occurrence;
@@ -2092,7 +2148,8 @@ public partial class MainWindow : Window
                 if (IsLoaded) Activate();
 
                 bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
-                var dialog = new ReminderDialog(isTest, occurrence, _schedule.Language == "no", showMissed, reasonKey)
+                var dialog = new ReminderDialog(
+                    isTest, occurrence, _schedule.Language == "no", showMissed, reasonKey, pendingLines)
                 {
                     Owner = ownerOk ? this : null,
                     WindowStartupLocation = ownerOk
