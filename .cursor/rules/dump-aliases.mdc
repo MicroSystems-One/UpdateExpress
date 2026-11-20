@@ -1,0 +1,17 @@
+---
+description: Dump/bygg/push aliases and when release is allowed
+alwaysApply: true
+---
+
+# Dump / bygg / push
+
+Do **not** dump, bygg, push, or update the release channel unless SVHA explicitly asks.
+
+## Aliases
+
+| Alias | Means |
+|-------|--------|
+| `dpu` | Dump, push, update (channel) — use the already-built EXE if present; do not rebuild unless needed |
+| `dbpu` | Dump, bygg, push, update — rebuild first, then dump/push/channel |
+
+Treat these aliases as full go-ahead for that sequence only. Small UI/code tweaks still wait for `dpu` / `dbpu` (or an explicit dump/bygg/push/update request).
