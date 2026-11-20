@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.38",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.38/UpdateExpress_v0.7.2.38.exe",
-  "sha256": "778311d760d273575730fd91fc0ef61055988f4748413df0376de196b473421a",
-  "publishedAt": "2026-11-19T20:56:49Z",
-  "releaseNotes": "Reminder lists pending updates by name/KB/version; buttons stay one row. Tip 99a2c67."
+  "version": "0.7.2.39",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.39/UpdateExpress_v0.7.2.39.exe",
+  "sha256": "26841292c7c0f4c77d3d67b820fbebb990ce195095df5c836ceab20b6133d51f",
+  "publishedAt": "2026-11-20T06:53:32Z",
+  "releaseNotes": "Defender Sjekket uses signature/Historikk time; Denne pcen PC info toggle; refresh icon. Tip cebd2a2."
 }
