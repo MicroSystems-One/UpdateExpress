@@ -1825,7 +1825,8 @@ public partial class MainWindow : Window
         ["WUA status report"] = "WUA statusrapport", ["Error report"] = "Feilrapport",
         ["Reboot needed"] = "Omstart nødvendig",
         ["Export CSV"] = "Eksporter CSV", ["Diagnostics"] = "Diagnostikk", ["Check Status"] = "Kontroller status",
-        ["Refresh"] = "Oppdater", ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
+        ["Refresh"] = "Oppdater", ["This PC"] = "Denne pcen",
+        ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
         ["Search results"] = "Søke resultater", ["Check for Updates & Results"] = "Søke resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
         ["All"] = "Alle",
         ["Windows Updates"] = "Windows-oppdateringer", ["Drivers / Firmware"] = "Drivere / fastvare",
@@ -1976,7 +1977,7 @@ public partial class MainWindow : Window
         RefreshUpdateUntilCurrentUi();
         RefreshMonitorPanel(); // also refreshes Results heading times
         RefreshResultsHeading();
-        RefreshResultsMonitorVisButton();
+        RefreshThisPcButton();
         RefreshMaintenanceSummary();
         BuildInstallDayChips();
         RefreshAutomationStatusTexts();
@@ -1984,6 +1985,10 @@ public partial class MainWindow : Window
             ProductOverviewInfo.ToolTip = norwegian
                 ? "Om Update Express vs Windows Update"
                 : "About Update Express vs Windows Update";
+        if (DefenderRefreshButton is not null)
+            DefenderRefreshButton.ToolTip = norwegian
+                ? "Oppdater Defender- og brannmurstatus"
+                : "Refresh Defender and firewall status";
         if (_lastDefender is not null) ApplyDefenderUi(_lastDefender);
         else if (DefenderChecked is not null && (DefenderChecked.Text == "Not checked" || DefenderChecked.Text == "Ikke sjekket"))
             DefenderChecked.Text = norwegian ? "Ikke sjekket" : "Not checked";
@@ -3681,26 +3686,28 @@ public partial class MainWindow : Window
         btn.ContextMenu.IsOpen = true;
     }
 
-    private void ResultsMonitorVis_Click(object sender, RoutedEventArgs e)
+    private void ThisPc_Click(object sender, RoutedEventArgs e)
     {
-        if (MonitorDetailsPanel is null) return;
-        bool open = MonitorDetailsPanel.Visibility != Visibility.Visible;
-        MonitorDetailsPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        RefreshResultsMonitorVisButton();
+        if (MachineIdentityPanel is null) return;
+        bool open = MachineIdentityPanel.Visibility != Visibility.Visible;
+        MachineIdentityPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        RefreshThisPcButton();
     }
 
-    private void RefreshResultsMonitorVisButton()
+    private void RefreshThisPcButton()
     {
-        if (ResultsMonitorVisButton is null || MonitorDetailsPanel is null) return;
+        if (ThisPcButton is null) return;
         bool no = _schedule.Language == "no";
-        bool open = MonitorDetailsPanel.Visibility == Visibility.Visible;
-        ResultsMonitorVisButton.Content = open
-            ? (no ? "Skjul" : "Hide")
-            : (no ? "Vis" : "Show");
-        ResultsMonitorVisButton.ToolTip = open
-            ? (no ? "Skjul overvåkingsdetaljer" : "Hide monitoring details")
-            : (no ? "Vis overvåkingsdetaljer" : "Show monitoring details");
-        ResultsMonitorVisButton.Tag = open ? "Hide" : "Show";
+        bool open = MachineIdentityPanel?.Visibility == Visibility.Visible;
+        ThisPcButton.Content = no ? "Denne pcen" : "This PC";
+        ThisPcButton.ToolTip = open
+            ? (no
+                ? "Skjul produsent, modell, serienummer, enhetsnavn og oppetid"
+                : "Hide manufacturer, model, serial, device name, and uptime")
+            : (no
+                ? "Vis produsent, modell, serienummer, enhetsnavn og oppetid"
+                : "Show manufacturer, model, serial, device name, and uptime");
+        ThisPcButton.Tag = "This PC";
     }
 
     private void BrandSiteLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
