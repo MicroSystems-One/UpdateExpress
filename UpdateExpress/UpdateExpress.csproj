@@ -20,6 +20,7 @@
     <Resource Include="Assets\UpdateExpress-U.png" />
     <Resource Include="Assets\HelpRowTools.png" />
     <Resource Include="Assets\InfoIcon.png" />
+    <Resource Include="Assets\GearIcon.png" />
     <Resource Include="Assets\StatusUpToDate.png" />
     <Resource Include="Assets\StatusNotUpToDate.png" />
     <Resource Include="Assets\UpdateExpress-U.ico" />
