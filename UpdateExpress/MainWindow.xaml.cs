@@ -31,7 +31,8 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<UpdateEntry> _pendingSnapshot = new();
     private List<UpdateEntry> _historySnapshot = new();
     private DateTime? _pendingSnapshotAt;
-    private readonly DispatcherTimer _pendingReconcileTimer = new() { Interval = TimeSpan.FromSeconds(20) };
+    // Keep Historikk↔pending sync snappy so Defender «Sjekket» can follow installs quickly.
+    private readonly DispatcherTimer _pendingReconcileTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private int _reconcileRunning;
     private DateTime _lastReconcileAttempt = DateTime.MinValue;
     private bool VisibleInTab(object item)
@@ -751,8 +752,9 @@ public partial class MainWindow : Window
             ReplacePendingSnapshot(pending);
             RefreshHealthSummary();
             StatusText.Text = "Status check complete. No installation performed.";
+            SyncDefenderHeaderFromHistory();
             HidePendingAlreadyInHistory(history);
-            await RefreshDefenderAsync();
+            await RefreshDefenderAsync(quiet: true);
         }
         catch (Exception ex) { HealthSummary.Text = "Status check failed: " + ex.Message; }
         finally
@@ -1078,7 +1080,7 @@ public partial class MainWindow : Window
     private async Task ReconcilePendingFromHistoryAsync()
     {
         if (_busy || _pendingSnapshot.Count == 0 || _pendingSnapshotAt is null) return;
-        if (DateTime.Now - _lastReconcileAttempt < TimeSpan.FromSeconds(15)) return;
+        if (DateTime.Now - _lastReconcileAttempt < TimeSpan.FromSeconds(3)) return;
         if (_healthCheckRunning) return;
         if (Interlocked.CompareExchange(ref _reconcileRunning, 1, 0) != 0) return;
         _lastReconcileAttempt = DateTime.Now;
@@ -1087,7 +1089,10 @@ public partial class MainWindow : Window
             var history = await WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
             if (_busy || _pendingSnapshotAt is null) return;
             _historySnapshot = history;
+            // Push Historikk Defender success into the header immediately (before Mp poll).
+            SyncDefenderHeaderFromHistory();
             HidePendingAlreadyInHistory(history);
+            await RefreshDefenderAsync(quiet: true);
         }
         catch (Exception ex)
         {
@@ -1154,13 +1159,90 @@ public partial class MainWindow : Window
         System.Text.RegularExpressions.Regex.Matches(value ?? "", @"KB\d{5,9}", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
             .Select(m => m.Value.ToUpperInvariant()).Distinct();
     private DefenderState? _lastDefender;
+    private DateTime? _lastSeenDefenderAutomationRun;
+    private DateTime _lastQuietDefenderPoll = DateTime.MinValue;
 
     private async void DefenderRefresh_Click(object sender, RoutedEventArgs e) { await RefreshDefenderAsync(); await RefreshFirewallAsync(); }
-    private async System.Threading.Tasks.Task RefreshDefenderAsync()
+
+    /// <summary>
+    /// Apply Historikk's newest Defender success to the header without waiting for Get-MpComputerStatus.
+    /// </summary>
+    private void SyncDefenderHeaderFromHistory()
     {
-        DefenderRefreshButton.IsEnabled = false;
+        if (_historySnapshot.Count == 0) return;
+        var fromHistory = PendingHistoryReconcile.LatestDefenderSuccessAt(_historySnapshot);
+        if (fromHistory is null) return;
+        ApplyDefenderShownTime(fromHistory.Value, fromHistorySource: true);
+    }
+
+    /// <summary>
+    /// When tray Defender automation finishes, bump «Sjekket» from LastRun and quietly re-read Mp.
+    /// </summary>
+    private void MaybeRefreshDefenderAfterAutomation()
+    {
+        try
+        {
+            var auto = WindowsAutomationStatus.Load().Defender;
+            if (auto.LastRun is not DateTime run) return;
+            if (_lastSeenDefenderAutomationRun is DateTime seen && seen >= run) return;
+            string result = auto.LastResult ?? "";
+            bool success = result.Contains("Install", StringComparison.OrdinalIgnoreCase)
+                || result.Contains("Already", StringComparison.OrdinalIgnoreCase)
+                || result.Contains("up to date", StringComparison.OrdinalIgnoreCase)
+                || result.Contains("Successful", StringComparison.OrdinalIgnoreCase)
+                || result.Contains("Vellykket", StringComparison.OrdinalIgnoreCase);
+            if (!success) { _lastSeenDefenderAutomationRun = run; return; }
+            _lastSeenDefenderAutomationRun = run;
+            ApplyDefenderShownTime(run, fromHistorySource: false);
+            if (DateTime.Now - _lastQuietDefenderPoll < TimeSpan.FromSeconds(4)) return;
+            _lastQuietDefenderPoll = DateTime.Now;
+            _ = RefreshDefenderAsync(quiet: true);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Defender automation header sync failed: " + ex.Message);
+        }
+    }
+
+    private void ApplyDefenderShownTime(DateTime when, bool fromHistorySource)
+    {
+        if (_lastDefender?.SignatureLastUpdated is DateTime shown && shown >= when)
+            return;
+        string stamp = when.ToString("dd.MM.yyyy HH:mm");
+        string source = fromHistorySource ? "Historikk" : "automation";
+        if (_lastDefender is null)
+        {
+            string detail = $"Signature: ({source})\nLast updated: {stamp} ({source})\nReal-time protection: unknown\nChecked: {DateTime.Now:dd.MM.yyyy HH:mm}";
+            _lastDefender = new DefenderState("green", "Updated", detail, DateTime.Now, when);
+            ApplyDefenderUi(_lastDefender);
+            return;
+        }
+        if (fromHistorySource)
+            _lastDefender = EnrichDefenderWithHistory(_lastDefender, _historySnapshot);
+        else
+        {
+            var details = _lastDefender.Details;
+            if (details.Contains("Last updated:", StringComparison.Ordinal))
+                details = System.Text.RegularExpressions.Regex.Replace(
+                    details,
+                    @"Last updated:.*",
+                    "Last updated: " + stamp + " (" + source + ")",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            else
+                details += "\nLast updated: " + stamp + " (" + source + ")";
+            _lastDefender = _lastDefender with { SignatureLastUpdated = when, Details = details };
+        }
+        ApplyDefenderUi(_lastDefender);
+    }
+
+    private async System.Threading.Tasks.Task RefreshDefenderAsync(bool quiet = false)
+    {
         bool norwegian = _schedule.Language == "no";
-        DefenderLabel.Text = norwegian ? "Sjekker…" : "Checking…";
+        if (!quiet)
+        {
+            DefenderRefreshButton.IsEnabled = false;
+            DefenderLabel.Text = norwegian ? "Sjekker…" : "Checking…";
+        }
         try
         {
             var status = await UpdateExpress.Services.DefenderStatusReader.ReadAsync();
@@ -1176,11 +1258,19 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            _lastDefender = null;
-            DefenderLabel.Text = norwegian ? "Ukjent" : "Unknown";
-            DefenderChecked.Text = ex.Message;
+            if (!quiet)
+            {
+                _lastDefender = null;
+                DefenderLabel.Text = norwegian ? "Ukjent" : "Unknown";
+                DefenderChecked.Text = ex.Message;
+            }
+            else
+                System.Diagnostics.Debug.WriteLine("Quiet Defender refresh failed: " + ex.Message);
         }
-        finally { DefenderRefreshButton.IsEnabled = true; }
+        finally
+        {
+            if (!quiet) DefenderRefreshButton.IsEnabled = true;
+        }
     }
 
     /// <summary>
@@ -1648,6 +1738,7 @@ public partial class MainWindow : Window
             RefreshAutomationStatusTexts();
             RefreshRebootNeededBanner();
             TrySyncAppsFromWingetCache();
+            MaybeRefreshDefenderAfterAutomation();
         };
         _monitorUiTimer.Start();
         _uptimeTimer.Tick += (_, _) => RefreshUptime();
@@ -1659,7 +1750,9 @@ public partial class MainWindow : Window
         {
             ReloadDisplaySettings();
             TrySyncAppsFromWingetCache();
+            SyncDefenderHeaderFromHistory();
             _ = ReconcilePendingFromHistoryAsync();
+            _ = RefreshDefenderAsync(quiet: true);
         };
         WingetAvailableCache.Changed += () =>
         {
@@ -1687,7 +1780,25 @@ public partial class MainWindow : Window
             RmmStatusExport.WriteBestEffort("mainwindow-loaded", force: true);
             CheckReminder();
             _ = LoadMachineIdentityAsync();
-            await RefreshDefenderAsync();
+            // Warm Historikk early so «Sjekket» can use the latest Defender success without waiting on Mp alone.
+            try
+            {
+                var historyTask = WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
+                var defenderTask = RefreshDefenderAsync(quiet: true);
+                _historySnapshot = await historyTask;
+                SyncDefenderHeaderFromHistory();
+                await defenderTask;
+                if (_lastDefender is not null)
+                {
+                    _lastDefender = EnrichDefenderWithHistory(_lastDefender, _historySnapshot);
+                    ApplyDefenderUi(_lastDefender);
+                }
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Write("Startup Defender/Historikk warm failed: " + ex.Message);
+                await RefreshDefenderAsync(quiet: true);
+            }
             await RefreshFirewallAsync();
             RefreshRebootNeededBanner();
             // Quiet self-update check when the main window opens (prompt only if newer).
@@ -2381,9 +2492,10 @@ public partial class MainWindow : Window
             RefreshHealthSummary();
             SetTab("history");
             StatusText.Text = $"History loaded: {result.Count} entries. Pending updates remain separate.";
+            SyncDefenderHeaderFromHistory();
             HidePendingAlreadyInHistory(result);
             // Historikk may show a newer Defender install than the last header poll.
-            await RefreshDefenderAsync();
+            await RefreshDefenderAsync(quiet: true);
         }
         catch (Exception ex)
         {
@@ -3105,7 +3217,9 @@ public partial class MainWindow : Window
                         timeoutMessage: norwegian ? "Verifisering (historikk) tidsavbrutt." : "Verification (history) timed out.",
                         abandonOnTimeout: true);
                     outstandingWork.Remove(historyTask);
+                    SyncDefenderHeaderFromHistory();
                     HidePendingAlreadyInHistory(_historySnapshot);
+                    _ = RefreshDefenderAsync(quiet: true);
                     foreach (var item in software.Select((update, i) => new { update, i }))
                     {
                         if (queue[item.i].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
