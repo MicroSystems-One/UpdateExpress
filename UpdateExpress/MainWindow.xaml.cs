@@ -3379,6 +3379,47 @@ public partial class MainWindow : Window
 
     private void ResultsExpander_SizeChanged(object sender, SizeChangedEventArgs e) => StretchResultsHeader();
 
+    /// <summary>
+    /// On expand, scroll MainScroll so «Vedlikehold og varsler» sits near the top of the viewport.
+    /// Collapse leaves scroll position unchanged.
+    /// </summary>
+    private void MaintenanceExpander_Expanded(object sender, RoutedEventArgs e)
+    {
+        // Wait until expanded content has measured/arranged, then scroll.
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, ScrollMaintenanceSectionToTop);
+        });
+    }
+
+    private void ScrollMaintenanceSectionToTop()
+    {
+        if (MainScroll is null || MaintenanceExpander is null || !MaintenanceExpander.IsExpanded)
+            return;
+
+        FrameworkElement target = MaintenanceSection ?? (FrameworkElement)MaintenanceExpander;
+        target.UpdateLayout();
+        MainScroll.UpdateLayout();
+
+        if (!ReferenceEquals(target, MainScroll) && !IsAncestor(MainScroll, target))
+            return;
+
+        Point relative = target.TransformToAncestor(MainScroll).Transform(new Point(0, 0));
+        double offset = MainScroll.VerticalOffset + relative.Y;
+        if (offset < 0) offset = 0;
+        MainScroll.ScrollToVerticalOffset(offset);
+    }
+
+    private static bool IsAncestor(DependencyObject ancestor, DependencyObject? node)
+    {
+        while (node is not null)
+        {
+            if (ReferenceEquals(node, ancestor)) return true;
+            node = VisualTreeHelper.GetParent(node);
+        }
+        return false;
+    }
+
     private void RefreshUpdateUntilCurrentUi()
     {
         if (UpdateUntilCurrentButton is null || UpdateUntilCurrentStatus is null) return;
