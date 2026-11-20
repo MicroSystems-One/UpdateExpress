@@ -3385,6 +3385,10 @@ public partial class MainWindow : Window
     /// </summary>
     private void MaintenanceExpander_Expanded(object sender, RoutedEventArgs e)
     {
+        // Nested expanders (e.g. Advanced categories) also bubble Expanded here — ignore those.
+        if (!ReferenceEquals(e.OriginalSource, MaintenanceExpander))
+            return;
+
         // Wait until expanded content has measured/arranged, then scroll.
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
