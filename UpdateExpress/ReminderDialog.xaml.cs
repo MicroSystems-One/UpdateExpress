@@ -9,7 +9,17 @@ namespace UpdateExpress;
 
 public partial class ReminderDialog : Window
 {
+    /// <summary>AFK soft-dismiss: same as Lukk/Close — never confirms restart.</summary>
+    public static readonly TimeSpan AfkAutoClose = TimeSpan.FromMinutes(30);
+
+    public static ReminderDialog? Current { get; private set; }
+    public static bool IsShowing => Current is { IsLoaded: true };
+
     public string Decision { get; private set; } = "dismissed";
+    /// <summary>Occurrence last applied to this dialog (updated on refresh).</summary>
+    public DateTime Occurrence { get; private set; }
+
+    private readonly DispatcherTimer _afkTimer;
 
     public ReminderDialog(
         bool isTest,
@@ -23,16 +33,48 @@ public partial class ReminderDialog : Window
         AppIcon.Apply(this);
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
+        Current = this;
+
         // After long idle / locked session, DWM sometimes leaves this dialog blank.
         Loaded += (_, _) =>
         {
             ForceRepaint();
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, ForceRepaint);
             Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, ForceRepaint);
+            _afkTimer.Start();
         };
         Activated += (_, _) => ForceRepaint();
         ContentRendered += (_, _) => ForceRepaint();
+        Closed += (_, _) =>
+        {
+            _afkTimer.Stop();
+            if (ReferenceEquals(Current, this))
+                Current = null;
+        };
 
+        _afkTimer = new DispatcherTimer { Interval = AfkAutoClose };
+        _afkTimer.Tick += (_, _) =>
+        {
+            _afkTimer.Stop();
+            // Soft dismiss (Decision stays "dismissed") — equivalent to Lukk / Later.
+            Close();
+        };
+
+        ApplyContent(isTest, occurrence, norwegian, showMissedPreviousDay, reasonKey, pendingUpdateLines);
+    }
+
+    /// <summary>
+    /// Refresh an already-open Påminnelse instead of stacking a second window.
+    /// </summary>
+    public void ApplyContent(
+        bool isTest,
+        DateTime occurrence,
+        bool norwegian,
+        bool showMissedPreviousDay,
+        string reasonKey,
+        IReadOnlyList<string>? pendingUpdateLines)
+    {
+        Occurrence = occurrence;
         var time = Services.ReminderSchedule.Load().Format(occurrence);
         WhenText.Text = isTest
             ? (norwegian ? "Testvarsel – ingen handling utført" : "Notification test – no action performed")
@@ -44,6 +86,10 @@ public partial class ReminderDialog : Window
             MissedNoticeText.Text = norwegian
                 ? "Vi minner om at planlagt vedlikehold i går ikke ble gjennomført, fordi det manglet bekreftelse."
                 : "Reminder: yesterday's scheduled maintenance was not completed because it was not confirmed.";
+        }
+        else
+        {
+            MissedNoticeText.Visibility = Visibility.Collapsed;
         }
 
         if (!isTest && !string.IsNullOrWhiteSpace(reasonKey))
@@ -65,6 +111,10 @@ public partial class ReminderDialog : Window
             if (string.IsNullOrWhiteSpace(ReasonText.Text))
                 ReasonText.Visibility = Visibility.Collapsed;
         }
+        else
+        {
+            ReasonText.Visibility = Visibility.Collapsed;
+        }
 
         if (!isTest
             && string.Equals(reasonKey, "pending", StringComparison.OrdinalIgnoreCase)
@@ -72,6 +122,11 @@ public partial class ReminderDialog : Window
         {
             PendingListPanel.Visibility = Visibility.Visible;
             PendingUpdatesList.ItemsSource = pendingUpdateLines.ToList();
+        }
+        else
+        {
+            PendingListPanel.Visibility = Visibility.Collapsed;
+            PendingUpdatesList.ItemsSource = null;
         }
 
         if (norwegian)
@@ -83,6 +138,16 @@ public partial class ReminderDialog : Window
             AcknowledgeButton.Content = "Bekreft omstart";
             SnoozeButton.Content = "Påminn meg om 30 minutter";
             CloseButton.Content = "Lukk";
+        }
+
+        // New content / new due slot while AFK: restart the idle timer so we don't
+        // close immediately after a refresh that happened near the old deadline.
+        if (IsLoaded)
+        {
+            _afkTimer.Stop();
+            _afkTimer.Start();
+            ForceRepaint();
+            try { Activate(); } catch { /* ignore */ }
         }
     }
 

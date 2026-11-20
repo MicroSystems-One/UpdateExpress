@@ -1364,6 +1364,8 @@ public partial class MainWindow : Window
     private static readonly TimeSpan LongUptimeThreshold = TimeSpan.FromDays(7);
     private readonly DispatcherTimer _rebootBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(1600) };
     private DispatcherTimer? _confirmedRebootTimer;
+    /// <summary>True while a ReminderDialog Present callback is queued or modal — prevents stacking.</summary>
+    private bool _reminderPresentQueued;
     private bool _rebootPrompt;
     private bool _windowsRebootPending;
     private readonly DispatcherTimer _installOutcomeBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
@@ -2315,6 +2317,7 @@ public partial class MainWindow : Window
 
     private void ShowReminder(bool isTest, DateTime occurrence)
     {
+        bool norwegian = _schedule.Language == "no";
         bool showMissed = !isTest
             && _schedule.MissedUnconfirmedDate is DateTime missed
             && missed.Date < DateTime.Now.Date;
@@ -2334,19 +2337,42 @@ public partial class MainWindow : Window
             _schedule.Save();
         }
 
+        // One instance only: refresh the open Påminnelse instead of stacking another window
+        // (CheckReminder keeps firing inside ShowDialog's nested dispatcher loop / BeginInvoke queue).
+        if (ReminderDialog.IsShowing && ReminderDialog.Current is ReminderDialog open)
+        {
+            open.ApplyContent(isTest, occurrence, norwegian, showMissed, reasonKey, pendingLines);
+            ReminderSchedule.Log(isTest ? "test_reminder_refresh" : "reminder_refresh",
+                occurrence.ToString("o") + (string.IsNullOrEmpty(reasonKey) ? "" : "|" + reasonKey));
+            return;
+        }
+
+        if (_reminderPresentQueued)
+            return;
+
+        _reminderPresentQueued = true;
+
         // Defer until ApplicationIdle so a reminder that fires during lock/sleep/display
         // wake does not open a blank white WPF frame over a half-ready desktop.
         void Present()
         {
             try
             {
+                if (ReminderDialog.IsShowing && ReminderDialog.Current is ReminderDialog existing)
+                {
+                    existing.ApplyContent(isTest, occurrence, norwegian, showMissed, reasonKey, pendingLines);
+                    ReminderSchedule.Log(isTest ? "test_reminder_refresh" : "reminder_refresh",
+                        occurrence.ToString("o") + (string.IsNullOrEmpty(reasonKey) ? "" : "|" + reasonKey));
+                    return;
+                }
+
                 if (WindowState == WindowState.Minimized)
                     WindowState = WindowState.Normal;
                 if (IsLoaded) Activate();
 
                 bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
                 var dialog = new ReminderDialog(
-                    isTest, occurrence, _schedule.Language == "no", showMissed, reasonKey, pendingLines)
+                    isTest, occurrence, norwegian, showMissed, reasonKey, pendingLines)
                 {
                     Owner = ownerOk ? this : null,
                     WindowStartupLocation = ownerOk
@@ -2354,6 +2380,7 @@ public partial class MainWindow : Window
                         : WindowStartupLocation.CenterScreen
                 };
                 dialog.ShowDialog();
+                var decidedOccurrence = dialog.Occurrence;
                 ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision + (string.IsNullOrEmpty(reasonKey) ? "" : "|" + reasonKey));
                 if (!isTest)
                 {
@@ -2362,9 +2389,9 @@ public partial class MainWindow : Window
 
                     if (dialog.Decision == "confirmed")
                     {
-                        _schedule.ConfirmedOccurrence = occurrence;
+                        _schedule.ConfirmedOccurrence = decidedOccurrence;
                         _schedule.SnoozedUntil = null;
-                        ScheduleConfirmedReboot(occurrence);
+                        ScheduleConfirmedReboot(decidedOccurrence);
                     }
                     else if (dialog.Decision == "snoozed")
                     {
@@ -2372,7 +2399,7 @@ public partial class MainWindow : Window
                     }
                     else
                     {
-                        // No choice: roll forward to next :00/:30; past midnight → next scheduled day.
+                        // Lukk / AFK auto-close (30 min): soft dismiss — roll forward; never confirm restart.
                         var next = ReminderSchedule.NextHalfHourSlot(DateTime.Now);
                         if (next is DateTime rolled)
                         {
@@ -2381,7 +2408,7 @@ public partial class MainWindow : Window
                         }
                         else
                         {
-                            MarkMissedUnconfirmedDay(occurrence.Date);
+                            MarkMissedUnconfirmedDay(decidedOccurrence.Date);
                         }
                     }
                     _schedule.Save();
@@ -2391,6 +2418,10 @@ public partial class MainWindow : Window
             catch (Exception ex)
             {
                 ReminderSchedule.Log(isTest ? "test_reminder_error" : "reminder_error", ex.Message);
+            }
+            finally
+            {
+                _reminderPresentQueued = false;
             }
         }
 
