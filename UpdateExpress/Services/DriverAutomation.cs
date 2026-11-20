@@ -174,6 +174,14 @@ internal static class DriverAutomation
     {
         try
         {
+            if (MaintenanceReminderPromptGate.ShouldSuppressCategoryUpdateReadyPrompt())
+            {
+                AgentLog.Write(
+                    "Drivers automation: updates-ready prompt suppressed " +
+                    "(Påminnelse covers pending updates in this Main UI session).");
+                return;
+            }
+
             try { _balloon?.Invoke("Update Express – Driver updates", balloonText); }
             catch { }
 

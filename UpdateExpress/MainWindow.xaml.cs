@@ -1706,8 +1706,10 @@ public partial class MainWindow : Window
         // First paint: Results starts collapsed — force Auto row (Collapsed event does not run at init).
         ApplyResultsRowLayout();
         AppIcon.Apply(this);
+        MaintenanceReminderPromptGate.RegisterMainUiSession();
         Closed += (_, _) =>
         {
+            MaintenanceReminderPromptGate.UnregisterMainUiSession();
             if (_fixItWindow is null) return;
             _fixItWindow.SuppressDetach();
             try { _fixItWindow.Close(); } catch { /* ignore */ }
