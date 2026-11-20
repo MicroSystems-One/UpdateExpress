@@ -18,8 +18,14 @@ public partial class ReminderDialog : Window
     public string Decision { get; private set; } = "dismissed";
     /// <summary>Occurrence last applied to this dialog (updated on refresh).</summary>
     public DateTime Occurrence { get; private set; }
+    /// <summary>Test vs real mode last applied (updated on refresh) — used when handling Decision.</summary>
+    public bool IsTest { get; private set; }
+    /// <summary>Whether the open dialog is showing the missed-previous-day notice.</summary>
+    public bool ShowMissedPreviousDay { get; private set; }
 
     private readonly DispatcherTimer _afkTimer;
+    private DateTime _afkDeadlineUtc;
+    private bool _afkArmed;
 
     public ReminderDialog(
         bool isTest,
@@ -35,13 +41,29 @@ public partial class ReminderDialog : Window
         SnapsToDevicePixels = true;
         Current = this;
 
+        // Absolute AFK deadline from first show — automatic content refreshes must not extend it.
+        _afkDeadlineUtc = DateTime.UtcNow.Add(AfkAutoClose);
+        _afkTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+        _afkTimer.Tick += (_, _) =>
+        {
+            if (DateTime.UtcNow < _afkDeadlineUtc) return;
+            _afkTimer.Stop();
+            // Soft dismiss (Decision stays "dismissed") — equivalent to Lukk / Later.
+            Close();
+        };
+
         // After long idle / locked session, DWM sometimes leaves this dialog blank.
         Loaded += (_, _) =>
         {
             ForceRepaint();
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, ForceRepaint);
             Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, ForceRepaint);
-            _afkTimer.Start();
+            if (!_afkArmed)
+            {
+                _afkArmed = true;
+                _afkDeadlineUtc = DateTime.UtcNow.Add(AfkAutoClose);
+                _afkTimer.Start();
+            }
         };
         Activated += (_, _) => ForceRepaint();
         ContentRendered += (_, _) => ForceRepaint();
@@ -52,19 +74,12 @@ public partial class ReminderDialog : Window
                 Current = null;
         };
 
-        _afkTimer = new DispatcherTimer { Interval = AfkAutoClose };
-        _afkTimer.Tick += (_, _) =>
-        {
-            _afkTimer.Stop();
-            // Soft dismiss (Decision stays "dismissed") — equivalent to Lukk / Later.
-            Close();
-        };
-
         ApplyContent(isTest, occurrence, norwegian, showMissedPreviousDay, reasonKey, pendingUpdateLines);
     }
 
     /// <summary>
     /// Refresh an already-open Påminnelse instead of stacking a second window.
+    /// Does not extend the AFK auto-close deadline.
     /// </summary>
     public void ApplyContent(
         bool isTest,
@@ -74,13 +89,16 @@ public partial class ReminderDialog : Window
         string reasonKey,
         IReadOnlyList<string>? pendingUpdateLines)
     {
+        IsTest = isTest;
         Occurrence = occurrence;
+        ShowMissedPreviousDay = showMissedPreviousDay && !isTest;
+
         var time = Services.ReminderSchedule.Load().Format(occurrence);
         WhenText.Text = isTest
             ? (norwegian ? "Testvarsel – ingen handling utført" : "Notification test – no action performed")
             : (norwegian ? $"Planlagt tidspunkt: {time}" : $"Scheduled time: {time}");
 
-        if (showMissedPreviousDay && !isTest)
+        if (ShowMissedPreviousDay)
         {
             MissedNoticeText.Visibility = Visibility.Visible;
             MissedNoticeText.Text = norwegian
@@ -140,12 +158,8 @@ public partial class ReminderDialog : Window
             CloseButton.Content = "Lukk";
         }
 
-        // New content / new due slot while AFK: restart the idle timer so we don't
-        // close immediately after a refresh that happened near the old deadline.
         if (IsLoaded)
         {
-            _afkTimer.Stop();
-            _afkTimer.Start();
             ForceRepaint();
             try { Activate(); } catch { /* ignore */ }
         }

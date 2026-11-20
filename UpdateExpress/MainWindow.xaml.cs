@@ -1366,6 +1366,8 @@ public partial class MainWindow : Window
     private DispatcherTimer? _confirmedRebootTimer;
     /// <summary>True while a ReminderDialog Present callback is queued or modal — prevents stacking.</summary>
     private bool _reminderPresentQueued;
+    /// <summary>Latest reminder args for a queued Present (test↔real refresh before ShowDialog).</summary>
+    private (bool IsTest, DateTime Occurrence, bool Norwegian, bool ShowMissed, string ReasonKey, IReadOnlyList<string>? PendingLines)? _pendingReminder;
     private bool _rebootPrompt;
     private bool _windowsRebootPending;
     private readonly DispatcherTimer _installOutcomeBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
@@ -2337,6 +2339,8 @@ public partial class MainWindow : Window
             _schedule.Save();
         }
 
+        _pendingReminder = (isTest, occurrence, norwegian, showMissed, reasonKey, pendingLines);
+
         // One instance only: refresh the open Påminnelse instead of stacking another window
         // (CheckReminder keeps firing inside ShowDialog's nested dispatcher loop / BeginInvoke queue).
         if (ReminderDialog.IsShowing && ReminderDialog.Current is ReminderDialog open)
@@ -2358,11 +2362,16 @@ public partial class MainWindow : Window
         {
             try
             {
+                var args = _pendingReminder
+                    ?? (isTest, occurrence, norwegian, showMissed, reasonKey, pendingLines);
+
                 if (ReminderDialog.IsShowing && ReminderDialog.Current is ReminderDialog existing)
                 {
-                    existing.ApplyContent(isTest, occurrence, norwegian, showMissed, reasonKey, pendingLines);
-                    ReminderSchedule.Log(isTest ? "test_reminder_refresh" : "reminder_refresh",
-                        occurrence.ToString("o") + (string.IsNullOrEmpty(reasonKey) ? "" : "|" + reasonKey));
+                    existing.ApplyContent(
+                        args.IsTest, args.Occurrence, args.Norwegian, args.ShowMissed,
+                        args.ReasonKey, args.PendingLines);
+                    ReminderSchedule.Log(args.IsTest ? "test_reminder_refresh" : "reminder_refresh",
+                        args.Occurrence.ToString("o") + (string.IsNullOrEmpty(args.ReasonKey) ? "" : "|" + args.ReasonKey));
                     return;
                 }
 
@@ -2372,7 +2381,8 @@ public partial class MainWindow : Window
 
                 bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
                 var dialog = new ReminderDialog(
-                    isTest, occurrence, norwegian, showMissed, reasonKey, pendingLines)
+                    args.IsTest, args.Occurrence, args.Norwegian, args.ShowMissed,
+                    args.ReasonKey, args.PendingLines)
                 {
                     Owner = ownerOk ? this : null,
                     WindowStartupLocation = ownerOk
@@ -2380,11 +2390,25 @@ public partial class MainWindow : Window
                         : WindowStartupLocation.CenterScreen
                 };
                 dialog.ShowDialog();
+                // Use dialog mode/occurrence after possible ApplyContent refresh (test↔real).
+                bool decidedIsTest = dialog.IsTest;
                 var decidedOccurrence = dialog.Occurrence;
-                ReminderSchedule.Log(isTest ? "test_reminder" : "reminder", dialog.Decision + (string.IsNullOrEmpty(reasonKey) ? "" : "|" + reasonKey));
-                if (!isTest)
+                string reasonForLog = "";
+                if (!decidedIsTest)
                 {
-                    if (showMissed)
+                    string key = args.ReasonKey;
+                    if (_pendingReminder is { } latest && !latest.IsTest)
+                        key = latest.ReasonKey;
+                    if (!string.IsNullOrEmpty(key))
+                        reasonForLog = "|" + key;
+                }
+
+                ReminderSchedule.Log(
+                    decidedIsTest ? "test_reminder" : "reminder",
+                    dialog.Decision + reasonForLog);
+                if (!decidedIsTest)
+                {
+                    if (dialog.ShowMissedPreviousDay)
                         _schedule.MissedUnconfirmedDate = null;
 
                     if (dialog.Decision == "confirmed")
