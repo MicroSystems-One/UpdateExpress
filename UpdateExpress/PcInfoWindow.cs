@@ -6,6 +6,8 @@ using UpdateExpress.Services;
 using WpfOrientation = System.Windows.Controls.Orientation;
 using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
 using WpfVerticalAlignment = System.Windows.VerticalAlignment;
+using WpfFontFamily = System.Windows.Media.FontFamily;
+using WpfClipboard = System.Windows.Clipboard;
 
 namespace UpdateExpress;
 
@@ -38,7 +40,7 @@ internal sealed class PcInfoWindow : Window
         ResizeMode = ResizeMode.CanResizeWithGrip;
         ShowInTaskbar = false;
         Background = Brush("#F3F3F3");
-        FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI");
+        FontFamily = new WpfFontFamily("Segoe UI Variable Text, Segoe UI");
         FontSize = 12;
 
         var root = new Border
@@ -234,7 +236,7 @@ internal sealed class PcInfoWindow : Window
             if (string.IsNullOrWhiteSpace(text) || text is "…" or "—") return;
             try
             {
-                Clipboard.SetDataObject(text, true);
+                WpfClipboard.SetDataObject(text, true);
                 btn.ToolTip = _norwegian ? "Kopiert" : "Copied";
                 var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
                 timer.Tick += (_, _) =>
