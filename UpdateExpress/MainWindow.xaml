@@ -432,7 +432,7 @@
     <TextBlock x:Name="ProxyStatusText" Text="Proxy: checking …" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center"/>
     <!-- Proxy settings icon: one space after Proxy status text. -->
     <Button Click="ProxyDetails_Click" ToolTip="Proxy Settings" Width="22" Height="22" Padding="2" Margin="4,0,0,0" Background="Transparent" BorderThickness="0" VerticalAlignment="Center" Cursor="Hand" Focusable="True" AutomationProperties.Name="View proxy details">
-     <Viewbox Width="14" Height="14" Stretch="Uniform">
+     <Viewbox Width="18" Height="18" Stretch="Uniform">
       <Canvas Width="24" Height="24">
        <Path Stroke="#0067C0" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M12,2 A10,10 0 1 1 11.99,2 Z M2,12 L22,12 M12,2 C5,7 5,17 12,22 M12,2 C19,7 19,17 12,22"/>
       </Canvas>
@@ -512,13 +512,8 @@
   <Button.Template>
    <ControlTemplate TargetType="Button">
     <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Width="28" Height="28">
-     <Viewbox Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
-      <Canvas Width="24" Height="24">
-       <Path Stroke="#0067C0" StrokeThickness="1.5" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"
-             Data="M12,3 L13.1,6.2 C13.85,6.4 14.55,6.75 15.15,7.2 L18.3,5.95 L20.05,8.95 L17.2,10.55 C17.35,11.2 17.4,11.9 17.4,12.6 C17.4,13.3 17.35,14 17.2,14.65 L20.05,16.25 L18.3,19.25 L15.15,18 C14.55,18.45 13.85,18.8 13.1,19 L12,22.2 L9,22.2 L7.9,19 C7.15,18.8 6.45,18.45 5.85,18 L2.7,19.25 L0.95,16.25 L3.8,14.65 C3.65,14 3.6,13.3 3.6,12.6 C3.6,11.9 3.65,11.2 3.8,10.55 L0.95,8.95 L2.7,5.95 L5.85,7.2 C6.45,6.75 7.15,6.4 7.9,6.2 L9,3 Z"/>
-       <Ellipse Canvas.Left="8.6" Canvas.Top="9.2" Width="6.8" Height="6.8" Stroke="#0067C0" StrokeThickness="1.5" Fill="Transparent"/>
-      </Canvas>
-     </Viewbox>
+     <Image Source="Assets/GearIcon.png" Height="18" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+            RenderOptions.BitmapScalingMode="HighQuality"/>
     </Border>
     <ControlTemplate.Triggers>
      <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/></Trigger>
