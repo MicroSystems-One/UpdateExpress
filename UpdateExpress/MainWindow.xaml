@@ -328,7 +328,7 @@
  </Window.Resources>
  <!-- Scroll when content overflows; Grid MinHeight fills viewport so * rows still stretch when tall enough. -->
  <ScrollViewer x:Name="MainScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="False">
- <Grid x:Name="MainLayout" Margin="16,0,16,12" MinHeight="{Binding ActualHeight, ElementName=MainScroll}"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition x:Name="ResultsRow" Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+ <Grid x:Name="MainLayout" Margin="16,0,16,12" MinHeight="{Binding ActualHeight, ElementName=MainScroll}"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition x:Name="ResultsRow" Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <!-- Header: left brand U; center-right two-line update status; right Check for updates. -->
   <Grid Grid.Row="0" Margin="0,8,0,12" MinHeight="88"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
@@ -415,6 +415,37 @@
           </ControlTemplate>
          </Button.Template>
         </Button></StackPanel></Grid>
+    <!-- UPD-129: Fix IT CTA centered on Helsesjekk / status banner; English label per SVHA. -->
+    <Button x:Name="StatusFixItCta" HorizontalAlignment="Center" VerticalAlignment="Center"
+            Margin="0,2,0,2" Padding="8,2" Cursor="Hand" Background="Transparent" BorderThickness="0"
+            Focusable="True" Click="FixItOpen_Click" PreviewMouseLeftButtonDown="StatusFixItCta_PreviewMouseDown"
+            ToolTip="Repair and diagnose Windows Update problems"
+            AutomationProperties.Name="Fix Update issues here">
+      <Button.Template>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="Fix Update issues here" FontSize="13" FontWeight="SemiBold"
+                         Foreground="#1C1C1C" VerticalAlignment="Center"/>
+              <Image Source="Assets/HelpRowTools.png" Width="24" Height="24" Stretch="Uniform"
+                     Margin="8,0,0,0" VerticalAlignment="Center"
+                     RenderOptions.BitmapScalingMode="HighQuality"/>
+            </StackPanel>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="#D4D4D4"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Button.Template>
+    </Button>
     <StackPanel Margin="0,2,0,0">
 <!-- Aligned connectivity and firewall status: same row, same Segoe UI 11px. Compact vertical gap under header (UPD-127). -->
    <Grid Margin="0,2,0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -502,29 +533,6 @@
     <ProgressBar x:Name="InstallProgressBar" Height="7" IsIndeterminate="True" Foreground="#0067C0"/>
    </StackPanel>
   </StackPanel></Expander></Border>
-  <Border Grid.Row="3" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top">
-    <Expander x:Name="WindowsHelpExpander" Style="{StaticResource SectionExpander}" IsExpanded="False" Margin="0,0,-1,0">
-     <Expander.Header>
-      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-       <TextBlock x:Name="WindowsHelpHeading" Text="Fix your Windows update issues here...." FontSize="15" FontWeight="Medium"
-                  Foreground="#1C1C1C" VerticalAlignment="Center"/>
-       <Image Source="Assets/HelpRowTools.png" Width="24" Height="24" Stretch="Uniform" Margin="8,0,0,0"
-              VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"
-              ToolTip="Repair and diagnose Windows Update problems"/>
-      </StackPanel>
-     </Expander.Header>
-     <StackPanel Margin="0,10,0,2">
-      <TextBlock x:Name="WindowsHelpBody" FontSize="12" Foreground="#5D5D5D" TextWrapping="Wrap" Margin="0,0,0,10"
-                 Text="Repair stuck updates, open Windows Settings, or review installation help."/>
-      <WrapPanel>
-       <Button Content="Open FIX IT!" Click="FixItOpen_Click" Style="{StaticResource PilotRowButton}" Margin="0,0,8,6"
-               ToolTip="Repair and diagnose Windows Update problems"/>
-       <Button Content="Open Windows Update" Click="OpenWindowsUpdate_Click" Style="{StaticResource PilotRowButton}" Margin="0,0,8,6"
-               ToolTip="Open Windows Update in Settings"/>
-      </WrapPanel>
-     </StackPanel>
-    </Expander>
-  </Border>
   <Border Grid.Row="2" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="ResultsExpander" Style="{StaticResource SectionExpander}" IsExpanded="True" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" Expanded="ResultsExpander_Expanded" Collapsed="ResultsExpander_Collapsed" SizeChanged="ResultsExpander_SizeChanged"><Expander.Header><Grid x:Name="ResultsHeaderBar" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0"><TextBlock x:Name="ListHeading" Text="Search results   Last checked: — - next check: —" Foreground="#1C1C1C" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/></StackPanel><StackPanel x:Name="ResultsHeaderActions" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0">
  <Button x:Name="ToolsGearButton" Click="ToolsGear_Click" PreviewMouseLeftButtonDown="ToolsGear_PreviewMouseDown" Width="28" Height="28" Padding="0" Margin="0,0,0,0"
          Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
@@ -586,7 +594,7 @@
 
      </Grid></Grid>
   </Grid></Expander></Border>
-  <Border Grid.Row="4" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,0"><Expander x:Name="MaintenanceExpander" Style="{StaticResource SectionExpander}" IsExpanded="False"><Expander.Header><StackPanel Orientation="Horizontal"><TextBlock Text="Maintenance &amp; Notifications" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C"/></StackPanel></Expander.Header><StackPanel Margin="8,12,8,8">
+  <Border Grid.Row="3" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,0"><Expander x:Name="MaintenanceExpander" Style="{StaticResource SectionExpander}" IsExpanded="False"><Expander.Header><StackPanel Orientation="Horizontal"><TextBlock Text="Maintenance &amp; Notifications" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C"/></StackPanel></Expander.Header><StackPanel Margin="8,12,8,8">
     <Border Background="#F4FBF7" BorderBrush="#C9E8D6" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
       <StackPanel>
         <DockPanel LastChildFill="True" Margin="0,0,0,6">
@@ -711,7 +719,7 @@
       <Button Content="Save Policy" Click="SavePolicy_Click" Padding="10,4" MinHeight="29"/>
     </WrapPanel>
   </StackPanel></Expander></Border>
-  <StackPanel Grid.Row="5" Margin="4,10,4,0">
+  <StackPanel Grid.Row="4" Margin="4,10,4,0">
   <TextBlock x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical and general Windows updates download automatically and require confirmation before install. Optional auto-reboot after critical updates / general Windows update is off by default (confirm or outside active hours). Drivers and WinGet applications use the same ask-before-install path when enabled; firmware stays manual." Foreground="#5D5D5D" FontSize="12" TextWrapping="Wrap"/>
   <TextBlock x:Name="BrandSiteLink" Text="www.microsystems.one" FontSize="14" FontWeight="SemiBold"
              Foreground="#0067C0" Cursor="Hand" HorizontalAlignment="Center" Margin="0,14,0,4"

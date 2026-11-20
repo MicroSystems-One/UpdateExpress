@@ -1929,7 +1929,7 @@ public partial class MainWindow : Window
                     or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus"
                     or "FooterSafetyText" or "RebootNeededBanner" or "LongUptimeHint" or "UpdateUntilCurrentStatus"
                     or "UpdateStatusTitle" or "UpdateStatusChecked" or "AppSubtitle" or "ListHeading"
-                    or "WindowsHelpHeading" or "WindowsHelpBody" or "MonitorDetailsText"
+                    or "MonitorDetailsText"
                     or "MonitorUpdatesText" or "InternetStatusText" or "UpdateServerStatusText"
                     or "WuaStatusText" or "ProxyStatusText" or "OsVersionLabel" or "OsSupportIcon"
                     or "MaintenanceSummaryText")
@@ -1965,14 +1965,11 @@ public partial class MainWindow : Window
         if (RebootNeededBanner is not null) RebootNeededBanner.Text = RebootBannerText();
         RefreshLongUptimeHint();
         RefreshAppChromeLanguage();
-        if (WindowsHelpHeading is not null)
-            WindowsHelpHeading.Text = norwegian
-                ? "Fiks Windows Update-problemene dine her...."
-                : "Fix your Windows update issues here....";
-        if (WindowsHelpBody is not null)
-            WindowsHelpBody.Text = norwegian
-                ? "Reparer fastlåste oppdateringer, åpne Windows-innstillinger, eller se installasjonshjelp."
-                : "Repair stuck updates, open Windows Settings, or review installation help.";
+        // StatusFixItCta label stays English ("Fix Update issues here") per SVHA.
+        if (StatusFixItCta is not null)
+            StatusFixItCta.ToolTip = norwegian
+                ? "Reparer og diagnostiser Windows Update-problemer"
+                : "Repair and diagnose Windows Update problems";
         RefreshScheduleStatus();
         RefreshUpdateUntilCurrentUi();
         RefreshMonitorPanel(); // also refreshes Results heading times
@@ -2454,6 +2451,13 @@ public partial class MainWindow : Window
         }
     }
     private async void WindowsUpdateFix_Click(object sender, RoutedEventArgs e) => await RunWindowsUpdateFixAsync();
+
+    private void StatusFixItCta_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        // Keep the Helsesjekk Expander from toggling when opening FIX IT from the status CTA.
+        e.Handled = true;
+        FixItOpen_Click(sender, e);
+    }
 
     private void FixItOpen_Click(object sender, RoutedEventArgs e)
     {
