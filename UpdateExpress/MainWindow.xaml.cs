@@ -3688,26 +3688,55 @@ public partial class MainWindow : Window
 
     private void ThisPc_Click(object sender, RoutedEventArgs e)
     {
-        if (MachineIdentityPanel is null) return;
-        bool open = MachineIdentityPanel.Visibility != Visibility.Visible;
-        MachineIdentityPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        // Keep the inline strip collapsed; open the detailed PC window instead.
+        if (MachineIdentityPanel is not null)
+            MachineIdentityPanel.Visibility = Visibility.Collapsed;
+
+        bool norwegian = _schedule.Language == "no";
+        RefreshUptime();
+        var os = WindowsSupportReader.Read();
+        string build = WindowsBuildNumber();
+        var network = LocalNetworkReader.Read();
+        var dlg = new PcInfoWindow(
+            norwegian,
+            _machineIdentity,
+            os.Name,
+            build,
+            UptimeValue?.Text ?? "—",
+            UptimeValue?.ToolTip as string ?? UptimeCopyText(),
+            network)
+        {
+            Owner = this
+        };
+        dlg.ShowDialog();
         RefreshThisPcButton();
+    }
+
+    private static string WindowsBuildNumber()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            int build = Environment.OSVersion.Version.Build;
+            string ubr = key?.GetValue("UBR")?.ToString()?.Trim() ?? "";
+            string current = key?.GetValue("CurrentBuildNumber")?.ToString()?.Trim()
+                             ?? key?.GetValue("CurrentBuild")?.ToString()?.Trim()
+                             ?? build.ToString();
+            return string.IsNullOrWhiteSpace(ubr) ? current : $"{current}.{ubr}";
+        }
+        catch
+        {
+            return Environment.OSVersion.Version.Build.ToString();
+        }
     }
 
     private void RefreshThisPcButton()
     {
         if (ThisPcButton is null) return;
         bool no = _schedule.Language == "no";
-        bool open = MachineIdentityPanel?.Visibility == Visibility.Visible;
-        ThisPcButton.Content = no ? "Denne pcen" : "This PC";
-        ThisPcButton.ToolTip = open
-            ? (no
-                ? "Skjul produsent, modell, serienummer, enhetsnavn og oppetid"
-                : "Hide manufacturer, model, serial, device name, and uptime")
-            : (no
-                ? "Vis produsent, modell, serienummer, enhetsnavn og oppetid"
-                : "Show manufacturer, model, serial, device name, and uptime");
+        ThisPcButton.ToolTip = no ? "Denne pcen" : "This PC";
         ThisPcButton.Tag = "This PC";
+        System.Windows.Automation.AutomationProperties.SetName(ThisPcButton, no ? "Denne pcen" : "This PC");
     }
 
     private void BrandSiteLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
