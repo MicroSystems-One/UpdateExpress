@@ -3408,7 +3408,7 @@ public partial class MainWindow : Window
         if (!ReferenceEquals(target, MainScroll) && !IsAncestor(MainScroll, target))
             return;
 
-        Point relative = target.TransformToAncestor(MainScroll).Transform(new Point(0, 0));
+        System.Windows.Point relative = target.TransformToAncestor(MainScroll).Transform(new System.Windows.Point(0, 0));
         double offset = MainScroll.VerticalOffset + relative.Y;
         if (offset < 0) offset = 0;
         MainScroll.ScrollToVerticalOffset(offset);
