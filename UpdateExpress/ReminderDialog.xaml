@@ -18,7 +18,7 @@
         TextOptions.TextFormattingMode="Display"
         TextOptions.TextRenderingMode="ClearType">
   <Window.Resources>
-    <!-- Override App.xaml MinHeight=39 / Padding 17,10 / Margin bottom so all three footer buttons (incl. Lukk/Close) share one height. -->
+    <!-- Override App.xaml MinHeight=39 / Padding 17,10 / Margin bottom. All three footer buttons must use identical local props — do not special-case Close/Lukk. -->
     <Style x:Key="DialogActionButton" TargetType="Button">
       <Setter Property="Height" Value="30"/>
       <Setter Property="MinHeight" Value="30"/>
@@ -35,12 +35,13 @@
       <Setter Property="VerticalAlignment" Value="Center"/>
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
             <Border x:Name="Outer" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4"
-                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True" UseLayoutRounding="True">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
             </Border>
             <ControlTemplate.Triggers>
@@ -58,11 +59,28 @@
   </Window.Resources>
   <Border Margin="20" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="8" Padding="22">
     <DockPanel LastChildFill="True">
+      <!-- No fixed StackPanel Height — button Height=30 alone defines the row (avoids clip/margin mismatch). -->
       <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
-                  VerticalAlignment="Center" Height="30" Margin="0,16,0,0">
-        <Button x:Name="AcknowledgeButton" Content="Confirm restart" Style="{StaticResource DialogActionButton}" Click="Confirm_Click"/>
-        <Button x:Name="SnoozeButton" Content="Remind Me in 30 Minutes" Style="{StaticResource DialogActionButton}" Click="Snooze_Click"/>
-        <Button x:Name="CloseButton" Content="Close" Style="{StaticResource DialogActionButton}" Margin="0" Click="Close_Click"/>
+                  VerticalAlignment="Center" Margin="0,16,0,0">
+        <!-- Identical Height/Padding/Margin/VerticalAlignment/FontSize/BorderThickness on all three (Close must not differ). -->
+        <Button x:Name="AcknowledgeButton" Content="Confirm restart"
+                Style="{StaticResource DialogActionButton}"
+                Height="30" MinHeight="30" MaxHeight="30"
+                Padding="12,0" Margin="0,0,8,0"
+                VerticalAlignment="Center" FontSize="12" BorderThickness="1"
+                Click="Confirm_Click"/>
+        <Button x:Name="SnoozeButton" Content="Remind Me in 30 Minutes"
+                Style="{StaticResource DialogActionButton}"
+                Height="30" MinHeight="30" MaxHeight="30"
+                Padding="12,0" Margin="0,0,8,0"
+                VerticalAlignment="Center" FontSize="12" BorderThickness="1"
+                Click="Snooze_Click"/>
+        <Button x:Name="CloseButton" Content="Close"
+                Style="{StaticResource DialogActionButton}"
+                Height="30" MinHeight="30" MaxHeight="30"
+                Padding="12,0" Margin="0,0,8,0"
+                VerticalAlignment="Center" FontSize="12" BorderThickness="1"
+                Click="Close_Click"/>
       </StackPanel>
       <StackPanel>
         <TextBlock x:Name="DialogHeading" Text="Scheduled Windows Maintenance" FontSize="20" FontWeight="SemiBold" Foreground="#1C1C1C"/>
