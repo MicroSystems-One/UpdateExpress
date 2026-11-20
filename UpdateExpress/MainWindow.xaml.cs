@@ -752,6 +752,7 @@ public partial class MainWindow : Window
             RefreshHealthSummary();
             StatusText.Text = "Status check complete. No installation performed.";
             HidePendingAlreadyInHistory(history);
+            await RefreshDefenderAsync();
         }
         catch (Exception ex) { HealthSummary.Text = "Status check failed: " + ex.Message; }
         finally
@@ -1101,8 +1102,15 @@ public partial class MainWindow : Window
     private int HidePendingAlreadyInHistory(IReadOnlyList<UpdateEntry> history)
     {
         if (_pendingSnapshotAt is not DateTime taken || history.Count == 0) return 0;
-        var hide = _pendingSnapshot.Where(item => PendingHistoryReconcile.ShouldHide(item, history, taken)).ToList();
-        if (hide.Count == 0) return 0;
+        var installedDefender = TryParseDefenderSignatureVersion(_lastDefender?.SignatureVersion);
+        var hide = _pendingSnapshot
+            .Where(item => PendingHistoryReconcile.ShouldHide(item, history, taken, installedDefender))
+            .ToList();
+        if (hide.Count == 0)
+        {
+            PruneMonitorDefenderOffers(installedDefender);
+            return 0;
+        }
         foreach (var item in hide) _pendingSnapshot.Remove(item);
         // Entries can hold an older copy of the pending rows. Rebuild it from the snapshot
         // unless History is on screen, so the Windows Updates grid drops the installed item.
@@ -1112,6 +1120,7 @@ public partial class MainWindow : Window
             foreach (var entry in _pendingSnapshot) Entries.Add(entry);
             _entriesView.Refresh();
         }
+        PruneMonitorDefenderOffers(installedDefender);
         RefreshHealthSummary();
         UpdateSelectionControls();
         if (StatusText is null) return hide.Count;
@@ -1124,6 +1133,21 @@ public partial class MainWindow : Window
                 ? $"{hide.Count} oppdateringer er fjernet fra Windows-oppdateringer fordi de allerede er vellykket i Historikk."
                 : $"{hide.Count} updates were removed from Windows Updates because History already shows them as successful.");
         return hide.Count;
+    }
+
+    private void PruneMonitorDefenderOffers(Version? installedDefender)
+    {
+        if (installedDefender is null) return;
+        MonitorStatus.PruneInstalledDefender(installedDefender);
+        RefreshMonitorPanel();
+    }
+
+    private static Version? TryParseDefenderSignatureVersion(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        text = text.Trim();
+        if (text.Count(c => c == '.') == 2) text += ".0";
+        return Version.TryParse(text, out var version) ? version : null;
     }
 
     private static IEnumerable<string> SplitKbs(string? value) =>
@@ -1140,8 +1164,15 @@ public partial class MainWindow : Window
         try
         {
             var status = await UpdateExpress.Services.DefenderStatusReader.ReadAsync();
-            _lastDefender = status;
-            ApplyDefenderUi(status);
+            _lastDefender = EnrichDefenderWithHistory(status, _historySnapshot);
+            ApplyDefenderUi(_lastDefender);
+            var installed = TryParseDefenderSignatureVersion(_lastDefender.SignatureVersion);
+            if (installed is not null)
+            {
+                // Drop already-installed Defender lines from Results «Vis» / monitor-status.
+                HidePendingCoveredByDefenderSignature(installed);
+                PruneMonitorDefenderOffers(installed);
+            }
         }
         catch (Exception ex)
         {
@@ -1152,6 +1183,45 @@ public partial class MainWindow : Window
         finally { DefenderRefreshButton.IsEnabled = true; }
     }
 
+    /// <summary>
+    /// Prefer the newer of Mp signature last-updated and Historikk's latest successful KB2267602.
+    /// </summary>
+    private static DefenderState EnrichDefenderWithHistory(DefenderState status, IReadOnlyList<UpdateEntry> history)
+    {
+        var fromHistory = PendingHistoryReconcile.LatestDefenderSuccessAt(history);
+        if (fromHistory is null) return status;
+        if (status.SignatureLastUpdated is DateTime mp && mp >= fromHistory.Value) return status;
+        var details = status.Details;
+        string stamp = fromHistory.Value.ToString("dd.MM.yyyy HH:mm");
+        if (details.Contains("Last updated:", StringComparison.Ordinal))
+            details = System.Text.RegularExpressions.Regex.Replace(
+                details,
+                @"Last updated:.*",
+                "Last updated: " + stamp + " (Historikk)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        else
+            details += "\nLast updated: " + stamp + " (Historikk)";
+        return status with { SignatureLastUpdated = fromHistory, Details = details };
+    }
+
+    private void HidePendingCoveredByDefenderSignature(Version installed)
+    {
+        if (_pendingSnapshot.Count == 0) return;
+        var hide = _pendingSnapshot
+            .Where(item => PendingHistoryReconcile.DefenderInstalledCovers(item, installed))
+            .ToList();
+        if (hide.Count == 0) return;
+        foreach (var item in hide) _pendingSnapshot.Remove(item);
+        if (!_showingHistory)
+        {
+            Entries.Clear();
+            foreach (var entry in _pendingSnapshot) Entries.Add(entry);
+            _entriesView.Refresh();
+        }
+        RefreshHealthSummary();
+        UpdateSelectionControls();
+    }
+
     private void ApplyDefenderUi(DefenderState status)
     {
         bool norwegian = _schedule.Language == "no";
@@ -1160,11 +1230,14 @@ public partial class MainWindow : Window
             "green" => "#168A57", "orange" => "#EA941B", "red" => "#D13C36", _ => "#9099A6"
         }));
         DefenderLabel.Text = LocalizeDefenderLabel(status.Label, norwegian);
+        // «Sjekket» is the latest successful definition install / signature update — not the UI poll time.
+        var shown = status.SignatureLastUpdated ?? status.CheckedAt;
         DefenderChecked.Text = norwegian
-            ? $"Sjekket {status.CheckedAt:HH:mm}"
-            : $"Checked {status.CheckedAt:HH:mm}";
+            ? $"Sjekket {shown:HH:mm}"
+            : $"Checked {shown:HH:mm}";
         System.Windows.Controls.ToolTipService.SetToolTip(DefenderShield, status.Details);
         System.Windows.Controls.ToolTipService.SetToolTip(DefenderLabel, status.Details);
+        System.Windows.Controls.ToolTipService.SetToolTip(DefenderChecked, status.Details);
     }
 
     private static string LocalizeDefenderLabel(string label, bool norwegian)
@@ -1349,7 +1422,10 @@ public partial class MainWindow : Window
     private void RefreshMonitorPanel()
     {
         bool no = _schedule.Language == "no";
-        var status = MonitorStatus.Read();
+        var installedDefender = TryParseDefenderSignatureVersion(_lastDefender?.SignatureVersion);
+        var status = installedDefender is null
+            ? MonitorStatus.Read()
+            : MonitorStatus.PruneInstalledDefender(installedDefender) ?? MonitorStatus.Read();
         if (MonitorDetailsText is null || MonitorUpdatesText is null) { RefreshResultsHeading(); return; }
         if (status is null)
         {
@@ -1362,15 +1438,18 @@ public partial class MainWindow : Window
             RefreshResultsHeading();
             return;
         }
+        var updates = installedDefender is null
+            ? status.Updates
+            : PendingHistoryReconcile.FilterInstalledDefenderLines(status.Updates, installedDefender);
         MonitorDetailsText.Text = no
-            ? $"Tilgjengelig: {status.Pending}  |  Nye: {status.New}"
-            : $"Available: {status.Pending}  |  New: {status.New}";
-        MonitorUpdatesText.Text = status.Updates.Length == 0
+            ? $"Tilgjengelig: {Math.Min(status.Pending, updates.Length)}  |  Nye: {status.New}"
+            : $"Available: {Math.Min(status.Pending, updates.Length)}  |  New: {status.New}";
+        MonitorUpdatesText.Text = updates.Length == 0
             ? (no ? "Oppdateringer: ingen registrert" : "Updates: none recorded")
-            : (no ? "Oppdateringer: " : "Updates: ") + string.Join("; ", status.Updates.Take(3));
-        MonitorUpdatesText.ToolTip = status.Updates.Length == 0
+            : (no ? "Oppdateringer: " : "Updates: ") + string.Join("; ", updates.Take(3));
+        MonitorUpdatesText.ToolTip = updates.Length == 0
             ? (no ? "Ingen registrerte oppdateringer" : "No recorded updates")
-            : string.Join(Environment.NewLine, status.Updates);
+            : string.Join(Environment.NewLine, updates);
         RefreshResultsHeading();
     }
 
@@ -2298,6 +2377,8 @@ public partial class MainWindow : Window
             SetTab("history");
             StatusText.Text = $"History loaded: {result.Count} entries. Pending updates remain separate.";
             HidePendingAlreadyInHistory(result);
+            // Historikk may show a newer Defender install than the last header poll.
+            await RefreshDefenderAsync();
         }
         catch (Exception ex)
         {
