@@ -2454,7 +2454,7 @@ public partial class MainWindow : Window
 
     private void StatusFixItCta_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        // Keep the Helsesjekk Expander from toggling when opening FIX IT from the status CTA.
+        // Keep the Vedlikehold / Maintenance Expander from toggling when opening FIX IT from the header CTA.
         e.Handled = true;
         FixItOpen_Click(sender, e);
     }
