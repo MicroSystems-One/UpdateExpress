@@ -418,7 +418,7 @@
     <!-- UPD-129: Fix IT CTA centered on Helsesjekk / status banner; English label per SVHA. -->
     <Button x:Name="StatusFixItCta" HorizontalAlignment="Center" VerticalAlignment="Center"
             Margin="0,2,0,2" Padding="8,2" Cursor="Hand" Background="Transparent" BorderThickness="0"
-            Focusable="True" PreviewMouseLeftButtonDown="StatusFixItCta_PreviewMouseDown"
+            Focusable="True" Click="FixItOpen_Click" PreviewMouseLeftButtonDown="StatusFixItCta_PreviewMouseDown"
             ToolTip="Repair and diagnose Windows Update problems"
             AutomationProperties.Name="Fix Update issues here">
       <Button.Template>
