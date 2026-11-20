@@ -361,11 +361,31 @@
     </StackPanel>
    </StackPanel>
    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
-    <Button x:Name="ThisPcButton" Content="This PC" Click="ThisPc_Click"
-            Style="{StaticResource PilotRowButton}" Margin="0,0,10,0"
-            Height="32" MinHeight="32" MaxHeight="32" Padding="14,0" FontSize="13"
-            ToolTip="Show or hide manufacturer, model, serial, device name, and uptime"
-            AutomationProperties.Name="This PC"/>
+    <Button x:Name="ThisPcButton" Click="ThisPc_Click"
+            Margin="0,0,10,0" Width="32" Height="32" MinWidth="32" MinHeight="32" MaxHeight="32" Padding="0"
+            Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
+            ToolTip="Denne pcen" AutomationProperties.Name="This PC">
+     <Button.Template>
+      <ControlTemplate TargetType="Button">
+       <Border x:Name="Bd" Background="White" BorderBrush="#D0D0D0" BorderThickness="1" CornerRadius="6" Width="32" Height="32">
+        <Viewbox Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+         <Canvas Width="24" Height="24">
+          <!-- Monitor / PC icon -->
+          <Path Stroke="#1C1C1C" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"
+                Data="M3.5,4.5 H20.5 V14.5 H3.5 Z"/>
+          <Path Stroke="#1C1C1C" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                Data="M9,17.5 H15 M12,14.5 V17.5"/>
+         </Canvas>
+        </Viewbox>
+       </Border>
+       <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#F3F3F3"/></Trigger>
+        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+       </ControlTemplate.Triggers>
+      </ControlTemplate>
+     </Button.Template>
+    </Button>
     <Button x:Name="ScanButton" Content="Check for updates" Style="{StaticResource RowPrimaryButton}"
             Click="Scan_Click" VerticalAlignment="Center" HorizontalAlignment="Right"
             Height="32" MinHeight="32" MaxHeight="32" Padding="16,0" FontSize="14"
@@ -373,7 +393,7 @@
             AutomationProperties.Name="Check for updates"/>
    </StackPanel>
   </Grid>
-  <Border Grid.Row="1" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="WindowsUpdateControlExpander" Style="{StaticResource SectionExpanderNoChevron}" IsExpanded="False"><Expander.Header><StackPanel><Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="Windows Update Status – Health Check" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,16,0"/><TextBlock x:Name="OsSupportIcon" Text="?" FontSize="14" FontWeight="Bold" Foreground="#B7791F" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock x:Name="OsVersionLabel" Text="Checking Windows…" FontSize="12" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center"/><Button x:Name="OsSupportInfo" Content="ⓘ" Click="OsSupportInfo_Click" ToolTip="Windows lifecycle and security support" FontSize="12" Padding="3,0" Margin="3,0,0,0" Height="20" MinHeight="20" MinWidth="20" VerticalAlignment="Center"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0"><Viewbox Width="22" Height="22" Margin="0,0,8,0" ToolTip="Antivirus protection status"><Canvas Width="96" Height="96"><Path x:Name="DefenderShield" Fill="#9099A6" Data="M48,5 L83,18 L83,43 C83,67 68,82 48,91 C28,82 13,67 13,43 L13,18 Z"/><Path Stroke="White" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M31,48 L43,60 L66,35"/></Canvas></Viewbox><TextBlock Text="Microsoft Defender" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderLabel" Text="Checking…" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderChecked" Text="Not checked" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,10,0"/><Button x:Name="DefenderRefreshButton" Click="DefenderRefresh_Click" Width="28" Height="28" Padding="0" Margin="0"
+  <Border Grid.Row="1" Style="{StaticResource Card}" Padding="12,8" Margin="0,0,0,8" VerticalAlignment="Top"><Expander x:Name="WindowsUpdateControlExpander" Style="{StaticResource SectionExpanderNoChevron}" IsExpanded="False"><Expander.Header><StackPanel><Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="Windows Update Status – Health Check" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,16,0"/><TextBlock x:Name="OsSupportIcon" Text="?" FontSize="14" FontWeight="Bold" Foreground="#B7791F" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock x:Name="OsVersionLabel" Text="Checking Windows…" FontSize="12" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center"/><Button x:Name="OsSupportInfo" Content="ⓘ" Click="OsSupportInfo_Click" ToolTip="Windows lifecycle and security support" FontSize="12" Padding="3,0" Margin="3,0,0,0" Height="20" MinHeight="20" MinWidth="20" VerticalAlignment="Center"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0"><Viewbox Width="22" Height="22" Margin="0,0,8,0" ToolTip="Antivirus protection status"><Canvas Width="96" Height="96"><Path x:Name="DefenderShield" Fill="#9099A6" Data="M48,5 L83,18 L83,43 C83,67 68,82 48,91 C28,82 13,67 13,43 L13,18 Z"/><Path Stroke="White" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M31,48 L43,60 L66,35"/></Canvas></Viewbox><TextBlock Text="Microsoft Defender" FontWeight="SemiBold" Foreground="#1C1C1C" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderLabel" Text="Checking…" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="DefenderChecked" Text="Not checked" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,10,0"/><Button x:Name="DefenderRefreshButton" Click="DefenderRefresh_Click" Width="28" Height="28" Padding="0" Margin="0"
               Background="Transparent" BorderThickness="0" VerticalAlignment="Center" Cursor="Hand" Focusable="True"
               ToolTip="Refresh Defender and firewall status" AutomationProperties.Name="Refresh Defender">
          <Button.Template>
@@ -395,9 +415,9 @@
           </ControlTemplate>
          </Button.Template>
         </Button></StackPanel></Grid>
-    <StackPanel Margin="0,8,0,0">
-<!-- Aligned connectivity and firewall status: same row, same Segoe UI 11px. -->
-   <Grid Margin="0,8,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <StackPanel Margin="0,2,0,0">
+<!-- Aligned connectivity and firewall status: same row, same Segoe UI 11px. Compact vertical gap under header (UPD-127). -->
+   <Grid Margin="0,2,0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <!-- Network diagnostics: independent HTTPS probes, not a Windows Update Agent test. -->
    <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="5,0,8,0" VerticalAlignment="Center">
     <Ellipse x:Name="InternetLamp" Width="9" Height="9" Fill="#9099A6" Margin="0,0,6,0"/>
@@ -566,7 +586,7 @@
 
      </Grid></Grid>
   </Grid></Expander></Border>
-  <Border Grid.Row="4" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,0"><Expander x:Name="MaintenanceExpander" Style="{StaticResource SectionExpander}" IsExpanded="False"><Expander.Header><StackPanel Orientation="Horizontal"><TextBlock Text="Maintenance &amp; Notifications" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C"/></StackPanel></Expander.Header><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="420" CanContentScroll="False" Padding="0,0,4,0"><StackPanel Margin="8,12,8,8">
+  <Border Grid.Row="4" Style="{StaticResource Card}" Padding="12" Margin="0,0,0,0"><Expander x:Name="MaintenanceExpander" Style="{StaticResource SectionExpander}" IsExpanded="False"><Expander.Header><StackPanel Orientation="Horizontal"><TextBlock Text="Maintenance &amp; Notifications" FontSize="15" FontWeight="Medium" Foreground="#1C1C1C"/></StackPanel></Expander.Header><StackPanel Margin="8,12,8,8">
     <Border Background="#F4FBF7" BorderBrush="#C9E8D6" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,10">
       <StackPanel>
         <DockPanel LastChildFill="True" Margin="0,0,0,6">
@@ -690,7 +710,7 @@
       <TextBlock Text="Firmware: manual only" Foreground="#9B5A00" VerticalAlignment="Center" Margin="0,0,10,6"/>
       <Button Content="Save Policy" Click="SavePolicy_Click" Padding="10,4" MinHeight="29"/>
     </WrapPanel>
-  </StackPanel></ScrollViewer></Expander></Border>
+  </StackPanel></Expander></Border>
   <StackPanel Grid.Row="5" Margin="4,10,4,0">
   <TextBlock x:Name="FooterSafetyText" Text="Update Express: Defender signatures may auto-update when enabled. Critical and general Windows updates download automatically and require confirmation before install. Optional auto-reboot after critical updates / general Windows update is off by default (confirm or outside active hours). Drivers and WinGet applications use the same ask-before-install path when enabled; firmware stays manual." Foreground="#5D5D5D" FontSize="12" TextWrapping="Wrap"/>
   <TextBlock x:Name="BrandSiteLink" Text="www.microsystems.one" FontSize="14" FontWeight="SemiBold"
