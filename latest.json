@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.43",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.43/UpdateExpress_v0.7.2.43.exe",
-  "sha256": "f285640c7e96df8ee33860d6cfa128aafd29a5932c863b846693c72a835bdf93",
-  "publishedAt": "2026-11-21T10:20:06Z",
-  "releaseNotes": "App-queue resume across reboot (#76); WinGet Historikk (#74); prior 0.7.2.41 tip. Tip d669320 (dump 3dd2d00)."
+  "version": "0.7.2.44",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.44/UpdateExpress_v0.7.2.44.exe",
+  "sha256": "d4f518730407c670056578c24035d4af1a819179d92c891f2032988a182950ab",
+  "publishedAt": "2026-11-21T10:54:36Z",
+  "releaseNotes": "Icon polish 18px refresh/PC (#80/#79); includes 0.7.2.43 app-queue + Historikk. Tip c5878c9 (dump 724d986)."
 }
