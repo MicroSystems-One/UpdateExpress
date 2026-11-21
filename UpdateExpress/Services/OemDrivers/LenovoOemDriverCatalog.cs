@@ -47,26 +47,31 @@ internal sealed class LenovoOemDriverCatalog : IOemDriverCatalog
         Action<string>? report = null,
         CancellationToken cancellationToken = default)
     {
-        string machineType = ResolveMachineType(identity.Product, identity.Model, identity.Serial);
+        // Never truncate Serial into a fake MT (PF123456 → PF12). Prefer Product/Model MTM;
+        // when missing, resolve Serial (or Product) through getproducts first.
+        string machineType = ResolveMachineType(identity.Product, identity.Model);
+        if (string.IsNullOrEmpty(machineType))
+        {
+            try
+            {
+                var resolved = await TryResolveFromCatalogAsync(identity, cancellationToken)
+                    .ConfigureAwait(false);
+                machineType = resolved.MachineType;
+            }
+            catch (Exception ex)
+            {
+                report?.Invoke("OEM / Lenovo: serial/product resolve failed (" + Short(ex.Message) + ").");
+            }
+        }
+
         if (string.IsNullOrEmpty(machineType))
         {
             report?.Invoke("OEM / Lenovo: no MTM / machine type on this PC.");
             return Array.Empty<OemDriverOffer>();
         }
 
-        report?.Invoke($"OEM / Lenovo: querying catalog for MT {machineType}…");
         string productId = machineType;
-        try
-        {
-            string? resolved = await TryResolveProductPathAsync(identity, machineType, cancellationToken)
-                .ConfigureAwait(false);
-            if (!string.IsNullOrEmpty(resolved))
-                productId = resolved;
-        }
-        catch (Exception ex)
-        {
-            report?.Invoke("OEM / Lenovo: product resolve skipped (" + Short(ex.Message) + ").");
-        }
+        report?.Invoke($"OEM / Lenovo: querying catalog for MT {machineType}…");
 
         JsonDocument? doc;
         try
@@ -270,65 +275,111 @@ internal sealed class LenovoOemDriverCatalog : IOemDriverCatalog
         return "Windows 10";
     }
 
+    /// <summary>
+    /// Derive MT from Product/Model only — never from Serial (serials like PF123456
+    /// look code-like but are not machine types).
+    /// </summary>
     internal static string ResolveMachineType(params string[] candidates)
     {
         foreach (var candidate in candidates)
         {
             if (string.IsNullOrWhiteSpace(candidate)) continue;
             var text = candidate.Trim();
-            if (text is "—" or "…" or "-" or "N/A" or "n/a") continue;
+            if (IsMissing(text)) continue;
 
-            // Full MTM / serial style: 10YM0027MX → 10YM
-            if (MachineIdentityReader.LooksLikeMachineType(text) &&
-                !MachineIdentityReader.LooksLikeMarketingModel(text))
+            // Bare 4-char machine type (10YM, 20X4, 81SY)
+            if (LooksLikeBareMachineType(text))
+                return text.ToUpperInvariant();
+
+            // Full MTM: 10YM0027MX → 10YM (digit-led product codes, not letter-led serials)
+            if (LooksLikeFullMtm(text))
             {
                 var mt = Regex.Match(text, @"^[A-Za-z0-9]{4}");
                 if (mt.Success) return mt.Value.ToUpperInvariant();
             }
-
-            // Bare 4-char machine type
-            if (Regex.IsMatch(text, @"^[A-Za-z0-9]{4}$") && text.Any(char.IsDigit))
-                return text.ToUpperInvariant();
         }
         return "";
     }
 
-    private static async Task<string?> TryResolveProductPathAsync(
+    private readonly record struct CatalogResolve(string MachineType);
+
+    /// <summary>
+    /// Last-resort resolve when Product/Model did not yield an MT: ask Lenovo getproducts
+    /// with Product then Serial, and extract MT from the returned product path.
+    /// </summary>
+    private static async Task<CatalogResolve> TryResolveFromCatalogAsync(
         MachineIdentityReader.Identity identity,
-        string machineType,
         CancellationToken cancellationToken)
     {
-        string query = Prefer(
-            identity.Product is "—" ? "" : identity.Product,
-            identity.Serial is "—" ? "" : identity.Serial,
-            machineType);
-        if (string.IsNullOrEmpty(query)) return null;
-
-        using var doc = await GetJsonAsync(ProductsApi + Uri.EscapeDataString(query), cancellationToken)
-            .ConfigureAwait(false);
-        if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
-
-        string? best = null;
-        foreach (var product in doc.RootElement.EnumerateArray())
+        var queries = new List<string>();
+        void AddQuery(string value)
         {
-            string id = Text(product, "Id");
-            if (string.IsNullOrWhiteSpace(id)) continue;
-            // Prefer paths that include the machine type segment.
-            if (id.Contains(machineType, StringComparison.OrdinalIgnoreCase))
+            if (IsMissing(value)) return;
+            if (queries.Any(q => q.Equals(value, StringComparison.OrdinalIgnoreCase))) return;
+            queries.Add(value.Trim());
+        }
+
+        AddQuery(identity.Product);
+        AddQuery(identity.Serial);
+
+        foreach (var query in queries)
+        {
+            using var doc = await GetJsonAsync(ProductsApi + Uri.EscapeDataString(query), cancellationToken)
+                .ConfigureAwait(false);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) continue;
+
+            foreach (var product in doc.RootElement.EnumerateArray())
             {
-                // Drivers API accepts the trailing MT or a longer product path; prefer MT-only
-                // when Id ends with /{MT} or /{MT}/{model}.
-                var parts = id.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                for (int i = 0; i < parts.Length; i++)
-                {
-                    if (parts[i].Equals(machineType, StringComparison.OrdinalIgnoreCase))
-                        return machineType;
-                }
-                best ??= id;
+                string id = Text(product, "Id");
+                if (string.IsNullOrWhiteSpace(id)) continue;
+
+                string mtFromPath = ExtractMachineTypeFromProductId(id);
+                if (!string.IsNullOrEmpty(mtFromPath))
+                    return new CatalogResolve(mtFromPath);
             }
         }
-        return best;
+
+        return new CatalogResolve("");
     }
+
+    /// <summary>
+    /// Pull MT from Lenovo product Id paths, e.g.
+    /// …/THINKCENTRE-M630E/10YM/10YM0027MX or …/20X4/20X4S6WR00/PF3ABCDE.
+    /// </summary>
+    internal static string ExtractMachineTypeFromProductId(string productId)
+    {
+        var parts = productId.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            if (LooksLikeBareMachineType(part))
+                return part.ToUpperInvariant();
+        }
+        foreach (var part in parts)
+        {
+            if (LooksLikeFullMtm(part))
+            {
+                var mt = Regex.Match(part, @"^[A-Za-z0-9]{4}");
+                if (mt.Success) return mt.Value.ToUpperInvariant();
+            }
+        }
+        return "";
+    }
+
+    private static bool LooksLikeBareMachineType(string text) =>
+        Regex.IsMatch(text, @"^[A-Za-z0-9]{4}$") && text.Any(char.IsDigit);
+
+    /// <summary>
+    /// Lenovo product/MTM codes are typically digit-led (10YM0027MX, 20X4S6WR00).
+    /// Letter-led values (PF123456) are treated as serials, not MTMs.
+    /// </summary>
+    private static bool LooksLikeFullMtm(string text) =>
+        MachineIdentityReader.LooksLikeMachineType(text) &&
+        !MachineIdentityReader.LooksLikeMarketingModel(text) &&
+        text.Length >= 5 &&
+        char.IsDigit(text[0]);
+
+    private static bool IsMissing(string value) =>
+        string.IsNullOrWhiteSpace(value) || value is "—" or "…" or "-" or "N/A" or "n/a";
 
     private static async Task<JsonDocument> GetJsonAsync(string url, CancellationToken cancellationToken)
     {

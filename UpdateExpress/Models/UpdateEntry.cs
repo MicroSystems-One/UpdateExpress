@@ -99,7 +99,10 @@ public sealed class UpdateEntry
         ? "Fixed"
         : HasFixableErrorCode
         ? ErrorCode
-        : Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(DriverStatus) && string.IsNullOrWhiteSpace(Date)
+        // Pending driver rows (WUA + OEM catalog) prefer DriverStatus. History rows have a
+        // Date and use Status. OEM release times live in DateDisplay only so they stay pending.
+        : Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(DriverStatus) &&
+          (string.IsNullOrWhiteSpace(Date) || OpensExternalUrl)
             ? DriverStatus : Status;
     public string StatusDetails
     {

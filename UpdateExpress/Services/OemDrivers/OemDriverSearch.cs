@@ -63,7 +63,9 @@ internal static class OemDriverSearch
             SafeDefault = false,
             IsSelected = false,
             ExternalUrl = openUrl,
-            Date = offer.ReleasedAt?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "",
+            // Leave Date empty so DisplayStatus keeps DriverStatus (Recommended/Firmware).
+            // Catalog release time goes in DateDisplay for the Date/Time column only.
+            Date = "",
             DateDisplay = offer.ReleasedAt?.ToLocalTime().ToString("g") ?? ""
         };
     }
