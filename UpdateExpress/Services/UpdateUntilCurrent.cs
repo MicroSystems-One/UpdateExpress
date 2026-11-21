@@ -10,6 +10,8 @@ namespace UpdateExpress.Services;
 /// Update until current: scan, download, and install Windows software updates,
 /// restart when Windows requires it, then repeat until none of those updates remain.
 /// Drivers, firmware, and feature updates stay outside the cycle.
+/// <see cref="UnattendedUntilClear"/> reuses <see cref="IsInCycle"/> for overnight
+/// clearing rescans (Applications are handled separately there).
 /// </summary>
 internal static class UpdateUntilCurrent
 {
