@@ -71,8 +71,35 @@ public static class WingetReader
 
     /// <summary>winget APPINSTALLER_CLI_ERROR_UPDATE_INSTALL_TECHNOLOGY_MISMATCH (0x8A15008E).</summary>
     public const int ExitInstallTechnologyMismatch = unchecked((int)0x8A15008E); // -1978335090
+    /// <summary>Win32 ERROR_SUCCESS_REBOOT_REQUIRED.</summary>
+    public const int ExitRebootRequiredWin32 = 3010;
+    /// <summary>winget APPINSTALLER_CLI_ERROR_INSTALL_REBOOT_REQUIRED (0x8A150109).</summary>
+    public const int ExitInstallRebootRequired = unchecked((int)0x8A150109); // -1978334967
 
     public static bool IsInstallTechnologyMismatch(int exitCode) => exitCode == ExitInstallTechnologyMismatch;
+
+    /// <summary>
+    /// True when winget signals an OS restart is required before remaining upgrades can continue.
+    /// Ignores "restart the application" style messages.
+    /// </summary>
+    public static bool IndicatesOsRebootRequired(int exitCode, string? output)
+    {
+        if (exitCode == ExitRebootRequiredWin32 || exitCode == ExitInstallRebootRequired)
+            return true;
+
+        if (string.IsNullOrWhiteSpace(output))
+            return false;
+
+        // Reject app-only restart hints before OS reboot phrases.
+        string text = output;
+        if (Regex.IsMatch(text, @"(?i)restart (the )?application") &&
+            !Regex.IsMatch(text, @"(?i)restart (your )?(computer|pc|system)|system restart|reboot (your )?(computer|pc|system)|omstart av (datamaskin|system)|start(e)? (PC|datamaskinen) p[aå] nytt"))
+            return false;
+
+        return Regex.IsMatch(
+            text,
+            @"(?i)(a (system )?restart is required|restart (your )?(computer|pc|system)|reboot (your )?(computer|pc|system)|you must restart|omstart (av )?(datamaskin|system|pc)|start(e)? (PC-?en|datamaskinen) p[aå] nytt)");
+    }
 
     /// <summary>
     /// Status label + tooltip/notice for a failed winget upgrade.
