@@ -44,6 +44,10 @@ public partial class MainWindow : Window
     public bool CanSelectDisplayedEntry => _activeTab == "history" || _activeTab == "drivers" || _activeTab == "software";
     private bool _busy;
     private bool _scanButtonSearching;
+    private bool _historyActionsEnabled = true;
+    private bool _healthCheckRunning;
+    private bool _diagnosticsRunning;
+    private FixItWindow? _fixItWindow;
     private static bool IsManuallyInstallableDriver(UpdateEntry e) =>
         e.Category == "Driver / firmware" &&
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
@@ -443,9 +447,13 @@ public partial class MainWindow : Window
         await LoadAsync(WindowsUpdateReader.HistoryForDisplay);
         if (_showingHistory) RefreshHealthSummary();
     }
-    private async void Health_Click(object sender, RoutedEventArgs e)
+    private async void Health_Click(object sender, RoutedEventArgs e) => await RunHealthCheckAsync();
+
+    private async Task RunHealthCheckAsync()
     {
-        HealthButton.IsEnabled = false;
+        if (_healthCheckRunning) return;
+        _healthCheckRunning = true;
+        SetFixItHealthEnabled(false);
         HealthSummary.Text = "Reading update history and pending updates…";
         try
         {
@@ -459,7 +467,11 @@ public partial class MainWindow : Window
             HidePendingAlreadyInHistory(history);
         }
         catch (Exception ex) { HealthSummary.Text = "Status check failed: " + ex.Message; }
-        finally { HealthButton.IsEnabled = true; }
+        finally
+        {
+            _healthCheckRunning = false;
+            SetFixItHealthEnabled(true);
+        }
     }
     private string CategorySummary()
     {
@@ -524,7 +536,7 @@ public partial class MainWindow : Window
     {
         if (_busy || _pendingSnapshot.Count == 0 || _pendingSnapshotAt is null) return;
         if (DateTime.Now - _lastReconcileAttempt < TimeSpan.FromSeconds(15)) return;
-        if (HealthButton is { IsEnabled: false }) return;
+        if (_healthCheckRunning) return;
         if (Interlocked.CompareExchange(ref _reconcileRunning, 1, 0) != 0) return;
         _lastReconcileAttempt = DateTime.Now;
         try
@@ -876,6 +888,13 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Closed += (_, _) =>
+        {
+            if (_fixItWindow is null) return;
+            _fixItWindow.SuppressDetach();
+            try { _fixItWindow.Close(); } catch { /* ignore */ }
+            _fixItWindow = null;
+        };
         ShowMachineIdentity(MachineIdentityReader.ReadFast());
         AppSubtitle.Text = $"Windows Update Management · Background Monitoring v{ProductVersion.Display}";
         RefreshOsSupportStatus();
@@ -1029,7 +1048,7 @@ public partial class MainWindow : Window
         ["WUA status report"] = "WUA statusrapport", ["Error report"] = "Feilrapport",
         ["Reboot needed"] = "Omstart nødvendig",
         ["Export CSV"] = "Eksporter CSV", ["Diagnostics"] = "Diagnostikk", ["Check Status"] = "Kontroller status",
-        ["Refresh Security Status"] = "Oppdater sikkerhetsstatus", ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
+        ["Refresh"] = "Oppdater", ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
         ["Check for Updates & Results"] = "Søk etter oppdateringer og resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
         ["Windows Updates"] = "Windows-oppdateringer", ["Drivers / Firmware"] = "Drivere / fastvare",
         ["Applications"] = "Programmer", ["History"] = "Historikk", ["Select All"] = "Velg alle",
@@ -1117,6 +1136,11 @@ public partial class MainWindow : Window
         // Translate() restores ScanButton from Tag; keep the busy label while a scan is running.
         if (_scanButtonSearching)
             ScanButton.Content = norwegian ? "Søker...." : "Searching....";
+        if (FixItOpenButton is not null)
+            FixItOpenButton.ToolTip = norwegian
+                ? "Åpne FIX IT! – reparer og diagnostiser Windows Update-problemer"
+                : "Open FIX IT! – repair and diagnose Windows Update problems";
+        _fixItWindow?.ApplyLanguage(norwegian);
     }
     private void RefreshScheduleStatus()
     {
@@ -1222,7 +1246,8 @@ public partial class MainWindow : Window
         if (_busy) return;
         _busy = true;
         InstallButton.Content = "Please wait…";
-        ScanButton.IsEnabled = HistoryButton.IsEnabled = InstallButton.IsEnabled = false;
+        ScanButton.IsEnabled = InstallButton.IsEnabled = false;
+        SetHistoryActionsEnabled(false);
         UpdateSelectionControls();
         StatusText.Text = "Loading installation history…";
         try
@@ -1242,7 +1267,8 @@ public partial class MainWindow : Window
         finally
         {
             _busy = false;
-            ScanButton.IsEnabled = HistoryButton.IsEnabled = true;
+            ScanButton.IsEnabled = true;
+            SetHistoryActionsEnabled(true);
             ResetInstallButtonLabel();
             UpdateSelectionControls();
         }
@@ -1251,7 +1277,8 @@ public partial class MainWindow : Window
     {
         if (_busy) return;
         _busy = true;
-        ScanButton.IsEnabled = HistoryButton.IsEnabled = AppsScanButton.IsEnabled = false;
+        ScanButton.IsEnabled = AppsScanButton.IsEnabled = false;
+        SetHistoryActionsEnabled(false);
         UpdateSelectionControls(); UpdateAppSelection();
         SetScanButtonSearching();
         try
@@ -1288,15 +1315,74 @@ public partial class MainWindow : Window
         finally
         {
             _busy = false;
-            ScanButton.IsEnabled = HistoryButton.IsEnabled = AppsScanButton.IsEnabled = true;
+            ScanButton.IsEnabled = AppsScanButton.IsEnabled = true;
+            SetHistoryActionsEnabled(true);
             ResetScanButtonLabel();
             UpdateSelectionControls(); UpdateAppSelection();
         }
     }
-    private async void WindowsUpdateFix_Click(object sender, RoutedEventArgs e)
+    private async void WindowsUpdateFix_Click(object sender, RoutedEventArgs e) => await RunWindowsUpdateFixAsync();
+
+    private void FixItOpen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_fixItWindow is { IsLoaded: true })
+        {
+            if (_fixItWindow.WindowState == WindowState.Minimized)
+                _fixItWindow.WindowState = WindowState.Normal;
+            _fixItWindow.Activate();
+            return;
+        }
+
+        _fixItWindow = new FixItWindow(this);
+        _fixItWindow.ApplyLanguage(_schedule.Language == "no");
+        SetHistoryActionsEnabled(_historyActionsEnabled);
+        SetFixItHealthEnabled(!_healthCheckRunning);
+        SetFixItDiagnosticsBusy(_diagnosticsRunning);
+        _fixItWindow.Show();
+    }
+
+    internal void DetachFixItWindow(FixItWindow window)
+    {
+        if (ReferenceEquals(_fixItWindow, window))
+            _fixItWindow = null;
+    }
+
+    private void SetHistoryActionsEnabled(bool enabled)
+    {
+        _historyActionsEnabled = enabled;
+        if (_fixItWindow?.HistoryButton is { } history)
+            history.IsEnabled = enabled;
+    }
+
+    private void SetFixItHealthEnabled(bool enabled)
+    {
+        if (_fixItWindow?.HealthButton is { } health)
+            health.IsEnabled = enabled;
+    }
+
+    private void SetFixItDiagnosticsBusy(bool busy)
+    {
+        if (_fixItWindow?.DiagnosticsButton is not { } diagnostics) return;
+        diagnostics.IsEnabled = !busy;
+        if (busy)
+            diagnostics.Content = "Please wait…";
+        else
+            diagnostics.Content = _schedule.Language == "no" ? "⚙  Diagnostikk" : "⚙  Diagnostics";
+    }
+
+    internal void FixItWindowsUpdateFix() => _ = RunWindowsUpdateFixAsync();
+    internal void FixItWuaDeepCheck() => RunWuaDeepCheck();
+    internal void FixItHistory() => _ = LoadAsync(WindowsUpdateReader.HistoryForDisplay);
+    internal void FixItExportCsv() => Export_Click(_fixItWindow ?? (object)this, new RoutedEventArgs());
+    internal void FixItErrorReport() => RunErrorReport();
+    internal void FixItWuaStatusReport() => RunWuaStatusReport();
+    internal void FixItDiagnostics() => _ = RunDiagnosticsAsync();
+    internal void FixItHealth() => _ = RunHealthCheckAsync();
+
+    private async Task RunWindowsUpdateFixAsync()
     {
         if (_busy) return;
-        var dlg = new WindowsUpdateFixDialog(null, null, IncludeOptionalUpdates.IsChecked == true, ShowAllDrivers.IsChecked == true) { Owner = this };
+        var dlg = new WindowsUpdateFixDialog(null, null, IncludeOptionalUpdates.IsChecked == true, ShowAllDrivers.IsChecked == true) { Owner = _fixItWindow as Window ?? this };
         dlg.ShowDialog();
         if (dlg.FixCompleted)
             await ReloadAfterWindowsUpdateFixAsync(dlg.ReplacedUpdateCache, dlg.ScanCompleted);
@@ -1306,7 +1392,8 @@ public partial class MainWindow : Window
     {
         if (_busy) return;
         _busy = true;
-        ScanButton.IsEnabled = HistoryButton.IsEnabled = false;
+        ScanButton.IsEnabled = false;
+        SetHistoryActionsEnabled(false);
         try
         {
             StatusText.Text = "Reloading history after Windows Update fix…";
@@ -1341,35 +1428,44 @@ public partial class MainWindow : Window
         finally
         {
             _busy = false;
-            ScanButton.IsEnabled = HistoryButton.IsEnabled = true;
+            ScanButton.IsEnabled = true;
+            SetHistoryActionsEnabled(true);
             UpdateSelectionControls();
         }
     }
 
-    private void WuaDeepCheck_Click(object sender, RoutedEventArgs e)
+    private void WuaDeepCheck_Click(object sender, RoutedEventArgs e) => RunWuaDeepCheck();
+
+    private void RunWuaDeepCheck()
     {
         if (_busy) return;
-        var dlg = new WuaDeepCheckDialog { Owner = this };
+        var dlg = new WuaDeepCheckDialog { Owner = _fixItWindow as Window ?? this };
         dlg.ShowDialog();
     }
 
-    private void WuaStatusReport_Click(object sender, RoutedEventArgs e)
+    private void WuaStatusReport_Click(object sender, RoutedEventArgs e) => RunWuaStatusReport();
+
+    private void RunWuaStatusReport()
     {
-        var dlg = new WuaStatusReportDialog { Owner = this };
+        var dlg = new WuaStatusReportDialog { Owner = _fixItWindow as Window ?? this };
         dlg.ShowDialog();
     }
 
-    private void ErrorReport_Click(object sender, RoutedEventArgs e)
+    private void ErrorReport_Click(object sender, RoutedEventArgs e) => RunErrorReport();
+
+    private void RunErrorReport()
     {
-        var dlg = new ErrorReportDialog { Owner = this };
+        var dlg = new ErrorReportDialog { Owner = _fixItWindow as Window ?? this };
         dlg.ShowDialog();
     }
 
-    private async void Diagnostics_Click(object sender, RoutedEventArgs e)
+    private async void Diagnostics_Click(object sender, RoutedEventArgs e) => await RunDiagnosticsAsync();
+
+    private async Task RunDiagnosticsAsync()
     {
-        if (!DiagnosticsButton.IsEnabled) return;
-        DiagnosticsButton.IsEnabled = false;
-        DiagnosticsButton.Content = "Please wait…";
+        if (_diagnosticsRunning) return;
+        _diagnosticsRunning = true;
+        SetFixItDiagnosticsBusy(true);
         try
         {
             StatusText.Text = "Collecting diagnostics…";
@@ -1382,8 +1478,8 @@ public partial class MainWindow : Window
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Diagnostics error", MessageBoxButton.OK, MessageBoxImage.Warning); }
         finally
         {
-            DiagnosticsButton.Content = "⚙  Diagnostics";
-            DiagnosticsButton.IsEnabled = true;
+            _diagnosticsRunning = false;
+            SetFixItDiagnosticsBusy(false);
         }
     }
     private async void History_Click(object sender, RoutedEventArgs e) => await LoadAsync(WindowsUpdateReader.HistoryForDisplay);
@@ -1578,7 +1674,8 @@ public partial class MainWindow : Window
         _busy = true;
         InstallButtonActive = true;
         InstallButton.Content = "Installing updates…";
-        ScanButton.IsEnabled = HistoryButton.IsEnabled = AppsScanButton.IsEnabled = false;
+        ScanButton.IsEnabled = AppsScanButton.IsEnabled = false;
+        SetHistoryActionsEnabled(false);
         UpdateSelectionControls();
         manager.Show();
         manager.PrepareRunning();
@@ -1830,7 +1927,8 @@ public partial class MainWindow : Window
             _busy = false;
             InstallButtonActive = false;
             ResetInstallButtonLabel();
-            ScanButton.IsEnabled = HistoryButton.IsEnabled = AppsScanButton.IsEnabled = true;
+            ScanButton.IsEnabled = AppsScanButton.IsEnabled = true;
+            SetHistoryActionsEnabled(true);
             UpdateSelectionControls();
             RefreshRebootNeededBanner();
         }
@@ -1936,7 +2034,8 @@ public partial class MainWindow : Window
         bool norwegian = _schedule.Language == "no";
         string[] previousIds = Array.Empty<string>();
         _busy = true;
-        ScanButton.IsEnabled = HistoryButton.IsEnabled = InstallButton.IsEnabled = AppsScanButton.IsEnabled = false;
+        ScanButton.IsEnabled = InstallButton.IsEnabled = AppsScanButton.IsEnabled = false;
+        SetHistoryActionsEnabled(false);
         UpdateSelectionControls();
         UpdateUntilCurrent.ClearResumeLaunchMarker();
         try
@@ -2091,7 +2190,8 @@ public partial class MainWindow : Window
         finally
         {
             _busy = false;
-            ScanButton.IsEnabled = HistoryButton.IsEnabled = AppsScanButton.IsEnabled = true;
+            ScanButton.IsEnabled = AppsScanButton.IsEnabled = true;
+            SetHistoryActionsEnabled(true);
             ResetInstallButtonLabel();
             UpdateSelectionControls();
             UpdateUntilCurrent.Exit();

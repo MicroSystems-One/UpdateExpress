@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Linq;
 using System.Windows;
 using Microsoft.Win32;
+using UpdateExpress;
 
 namespace UpdateExpress.Services;
 
@@ -200,11 +201,13 @@ internal static class InstallationManager
                 AgentLog.Write($"{operation} completed: scope={(machine ? "machine" : "user")}, agent={agent}, version={displayVersion}, by={System.Security.Principal.WindowsIdentity.GetCurrent().Name}.");
                 string completedAction = operation == "repair" ? "repaired" : operation == "upgrade" ? "updated" : "installed";
                 string scopeText = machine ? "all users" : "the current user";
-                MessageBox.Show($"Update Express was {completedAction} successfully for {scopeText}.\n\n"
+                AutoCloseInfoDialog.Show(
+                    $"Update Express was {completedAction} successfully for {scopeText}.\n\n"
                     + $"Version: {displayVersion}\n"
                     + (agent ? "Background monitoring is enabled for this user." : "Background monitoring is disabled.")
                     + (operation == "upgrade" ? "\n\nUpdate Express will open now." : "\n\nYou can pin Update Express to the taskbar from the Start menu."),
-                    "Update Express", MessageBoxButton.OK, MessageBoxImage.Information);
+                    "Update Express",
+                    autoCloseSeconds: 10);
                 TryDeleteTree(Path.GetDirectoryName(source));
             }
         }
