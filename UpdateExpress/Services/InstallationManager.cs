@@ -20,9 +20,9 @@ internal static class InstallationManager
     internal static string MachineExe => Path.Combine(MachineInstallDir, "UpdateExpress.exe");
     internal static string UserExe => Path.Combine(UserInstallDir, "UpdateExpress.exe");
     private static readonly string StartMenuDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "MicroSystems");
-    private static readonly string Shortcut = Path.Combine(StartMenuDir, "Update Express.lnk");
-    private const string DesktopIconName = "UpdateExpress-U-v0.7.2.6.90.ico";
+    private const string DesktopIconName = "UpdateExpress-U.ico";
     private const string DesktopIconResource = "UpdateExpress.Assets.UpdateExpress.ico";
+    private const string ShortcutFileName = "Update Express.lnk";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\MicroSystems.UpdateExpress";
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunName = "MicroSystems Update Express Agent";
@@ -61,12 +61,12 @@ internal static class InstallationManager
         string menuDir = machine
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems")
             : StartMenuDir;
-        string menuShortcut = Path.Combine(menuDir, "Update Express.lnk");
+        string menuShortcut = Path.Combine(menuDir, ShortcutFileName);
         string desktopShortcut = Path.Combine(
             Environment.GetFolderPath(machine ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory),
-            "Update Express.lnk");
-        bool desktop = File.Exists(desktopShortcut);
-        bool startMenu = File.Exists(menuShortcut);
+            ShortcutFileName);
+        bool desktop = HasAppShortcut(EnumerateDesktopFolders()) || File.Exists(desktopShortcut);
+        bool startMenu = HasAppShortcut(EnumerateStartMenuFolders()) || File.Exists(menuShortcut);
         bool agent = false;
         if (!machine)
         {
@@ -136,8 +136,8 @@ internal static class InstallationManager
         string targetDir = machine ? MachineInstallDir : UserInstallDir;
         string targetExe = Path.Combine(targetDir, "UpdateExpress.exe");
         string menuDir = machine ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems") : StartMenuDir;
-        string menuShortcut = Path.Combine(menuDir, "Update Express.lnk");
-        string desktopShortcut = Path.Combine(Environment.GetFolderPath(machine ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory), "Update Express.lnk");
+        string menuShortcut = Path.Combine(menuDir, ShortcutFileName);
+        string desktopShortcut = Path.Combine(Environment.GetFolderPath(machine ? Environment.SpecialFolder.CommonDesktopDirectory : Environment.SpecialFolder.DesktopDirectory), ShortcutFileName);
         var hive = machine ? Registry.LocalMachine : Registry.CurrentUser;
         string iconPath = Path.Combine(targetDir, DesktopIconName);
         if (!File.Exists(source) && operation != "uninstall")
@@ -156,10 +156,11 @@ internal static class InstallationManager
             {
                 if (!machine) using (var key = Registry.CurrentUser.OpenSubKey(RunKey, true)) key?.DeleteValue(RunName, false);
                 hive.DeleteSubKeyTree(UninstallKey, false);
-                if (File.Exists(menuShortcut)) File.Delete(menuShortcut);
-                if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
+                RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
+                RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: null);
                 if (File.Exists(targetExe)) RetryFileOperation(() => File.Delete(targetExe), targetExe);
                 if (File.Exists(iconPath)) RetryFileOperation(() => File.Delete(iconPath), iconPath);
+                TryDeleteLegacyVersionedIcons(targetDir);
                 AgentLog.Write("Uninstall completed.");
                 MessageBox.Show("Update Express er avinstallert. Historikk og innstillinger er beholdt.", "Update Express");
             }
@@ -173,10 +174,23 @@ internal static class InstallationManager
                 else if (!File.Exists(targetExe))
                     throw new FileNotFoundException("Programfilen mangler. Kjør Installer fra den nye Publisert-mappen.");
                 RetryFileOperation(() => WriteInstalledIcon(iconPath), iconPath);
-                if (startMenu) { Directory.CreateDirectory(menuDir); CreateShortcut(menuShortcut, targetExe, "--installed", targetDir, iconPath); }
-                else if (File.Exists(menuShortcut)) File.Delete(menuShortcut);
-                if (desktop) CreateShortcut(desktopShortcut, targetExe, "--installed", targetDir, iconPath);
-                else if (File.Exists(desktopShortcut)) File.Delete(desktopShortcut);
+                TryDeleteLegacyVersionedIcons(targetDir);
+                // Always strip duplicate/orphan Update Express shortcuts first so upgrades leave one icon.
+                if (startMenu)
+                {
+                    Directory.CreateDirectory(menuDir);
+                    RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: menuShortcut);
+                    CreateShortcut(menuShortcut, targetExe, "--installed", targetDir, iconPath);
+                }
+                else
+                    RemoveAppShortcuts(EnumerateStartMenuFolders(), keepPath: null);
+                if (desktop)
+                {
+                    RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: desktopShortcut);
+                    CreateShortcut(desktopShortcut, targetExe, "--installed", targetDir, iconPath);
+                }
+                else
+                    RemoveAppShortcuts(EnumerateDesktopFolders(), keepPath: null);
                 string displayVersion = ReadDisplayVersion(targetExe);
                 using (var key = hive.CreateSubKey(UninstallKey))
                 {
@@ -390,12 +404,129 @@ internal static class InstallationManager
         resource.CopyTo(output);
     }
 
+    private static void TryDeleteLegacyVersionedIcons(string targetDir)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(targetDir, "UpdateExpress-U-v*.ico"))
+            {
+                try { File.Delete(file); }
+                catch (Exception ex) { AgentLog.Write("Could not delete legacy icon " + file + ": " + ex.Message); }
+            }
+        }
+        catch (Exception ex) { AgentLog.Write("Legacy icon cleanup skipped: " + ex.Message); }
+    }
+
+    private static IEnumerable<string> EnumerateDesktopFolders()
+    {
+        yield return Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        yield return Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
+    }
+
+    private static IEnumerable<string> EnumerateStartMenuFolders()
+    {
+        yield return StartMenuDir;
+        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "MicroSystems");
+    }
+
+    private static bool HasAppShortcut(IEnumerable<string> folders) =>
+        EnumerateAppShortcuts(folders).Any();
+
+    private static IEnumerable<string> EnumerateAppShortcuts(IEnumerable<string> folders)
+    {
+        foreach (string folder in folders.Where(f => !string.IsNullOrWhiteSpace(f)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!Directory.Exists(folder)) continue;
+            string[] files;
+            try { files = Directory.GetFiles(folder, "*.lnk"); }
+            catch { continue; }
+            foreach (string path in files)
+            {
+                if (IsAppShortcut(path))
+                    yield return path;
+            }
+        }
+    }
+
+    private static bool IsAppShortcut(string shortcutPath)
+    {
+        string name = Path.GetFileNameWithoutExtension(shortcutPath) ?? "";
+        bool nameLooksLikeOurs =
+            name.Equals("Update Express", StringComparison.OrdinalIgnoreCase) ||
+            name.StartsWith("Update Express (", StringComparison.OrdinalIgnoreCase) ||
+            name.StartsWith("UpdateExpress", StringComparison.OrdinalIgnoreCase);
+        string? target = TryReadShortcutTarget(shortcutPath);
+        if (!string.IsNullOrWhiteSpace(target))
+        {
+            string full = Path.GetFullPath(target);
+            bool pointsAtApp =
+                full.EndsWith("UpdateExpress.exe", StringComparison.OrdinalIgnoreCase) &&
+                full.Contains(Path.Combine("MicroSystems", "Update Express"), StringComparison.OrdinalIgnoreCase);
+            if (pointsAtApp) return true;
+            // Name match alone is not enough if the .lnk points elsewhere.
+            return false;
+        }
+        return nameLooksLikeOurs;
+    }
+
+    private static string? TryReadShortcutTarget(string shortcutPath)
+    {
+        try
+        {
+            Type? shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType is null) return null;
+            object shell = Activator.CreateInstance(shellType)!;
+            try
+            {
+                dynamic shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { shortcutPath })!;
+                string? target = shortcut.TargetPath as string;
+                return string.IsNullOrWhiteSpace(target) ? null : target;
+            }
+            finally
+            {
+                if (System.Runtime.InteropServices.Marshal.IsComObject(shell))
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(shell);
+            }
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Removes Update Express desktop/Start Menu shortcuts, optionally keeping one canonical path.
+    /// Prevents duplicate icons after repeated installs/upgrades (OneDrive/sync renames, scope changes).
+    /// </summary>
+    private static void RemoveAppShortcuts(IEnumerable<string> folders, string? keepPath)
+    {
+        string? keepFull = string.IsNullOrWhiteSpace(keepPath) ? null : Path.GetFullPath(keepPath);
+        foreach (string path in EnumerateAppShortcuts(folders))
+        {
+            try
+            {
+                string full = Path.GetFullPath(path);
+                if (keepFull is not null && string.Equals(full, keepFull, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                File.Delete(full);
+                AgentLog.Write("Removed duplicate/orphan shortcut: " + full);
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Write("Could not remove shortcut " + path + ": " + ex.Message);
+            }
+        }
+    }
+
     private static void CreateShortcut(string shortcutPath, string target, string arguments, string workingDirectory, string iconPath)
     {
         Type shellType = Type.GetTypeFromProgID("WScript.Shell") ?? throw new InvalidOperationException("Windows Script Host mangler.");
         object shell = Activator.CreateInstance(shellType)!;
         try
         {
+            // Rewrite the same path in place; callers remove numbered duplicates first.
+            if (File.Exists(shortcutPath))
+            {
+                try { File.Delete(shortcutPath); }
+                catch (Exception ex) { AgentLog.Write("Could not replace existing shortcut before recreate: " + ex.Message); }
+            }
             dynamic shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { shortcutPath })!;
             shortcut.TargetPath = target;
             shortcut.Arguments = arguments;

@@ -5,6 +5,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text;
 using System.Windows;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using UpdateExpress.Models;
@@ -48,6 +49,9 @@ public partial class MainWindow : Window
     private bool _healthCheckRunning;
     private bool _diagnosticsRunning;
     private FixItWindow? _fixItWindow;
+    private readonly DispatcherTimer _fixItIconTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
+    private bool _showingClickItIcon;
+    private bool _fixItIconAnimating;
     private static bool IsManuallyInstallableDriver(UpdateEntry e) =>
         e.Category == "Driver / firmware" &&
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
@@ -905,6 +909,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         Closed += (_, _) =>
         {
+            StopFixItIconAnimation();
             if (_fixItWindow is null) return;
             _fixItWindow.SuppressDetach();
             try { _fixItWindow.Close(); } catch { /* ignore */ }
@@ -959,6 +964,7 @@ public partial class MainWindow : Window
         RefreshRebootNeededBanner();
         Loaded += async (_, _) =>
         {
+            StartFixItIconAnimation();
             CheckReminder();
             _ = LoadMachineIdentityAsync();
             await RefreshDefenderAsync();
@@ -1341,6 +1347,40 @@ public partial class MainWindow : Window
         }
     }
     private async void WindowsUpdateFix_Click(object sender, RoutedEventArgs e) => await RunWindowsUpdateFixAsync();
+
+    private void StartFixItIconAnimation()
+    {
+        if (FixItIconImage is null || ClickItIconImage is null) return;
+        _fixItIconTimer.Tick -= FixItIconTimer_Tick;
+        _fixItIconTimer.Tick += FixItIconTimer_Tick;
+        if (!_fixItIconTimer.IsEnabled)
+            _fixItIconTimer.Start();
+    }
+
+    private void StopFixItIconAnimation()
+    {
+        _fixItIconTimer.Stop();
+        _fixItIconTimer.Tick -= FixItIconTimer_Tick;
+        FixItIconImage?.BeginAnimation(UIElement.OpacityProperty, null);
+        ClickItIconImage?.BeginAnimation(UIElement.OpacityProperty, null);
+    }
+
+    private void FixItIconTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_fixItIconAnimating || FixItIconImage is null || ClickItIconImage is null) return;
+        _showingClickItIcon = !_showingClickItIcon;
+        _fixItIconAnimating = true;
+
+        var duration = TimeSpan.FromSeconds(0.4);
+        var ease = new QuadraticEase { EasingMode = EasingMode.EaseInOut };
+        var showClick = _showingClickItIcon;
+        var clickAnim = new DoubleAnimation(showClick ? 0 : 1, showClick ? 1 : 0, duration) { EasingFunction = ease };
+        var fixAnim = new DoubleAnimation(showClick ? 1 : 0, showClick ? 0 : 1, duration) { EasingFunction = ease };
+        clickAnim.Completed += (_, _) => _fixItIconAnimating = false;
+
+        ClickItIconImage.BeginAnimation(UIElement.OpacityProperty, clickAnim);
+        FixItIconImage.BeginAnimation(UIElement.OpacityProperty, fixAnim);
+    }
 
     private void FixItOpen_Click(object sender, RoutedEventArgs e)
     {
