@@ -29,6 +29,7 @@ internal static class ApplicationAutomation
 
     private static int _running;
     private static Action<string, string>? _balloon;
+    private const string HelperMutexName = @"Local\MicroSystems.UpdateExpress.ApplicationsInstall";
 
     internal static void SetBalloon(Action<string, string> balloon) => _balloon = balloon;
 
@@ -54,6 +55,8 @@ internal static class ApplicationAutomation
 
     /// <summary>
     /// After sign-in / wake: relaunch the elevated helper for remaining confirmed packages.
+    /// ResumeAfterReboot waits for a real new OS boot; crash recovery may resume same boot
+    /// only after the live-helper grace window.
     /// </summary>
     internal static bool TryResumeAfterReboot()
     {
@@ -68,24 +71,39 @@ internal static class ApplicationAutomation
 
         var prompt = CategoryPromptState.Load(Category);
         bool installing = string.Equals(prompt.State, "installing", StringComparison.OrdinalIgnoreCase);
-        bool recentBoot = Environment.TickCount64 < (long)TimeSpan.FromMinutes(20).TotalMilliseconds;
-
         if (!queue.ResumeAfterReboot && !installing)
             return false;
 
-        // Helper still running in this session — do not spawn another UAC.
-        if (installing &&
-            !queue.ResumeAfterReboot &&
-            !recentBoot &&
-            prompt.InstallingStartedAt is DateTime started &&
-            DateTime.Now - started < HelperInFlightGrace)
-            return false;
+        DateTime currentBoot = CategoryPromptState.ApproximateBootTime();
+
+        if (queue.ResumeAfterReboot)
+        {
+            // Wait until Windows actually rebooted after the block stamp.
+            if (queue.ResumeBlockedAtBoot is DateTime blocked &&
+                CategoryPromptState.IsSameBoot(blocked, currentBoot))
+                return false;
+
+            if (queue.ResumeBlockedAtBoot is null &&
+                CategoryPromptState.StartedDuringCurrentBoot(prompt.InstallingStartedAt))
+                return false;
+        }
+        else
+        {
+            // Same-boot crash recovery: never interrupt a live helper that started this boot.
+            if (CategoryPromptState.StartedDuringCurrentBoot(prompt.InstallingStartedAt) &&
+                prompt.InstallingStartedAt is DateTime started &&
+                DateTime.Now - started < HelperInFlightGrace)
+                return false;
+        }
 
         if (queue.LastResumeLaunch is DateTime last && DateTime.Now - last < ResumeThrottle)
             return false;
 
+        // Another elevated helper already owns the queue.
+        if (IsHelperMutexHeld())
+            return false;
+
         queue.LastResumeLaunch = DateTime.Now;
-        queue.ResumeAfterReboot = true;
         CategoryPromptState.WriteInstallQueueState(queue);
 
         if (!installing)
@@ -97,18 +115,19 @@ internal static class ApplicationAutomation
         try
         {
             AgentLog.Write(
-                $"Applications automation: resuming {queue.UpdateIds.Count} remaining package(s) after reboot/interrupt.");
+                $"Applications automation: resuming {queue.UpdateIds.Count} remaining package(s)" +
+                (queue.ResumeAfterReboot ? " after reboot." : " after interrupted helper."));
             ActivityLog.TryWrite(
                 "ApplicationsAutomation",
                 "ResumeRequested",
-                new { Count = queue.UpdateIds.Count, ResumeAfterReboot = true },
+                new { Count = queue.UpdateIds.Count, queue.ResumeAfterReboot },
                 mode: "Automatic",
                 source: "TrayAgent");
             ElevationHelper.RestartElevated(AutomationStatePaths.ElevateArguments(ElevateArg));
             WindowsAutomationStatus.WriteCategory(
                 Category,
                 "Resuming",
-                $"Resuming {queue.UpdateIds.Count} application upgrade(s) after restart.",
+                $"Resuming {queue.UpdateIds.Count} application upgrade(s).",
                 NextScanDue(DateTime.Now, policy));
             return true;
         }
@@ -123,6 +142,32 @@ internal static class ApplicationAutomation
         {
             AgentLog.Write("Applications automation resume launch failed: " + ex);
             return false;
+        }
+    }
+
+    private static bool IsHelperMutexHeld()
+    {
+        Mutex? mutex = null;
+        try
+        {
+            mutex = new Mutex(false, HelperMutexName);
+            if (!mutex.WaitOne(0))
+                return true;
+            mutex.ReleaseMutex();
+            return false;
+        }
+        catch (AbandonedMutexException)
+        {
+            try { mutex?.ReleaseMutex(); } catch { /* ignore */ }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            try { mutex?.Dispose(); } catch { /* ignore */ }
         }
     }
 
@@ -423,207 +468,250 @@ internal static class ApplicationAutomation
 
     internal static void ApplyQueuedInstall()
     {
-        var queueState = CategoryPromptState.ReadInstallQueueState(Category);
-        var ids = queueState.UpdateIds;
-        if (ids.Count == 0)
+        Mutex? helperMutex = null;
+        bool ownsMutex = false;
+        try
         {
-            System.Windows.MessageBox.Show(
-                "No application updates were queued for installation.",
-                "Update Express",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Information);
-            return;
-        }
-
-        if (!ElevationHelper.IsElevated)
-        {
-            System.Windows.MessageBox.Show(
-                "Administrator privileges are required to install application updates.",
-                "Update Express",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Warning);
-            return;
-        }
-
-        // Clear resume flag for this elevated pass; re-set if we must reboot mid-queue.
-        queueState.ResumeAfterReboot = false;
-        queueState.LastResumeLaunch = null;
-        CategoryPromptState.WriteInstallQueueState(queueState);
-
-        try { RebootCoordinator.CancelCountdownReboot("applications elevated install running"); }
-        catch { /* best effort */ }
-
-        var prompt = CategoryPromptState.Load(Category);
-        prompt.MarkInstalling();
-        prompt.Save();
-
-        var queue = ids.Select(id =>
-        {
-            var meta = prompt.Updates.FirstOrDefault(u =>
-                u.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase));
-            string title = meta?.Title ?? id;
-            return new InstallationQueueItem("WinGet", title);
-        }).ToList();
-
-        AgentLog.Write($"Applications install helper: installing {ids.Count} queued WinGet package(s).");
-        var manager = new InstallationManagerWindow(queue)
-        {
-            Title = "Update Express – Applications installation",
-            WindowStartupLocation = System.Windows.WindowStartupLocation.CenterScreen
-        };
-
-        manager.Loaded += async (_, _) =>
-        {
-            manager.PrepareRunning();
-            int ok = 0;
-            bool rebootRequired = false;
-            string? rebootPackageId = null;
-            var remainingAfterReboot = new List<string>();
-
-            for (int i = 0; i < ids.Count; i++)
+            helperMutex = new Mutex(false, HelperMutexName);
+            try { ownsMutex = helperMutex.WaitOne(0); }
+            catch (AbandonedMutexException) { ownsMutex = true; }
+            if (!ownsMutex)
             {
-                string id = ids[i];
-                manager.BeginItem(i, "Installing " + id + "…");
-                try
-                {
-                    using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(20));
-                    var (code, output) = await WingetReader.UpgradeAsync(id, timeout.Token).ConfigureAwait(true);
-                    AgentLog.Write($"Applications install {id}: exit={code}");
-                    if (!string.IsNullOrWhiteSpace(output))
-                        AgentLog.Write("Applications install output: " + output.Trim());
+                System.Windows.MessageBox.Show(
+                    "An Applications install helper is already running.",
+                    "Update Express",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information);
+                return;
+            }
 
-                    bool osReboot = WingetReader.IndicatesOsRebootRequired(code, output);
-                    if (code == 0 || osReboot)
+            var queueState = CategoryPromptState.ReadInstallQueueState(Category);
+            var ids = queueState.UpdateIds;
+            if (ids.Count == 0)
+            {
+                System.Windows.MessageBox.Show(
+                    "No application updates were queued for installation.",
+                    "Update Express",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information);
+                return;
+            }
+
+            if (!ElevationHelper.IsElevated)
+            {
+                System.Windows.MessageBox.Show(
+                    "Administrator privileges are required to install application updates.",
+                    "Update Express",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            bool wasPostRebootResume = queueState.ResumeAfterReboot;
+            // Clear resume gate for this elevated pass; re-set if we must reboot mid-queue.
+            queueState.ResumeAfterReboot = false;
+            queueState.ResumeBlockedAtBoot = null;
+            queueState.LastResumeLaunch = null;
+            CategoryPromptState.WriteInstallQueueState(queueState);
+
+            // Do not cancel a countdown we just armed for remaining packages; only cancel
+            // unrelated reminder countdowns when starting a fresh / post-reboot pass.
+            if (!wasPostRebootResume)
+            {
+                try { RebootCoordinator.CancelCountdownReboot("applications elevated install running"); }
+                catch { /* best effort */ }
+            }
+
+            var prompt = CategoryPromptState.Load(Category);
+            prompt.MarkInstalling();
+            prompt.Save();
+
+            var queue = ids.Select(id =>
+            {
+                var meta = prompt.Updates.FirstOrDefault(u =>
+                    u.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase));
+                string title = meta?.Title ?? id;
+                return new InstallationQueueItem("WinGet", title);
+            }).ToList();
+
+            AgentLog.Write($"Applications install helper: installing {ids.Count} queued WinGet package(s).");
+            var manager = new InstallationManagerWindow(queue)
+            {
+                Title = "Update Express – Applications installation",
+                WindowStartupLocation = System.Windows.WindowStartupLocation.CenterScreen
+            };
+
+            manager.Loaded += async (_, _) =>
+            {
+                manager.PrepareRunning();
+                int ok = 0;
+                bool rebootRequired = false;
+                string? rebootPackageId = null;
+                var remainingAfterReboot = new List<string>();
+
+                for (int i = 0; i < ids.Count; i++)
+                {
+                    string id = ids[i];
+                    manager.BeginItem(i, "Installing " + id + "…");
+                    try
                     {
-                        ok++;
-                        manager.CompleteItem(i, osReboot ? "Completed (restart needed)" : "Completed", false);
-                        CategoryPromptState.MarkInstallQueueItemDone(Category, id, success: true);
-                    }
-                    else
-                    {
-                        bool norwegian = AppLanguage.IsNorwegian;
-                        var (state, tip, notice) = WingetReader.DescribeUpgradeFailure(code, id, norwegian);
-                        manager.CompleteItem(i, state, true, tip);
-                        CategoryPromptState.MarkInstallQueueItemDone(Category, id, success: false);
-                        if (!string.IsNullOrWhiteSpace(notice))
+                        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(20));
+                        var (code, output) = await WingetReader.UpgradeAsync(id, timeout.Token).ConfigureAwait(true);
+                        AgentLog.Write($"Applications install {id}: exit={code}");
+                        if (!string.IsNullOrWhiteSpace(output))
+                            AgentLog.Write("Applications install output: " + output.Trim());
+
+                        bool osReboot = WingetReader.IndicatesOsRebootRequired(code, output);
+                        if (code == 0 || osReboot)
                         {
-                            manager.SetNotice(notice);
-                            manager.SetStage(notice);
+                            ok++;
+                            manager.CompleteItem(i, osReboot ? "Completed (restart needed)" : "Completed", false);
+                            CategoryPromptState.MarkInstallQueueItemDone(Category, id, success: true);
+                        }
+                        else
+                        {
+                            bool norwegian = AppLanguage.IsNorwegian;
+                            var (state, tip, notice) = WingetReader.DescribeUpgradeFailure(code, id, norwegian);
+                            manager.CompleteItem(i, state, true, tip);
+                            CategoryPromptState.MarkInstallQueueItemDone(Category, id, success: false);
+                            if (!string.IsNullOrWhiteSpace(notice))
+                            {
+                                manager.SetNotice(notice);
+                                manager.SetStage(notice);
+                            }
+                        }
+
+                        if (osReboot)
+                        {
+                            rebootRequired = true;
+                            rebootPackageId = id;
+                            // Remaining packages (not yet attempted) stay queued for post-reboot resume.
+                            remainingAfterReboot = ids.Skip(i + 1).ToList();
+                            for (int skip = i + 1; skip < ids.Count; skip++)
+                                manager.CompleteItem(skip, "Deferred until after restart", false);
+                            break;
                         }
                     }
-
-                    if (osReboot)
+                    catch (Exception ex)
                     {
-                        rebootRequired = true;
-                        rebootPackageId = id;
-                        // Remaining packages (not yet attempted) stay queued for post-reboot resume.
-                        remainingAfterReboot = ids.Skip(i + 1).ToList();
-                        for (int skip = i + 1; skip < ids.Count; skip++)
-                            manager.CompleteItem(skip, "Deferred until after restart", false);
-                        break;
+                        AgentLog.Write("Applications install item failed: " + ex);
+                        manager.CompleteItem(i, "Failed", true);
+                        CategoryPromptState.MarkInstallQueueItemDone(Category, id, success: false);
                     }
+                }
+
+                var policy = UpdatePolicy.Load();
+                policy.Normalize();
+
+                if (rebootRequired && remainingAfterReboot.Count > 0)
+                {
+                    CategoryPromptState.WriteInstallQueueState(new InstallQueueState
+                    {
+                        Category = Category,
+                        CreatedAt = DateTime.Now,
+                        UpdateIds = remainingAfterReboot,
+                        CompletedIds = CategoryPromptState.ReadInstallQueueState(Category).CompletedIds,
+                        ResumeAfterReboot = true,
+                        ResumeBlockedAtBoot = CategoryPromptState.ApproximateBootTime()
+                    });
+                    var stillInstalling = CategoryPromptState.Load(Category);
+                    stillInstalling.MarkInstalling();
+                    stillInstalling.Save();
+
+                    WindowsAutomationStatus.WriteCategory(
+                        Category,
+                        "Installed (restart needed)",
+                        $"{ok} completed · {remainingAfterReboot.Count} resume after restart ({rebootPackageId}).",
+                        NextScanDue(DateTime.Now, policy));
+                    ActivityLog.TryWrite(
+                        "ApplicationsAutomation",
+                        "Installed",
+                        new { ok, Total = ids.Count, rebootHint = true, remaining = remainingAfterReboot.Count, rebootPackageId },
+                        mode: "Automatic",
+                        source: "ElevatedHelper");
+                    try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+                    catch (Exception ex) { AgentLog.Write("Applications install: history record failed: " + ex.Message); }
+
+                    manager.Finish();
+                    manager.SetStage(
+                        policy.WindowsAutomation.AutoReboot.Enabled
+                            ? $"Finished — restart required before remaining {remainingAfterReboot.Count} package(s). Auto-reboot policy will run next…"
+                            : $"Finished — restart required before remaining {remainingAfterReboot.Count} package(s). Auto-reboot is disabled in policy.");
+                    AgentLog.Write(
+                        $"Applications: reboot required after {rebootPackageId}; {remainingAfterReboot.Count} package(s) queued for resume.");
+                    bool rebootArmed = RebootCoordinator.HandleAfterInstall(DisplayName, rebootRequired: true, owner: manager);
+                    if (!rebootArmed)
+                    {
+                        // Declined / auto-reboot off: allow same-boot retry instead of waiting forever.
+                        var soften = CategoryPromptState.ReadInstallQueueState(Category);
+                        soften.ResumeAfterReboot = false;
+                        soften.ResumeBlockedAtBoot = null;
+                        CategoryPromptState.WriteInstallQueueState(soften);
+                        AgentLog.Write("Applications: reboot not armed; remaining packages may resume this session.");
+                    }
+                    return;
+                }
+
+                if (rebootRequired)
+                {
+                    CategoryPromptState.ClearInstallQueue(Category);
+                    CategoryPromptState.Clear(Category);
+                    WindowsAutomationStatus.WriteCategory(
+                        Category,
+                        "Installed (restart needed)",
+                        $"{ok}/{ids.Count} completed. Restart may be required.",
+                        NextScanDue(DateTime.Now, policy));
+                    ActivityLog.TryWrite(
+                        "ApplicationsAutomation",
+                        "Installed",
+                        new { ok, Total = ids.Count, rebootHint = true },
+                        mode: "Automatic",
+                        source: "ElevatedHelper");
+                    try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+                    catch (Exception ex) { AgentLog.Write("Applications install: history record failed: " + ex.Message); }
+                    manager.Finish();
+                    manager.SetStage(
+                        policy.WindowsAutomation.AutoReboot.Enabled
+                            ? "Finished — restart required. Optional auto-reboot policy will run next…"
+                            : "Finished — a restart may be required. Auto-reboot is disabled in policy.");
+                    RebootCoordinator.HandleAfterInstall(DisplayName, rebootRequired: true, owner: manager);
+                    return;
+                }
+
+                CategoryPromptState.ClearInstallQueue(Category);
+                CategoryPromptState.Clear(Category);
+
+                try
+                {
+                    var rescan = await WingetReader.ScanAsync().ConfigureAwait(true);
+                    WingetAvailableCache.Write(rescan.Updates, rescan.Raw);
                 }
                 catch (Exception ex)
                 {
-                    AgentLog.Write("Applications install item failed: " + ex);
-                    manager.CompleteItem(i, "Failed", true);
-                    CategoryPromptState.MarkInstallQueueItemDone(Category, id, success: false);
+                    // Keep the previous winget-available snapshot — do not publish an empty list on scan failure.
+                    AgentLog.Write("Applications install helper: post-install WinGet rescan failed: " + ex.Message);
                 }
-            }
-
-            var policy = UpdatePolicy.Load();
-            policy.Normalize();
-
-            if (rebootRequired && remainingAfterReboot.Count > 0)
-            {
-                CategoryPromptState.WriteInstallQueueState(new InstallQueueState
-                {
-                    Category = Category,
-                    CreatedAt = DateTime.Now,
-                    UpdateIds = remainingAfterReboot,
-                    CompletedIds = CategoryPromptState.ReadInstallQueueState(Category).CompletedIds,
-                    ResumeAfterReboot = true
-                });
-                var stillInstalling = CategoryPromptState.Load(Category);
-                stillInstalling.MarkInstalling();
-                stillInstalling.Save();
 
                 WindowsAutomationStatus.WriteCategory(
                     Category,
-                    "Installed (restart needed)",
-                    $"{ok} completed · {remainingAfterReboot.Count} resume after restart ({rebootPackageId}).",
-                    NextScanDue(DateTime.Now, policy));
-                ActivityLog.TryWrite(
-                    "ApplicationsAutomation",
                     "Installed",
-                    new { ok, Total = ids.Count, rebootHint = true, remaining = remainingAfterReboot.Count, rebootPackageId },
-                    mode: "Automatic",
-                    source: "ElevatedHelper");
-                try { HistoryArchive.RecordInstallationManagerQueue(queue); }
-                catch (Exception ex) { AgentLog.Write("Applications install: history record failed: " + ex.Message); }
-
-                manager.Finish();
-                manager.SetStage(
-                    policy.WindowsAutomation.AutoReboot.Enabled
-                        ? $"Finished — restart required before remaining {remainingAfterReboot.Count} package(s). Auto-reboot policy will run next…"
-                        : $"Finished — restart required before remaining {remainingAfterReboot.Count} package(s). Auto-reboot is disabled in policy.");
-                AgentLog.Write(
-                    $"Applications: reboot required after {rebootPackageId}; {remainingAfterReboot.Count} package(s) queued for resume.");
-                RebootCoordinator.HandleAfterInstall(DisplayName, rebootRequired: true, owner: manager);
-                return;
-            }
-
-            if (rebootRequired)
-            {
-                CategoryPromptState.ClearInstallQueue(Category);
-                CategoryPromptState.Clear(Category);
-                WindowsAutomationStatus.WriteCategory(
-                    Category,
-                    "Installed (restart needed)",
-                    $"{ok}/{ids.Count} completed. Restart may be required.",
+                    $"{ok}/{ids.Count} completed.",
                     NextScanDue(DateTime.Now, policy));
-                ActivityLog.TryWrite(
-                    "ApplicationsAutomation",
-                    "Installed",
-                    new { ok, Total = ids.Count, rebootHint = true },
-                    mode: "Automatic",
-                    source: "ElevatedHelper");
+                ActivityLog.TryWrite("ApplicationsAutomation", "Installed", new { ok, Total = ids.Count, rebootHint = false }, mode: "Automatic", source: "ElevatedHelper");
                 try { HistoryArchive.RecordInstallationManagerQueue(queue); }
                 catch (Exception ex) { AgentLog.Write("Applications install: history record failed: " + ex.Message); }
                 manager.Finish();
-                manager.SetStage(
-                    policy.WindowsAutomation.AutoReboot.Enabled
-                        ? "Finished — restart required. Optional auto-reboot policy will run next…"
-                        : "Finished — a restart may be required. Auto-reboot is disabled in policy.");
-                RebootCoordinator.HandleAfterInstall(DisplayName, rebootRequired: true, owner: manager);
-                return;
-            }
+            };
 
-            CategoryPromptState.ClearInstallQueue(Category);
-            CategoryPromptState.Clear(Category);
-
-            try
+            manager.ShowDialog();
+        }
+        finally
+        {
+            if (ownsMutex)
             {
-                var rescan = await WingetReader.ScanAsync().ConfigureAwait(true);
-                WingetAvailableCache.Write(rescan.Updates, rescan.Raw);
+                try { helperMutex?.ReleaseMutex(); } catch { /* ignore */ }
             }
-            catch (Exception ex)
-            {
-                // Keep the previous winget-available snapshot — do not publish an empty list on scan failure.
-                AgentLog.Write("Applications install helper: post-install WinGet rescan failed: " + ex.Message);
-            }
-
-            WindowsAutomationStatus.WriteCategory(
-                Category,
-                "Installed",
-                $"{ok}/{ids.Count} completed.",
-                NextScanDue(DateTime.Now, policy));
-            ActivityLog.TryWrite("ApplicationsAutomation", "Installed", new { ok, Total = ids.Count, rebootHint = false }, mode: "Automatic", source: "ElevatedHelper");
-            try { HistoryArchive.RecordInstallationManagerQueue(queue); }
-            catch (Exception ex) { AgentLog.Write("Applications install: history record failed: " + ex.Message); }
-            manager.Finish();
-        };
-
-        manager.ShowDialog();
+            try { helperMutex?.Dispose(); } catch { /* ignore */ }
+        }
     }
 }

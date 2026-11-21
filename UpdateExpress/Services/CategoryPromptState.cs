@@ -71,10 +71,10 @@ internal sealed class CategoryPromptState
         if (string.Equals(NormalizeCategory(category), "applications", StringComparison.OrdinalIgnoreCase) &&
             queue.UpdateIds.Count > 0)
         {
+            // Keep installing + remaining IDs. Do NOT set ResumeAfterReboot here — that flag
+            // means an OS restart is required; crash recovery may resume on the same boot.
             AgentLog.Write(
-                $"{state.Category} automation: abandoned installing with {queue.UpdateIds.Count} remaining; marking resume-after-reboot.");
-            MarkInstallQueueResumeAfterReboot(category, resume: true);
-            // Keep State=installing so TryResumeAfterReboot can elevate without re-prompting.
+                $"{state.Category} automation: abandoned installing with {queue.UpdateIds.Count} remaining; tray will resume without re-prompt.");
             WindowsAutomationStatus.WriteCategory(
                 state.Category,
                 "Recovered",
@@ -191,7 +191,23 @@ internal sealed class CategoryPromptState
     {
         var state = ReadInstallQueueState(category);
         state.ResumeAfterReboot = resume;
+        state.ResumeBlockedAtBoot = resume ? ApproximateBootTime() : null;
         WriteInstallQueueState(state);
+    }
+
+    /// <summary>Approximate Windows boot time (local clock − TickCount64).</summary>
+    internal static DateTime ApproximateBootTime() =>
+        DateTime.Now - TimeSpan.FromMilliseconds(Environment.TickCount64);
+
+    /// <summary>True when two boot stamps look like the same OS session (~3 minutes).</summary>
+    internal static bool IsSameBoot(DateTime a, DateTime b) =>
+        Math.Abs((a - b).TotalMinutes) < 3;
+
+    internal static bool StartedDuringCurrentBoot(DateTime? startedAt)
+    {
+        if (startedAt is null) return false;
+        DateTime boot = ApproximateBootTime();
+        return startedAt.Value >= boot.AddMinutes(-1);
     }
 
     internal static void ClearInstallQueue(string category)
@@ -220,6 +236,8 @@ internal sealed class InstallQueueState
     public List<string> CompletedIds { get; set; } = new();
     /// <summary>Continue remaining IDs automatically after the next reboot.</summary>
     public bool ResumeAfterReboot { get; set; }
+    /// <summary>Boot stamp when ResumeAfterReboot was set; resume only after a different boot.</summary>
+    public DateTime? ResumeBlockedAtBoot { get; set; }
     public DateTime? LastResumeLaunch { get; set; }
 
     [System.Text.Json.Serialization.JsonIgnore]

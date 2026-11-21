@@ -64,9 +64,10 @@ internal static class RebootCoordinator
         return candidate;
     }
 
-    internal static void HandleAfterInstall(string source, bool rebootRequired, System.Windows.Window? owner = null)
+    /// <returns>True when a countdown started or a deferred reboot was scheduled.</returns>
+    internal static bool HandleAfterInstall(string source, bool rebootRequired, System.Windows.Window? owner = null)
     {
-        if (!rebootRequired) return;
+        if (!rebootRequired) return false;
 
         var policy = UpdatePolicy.Load();
         policy.Normalize();
@@ -74,7 +75,7 @@ internal static class RebootCoordinator
         if (!reboot.Enabled)
         {
             AgentLog.Write($"{source}: restart may be required; auto-reboot is disabled.");
-            return;
+            return false;
         }
 
         string mode = (reboot.Mode ?? "confirm").Trim();
@@ -93,18 +94,17 @@ internal static class RebootCoordinator
                     "Update Express – restart scheduled",
                     System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Information);
-                return;
+                return true;
             }
             // Already outside hours → confirm before starting countdown.
-            PromptConfirmAndMaybeReboot(source, reboot, owner);
-            return;
+            return PromptConfirmAndMaybeReboot(source, reboot, owner);
         }
 
         // confirm (default when enabled)
-        PromptConfirmAndMaybeReboot(source, reboot, owner);
+        return PromptConfirmAndMaybeReboot(source, reboot, owner);
     }
 
-    private static void PromptConfirmAndMaybeReboot(string source, AutoRebootPolicy reboot, System.Windows.Window? owner)
+    private static bool PromptConfirmAndMaybeReboot(string source, AutoRebootPolicy reboot, System.Windows.Window? owner)
     {
         var choice = System.Windows.MessageBox.Show(
             owner,
@@ -119,11 +119,12 @@ internal static class RebootCoordinator
         {
             AgentLog.Write($"{source}: user declined auto-reboot.");
             ClearPending();
-            return;
+            return false;
         }
 
         StartCountdownReboot(source, reboot.CountdownSeconds,
             "Update Express: restart required after Windows updates. Save your work.");
+        return true;
     }
 
     internal static void SchedulePending(string source, DateTime earliest, string reason)
