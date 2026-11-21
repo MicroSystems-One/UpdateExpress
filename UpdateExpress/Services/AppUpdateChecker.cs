@@ -45,13 +45,13 @@ internal sealed class AppUpdateCheckResult
 }
 
 /// <summary>
-/// Reads the public UpdateExpress-Releases channel. Phase 1 checks versions;
-/// Phase 2a uses the same metadata for verified installation.
+/// Reads the public UpdateExpress channel on MicroSystems-One.
+/// Phase 1 checks versions; Phase 2a uses the same metadata for verified installation.
 /// </summary>
 internal static class AppUpdateChecker
 {
     internal const string LatestJsonUrl =
-        "https://raw.githubusercontent.com/BlackAdder5/UpdateExpress-Releases/main/latest.json";
+        "https://raw.githubusercontent.com/MicroSystems-One/UpdateExpress/main/latest.json";
 
     private static readonly HttpClient Http = CreateClient();
 

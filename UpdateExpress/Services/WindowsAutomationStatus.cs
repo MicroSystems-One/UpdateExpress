@@ -18,15 +18,20 @@ internal sealed class WindowsAutomationStatus
     public CategoryAutomationStatus Defender { get; set; } = new();
     public CategoryAutomationStatus Critical { get; set; } = new();
     public CategoryAutomationStatus General { get; set; } = new();
+    public CategoryAutomationStatus Drivers { get; set; } = new();
+    public CategoryAutomationStatus Applications { get; set; } = new();
 
-    private static string PathName => Path.Combine(InstallationManager.InstallDir, "windows-automation-status.json");
+    private static string PathName => Path.Combine(AutomationStatePaths.Directory, "windows-automation-status.json");
 
     internal static WindowsAutomationStatus Load()
     {
         try
         {
             if (!File.Exists(PathName)) return new();
-            return JsonSerializer.Deserialize<WindowsAutomationStatus>(File.ReadAllText(PathName)) ?? new();
+            var loaded = JsonSerializer.Deserialize<WindowsAutomationStatus>(File.ReadAllText(PathName)) ?? new();
+            loaded.Drivers ??= new();
+            loaded.Applications ??= new();
+            return loaded;
         }
         catch { return new(); }
     }
@@ -35,7 +40,9 @@ internal sealed class WindowsAutomationStatus
     {
         try
         {
-            Directory.CreateDirectory(InstallationManager.InstallDir);
+            Directory.CreateDirectory(AutomationStatePaths.Directory);
+            Drivers ??= new();
+            Applications ??= new();
             string temp = PathName + "." + Environment.ProcessId + ".tmp";
             File.WriteAllText(temp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(temp, PathName, true);
@@ -51,6 +58,8 @@ internal sealed class WindowsAutomationStatus
             "defender" => status.Defender,
             "critical" => status.Critical,
             "general" => status.General,
+            "drivers" => status.Drivers,
+            "applications" => status.Applications,
             _ => status.Defender
         };
         entry.LastRun = DateTime.Now;

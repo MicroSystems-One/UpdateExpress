@@ -25,8 +25,12 @@ public partial class SoftwareUpdatesDialog : Window
         bool downloaded)
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         Title = $"Update Express – {displayName} updates";
-        HeadingText.Text = $"{displayName} Windows updates ready";
+        bool windowsCategory = displayName is "Critical" or "General";
+        HeadingText.Text = windowsCategory
+            ? $"{displayName} Windows updates ready"
+            : $"{displayName} updates ready";
         PreferredButton.Content = $"Install at {preferredTime}";
         int count = updates.Count;
         string kind = displayName.ToLowerInvariant();

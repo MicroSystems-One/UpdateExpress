@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 namespace UpdateExpress;
 public partial class ReminderDialog : Window
 {
@@ -6,6 +6,7 @@ public partial class ReminderDialog : Window
     public ReminderDialog(bool isTest, DateTime occurrence, bool norwegian = false)
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         var time = Services.ReminderSchedule.Load().Format(occurrence);
         WhenText.Text = isTest ? (norwegian ? "Testvarsel – ingen handling utført" : "Notification test – no action performed") : (norwegian ? $"Planlagt tidspunkt: {time}" : $"Scheduled time: {time}");
         if (norwegian)

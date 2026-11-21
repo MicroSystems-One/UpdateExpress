@@ -50,14 +50,27 @@ public sealed class UpdatePolicy
 {
     public WindowsAutomationPolicy WindowsAutomation { get; set; } = WindowsAutomationPolicy.CreateDefault();
 
-    // Legacy / not yet automated preferences (drivers & WinGet).
+    /// <summary>When true, tray agent downloads assigned WUA drivers and asks before install (firmware stays manual).</summary>
     public bool AutomaticDrivers { get; set; } = false;
     public bool AutomaticFirmware { get; set; } = false;
+    /// <summary>When true, tray agent scans WinGet upgrades and asks before install.</summary>
     public bool AutomaticApplications { get; set; } = false;
+    /// <summary>Minutes between automatic WinGet application scans. Default 240; floor 60.</summary>
+    public int ApplicationsIntervalMinutes { get; set; } = ApplicationAutomation.DefaultIntervalMinutes;
+    /// <summary>Optional WinGet package-ID whitelist. Empty = all pending upgrades when AutomaticApplications is on.</summary>
     public HashSet<string> AutomaticApplicationIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Legacy field from older builds; mapped into WindowsAutomation on load.</summary>
     public bool AutomaticWindows { get; set; } = true;
+
+    /// <summary>First-run / setup wizard completed.</summary>
+    public bool SetupCompleted { get; set; }
+    /// <summary>private | business | both</summary>
+    public string SetupProfile { get; set; } = "";
+    /// <summary>Mon=bit0 … Sun=bit6. Shared install days for Critical/General.</summary>
+    public int InstallDaysMask { get; set; }
+    /// <summary>Shared HH:mm install clock for Critical/General (and reminders).</summary>
+    public string InstallTime { get; set; } = "";
 
     private static string PathName => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -121,6 +134,25 @@ public sealed class UpdatePolicy
             WindowsAutomation.General.PreferredInstallTime.Trim() == "20:00")
             WindowsAutomation.General.PreferredInstallTime = AutomationSchedule.DefaultPreferredTime;
 
+        // Shared maintenance window (wizard / simplified Pilot).
+        if (InstallDaysMask == 0)
+        {
+            int wd = WindowsAutomation.General.Weekday;
+            InstallDaysMask = wd is >= 0 and <= 6 ? (1 << wd) : MaintenanceSetup.AllDaysMask;
+        }
+        InstallDaysMask &= MaintenanceSetup.AllDaysMask;
+        if (string.IsNullOrWhiteSpace(InstallTime))
+            InstallTime = WindowsAutomation.Critical.PreferredInstallTime;
+        InstallTime = MaintenanceSetup.NormalizeTime(InstallTime, AutomationSchedule.DefaultPreferredTime);
+        if (SetupCompleted)
+        {
+            WindowsAutomation.Critical.PreferredInstallTime = InstallTime;
+            WindowsAutomation.General.PreferredInstallTime = InstallTime;
+            WindowsAutomation.General.Weekday = InstallDaysMask == MaintenanceSetup.AllDaysMask
+                ? 7
+                : MaintenanceSetup.FirstSelectedWeekday(InstallDaysMask);
+        }
+
         // Hard rules for v1 (B+C): only Defender may auto-install.
         if (!string.Equals(WindowsAutomation.Defender.Mode, "autoInstall", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(WindowsAutomation.Defender.Mode, "off", StringComparison.OrdinalIgnoreCase) &&
@@ -133,6 +165,10 @@ public sealed class UpdatePolicy
         if (WindowsAutomation.Defender.IntervalMinutes < 15) WindowsAutomation.Defender.IntervalMinutes = 15;
         if (WindowsAutomation.Critical.IntervalMinutes < 60) WindowsAutomation.Critical.IntervalMinutes = 60;
         if (WindowsAutomation.General.IntervalMinutes < 1440) WindowsAutomation.General.IntervalMinutes = 1440;
+        if (ApplicationsIntervalMinutes < ApplicationAutomation.AbsoluteFloorMinutes)
+            ApplicationsIntervalMinutes = ApplicationAutomation.AbsoluteFloorMinutes;
+        if (ApplicationsIntervalMinutes <= 0)
+            ApplicationsIntervalMinutes = ApplicationAutomation.DefaultIntervalMinutes;
 
         AutomaticApplicationIds ??= new(StringComparer.OrdinalIgnoreCase);
     }
