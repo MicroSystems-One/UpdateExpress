@@ -379,6 +379,7 @@ public static class WindowsUpdateReader
     /// History for the grid: live WUA events plus events saved before a Windows Update fix.
     /// A failed row is omitted when the same update already succeeded. Other failures
     /// with a later success for the same KB are shown as Fixed.
+    /// Fully identical rows (same title, KB, version, and status) collapse to the newest Date/Time.
     /// </summary>
     public static List<UpdateEntry> HistoryForDisplay() =>
         HistoryArchive.MergeForDisplay(History());

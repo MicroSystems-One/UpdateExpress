@@ -129,24 +129,122 @@ internal static class HistoryArchive
         rows.RemoveAll(entry => CoveredBySuccess(entry, rows));
         ApplyFixed(rows, state);
         var hidden = new HashSet<string>(state.HiddenEventKeys, StringComparer.OrdinalIgnoreCase);
-        if (hidden.Count > 0)
-            rows.RemoveAll(entry => hidden.Contains(EventKey(entry)));
+        if (hidden.Count > 0 || state.HiddenDisplayIdentities.Count > 0)
+            rows.RemoveAll(entry => IsHidden(entry, hidden, state.HiddenDisplayIdentities));
+        // Collapse fully identical History rows (same title, KB, version, status,
+        // and error code). Empty KB/Version count as equal. Keep the newest Date/Time.
+        // Distinct versions (e.g. Defender KB2267602) and success vs failure stay separate.
+        rows = CollapseIdenticalRows(rows);
         foreach (var entry in rows)
             OperationalPriority.Apply(entry);
         return rows.OrderByDescending(entry => ParseDate(entry.Date) ?? DateTime.MinValue).ToList();
     }
 
-    /// <summary>Remember a history row the user chose to hide. Windows Update history itself is left unchanged.</summary>
+    /// <summary>
+    /// One visible History row per display identity. Prefer the newest Date/Time.
+    /// </summary>
+    private static List<UpdateEntry> CollapseIdenticalRows(IReadOnlyList<UpdateEntry> rows)
+    {
+        var best = new Dictionary<string, UpdateEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in rows)
+        {
+            string key = DisplayIdentityKey(entry);
+            if (!best.TryGetValue(key, out var existing))
+            {
+                best[key] = entry;
+                continue;
+            }
+            var entryDate = ParseDate(entry.Date) ?? DateTime.MinValue;
+            var existingDate = ParseDate(existing.Date) ?? DateTime.MinValue;
+            if (entryDate >= existingDate)
+                best[key] = entry;
+        }
+        return best.Values.ToList();
+    }
+
+    /// <summary>
+    /// Stable History display key: Update title + KB + Version + Status (+ ErrorCode).
+    /// Empty fields match each other. Status differs keep success and failure both visible.
+    /// </summary>
+    internal static string DisplayIdentityKey(UpdateEntry entry)
+    {
+        static string Norm(string? value) =>
+            Regex.Replace(value ?? "", @"\s+", " ").Trim();
+
+        return string.Join("|",
+            Norm(entry.DisplayTitle).ToUpperInvariant(),
+            Norm(entry.KB).ToUpperInvariant(),
+            Norm(entry.UnifiedVersion),
+            Norm(entry.Status).ToUpperInvariant(),
+            Norm(entry.ErrorCode).ToUpperInvariant());
+    }
+
+    /// <summary>
+    /// Remember a history row the user chose to hide. Windows Update history itself is left unchanged.
+    /// Hides every existing event that shares the collapsed display identity up through the
+    /// newest Date/Time on that row; a later genuine new attempt stays visible.
+    /// </summary>
     internal static void HideFromDisplay(UpdateEntry entry)
     {
         lock (Gate)
         {
             var state = LoadUnlocked();
-            string key = EventKey(entry);
-            if (!state.HiddenEventKeys.Contains(key, StringComparer.OrdinalIgnoreCase))
-                state.HiddenEventKeys.Add(key);
+            string identity = DisplayIdentityKey(entry);
+            var maxDate = ParseDate(entry.Date) ?? DateTime.MinValue;
+
+            void HideEvent(UpdateEntry candidate)
+            {
+                string key = EventKey(candidate);
+                if (!state.HiddenEventKeys.Contains(key, StringComparer.OrdinalIgnoreCase))
+                    state.HiddenEventKeys.Add(key);
+                var when = ParseDate(candidate.Date);
+                if (when is DateTime dated && dated > maxDate)
+                    maxDate = dated;
+            }
+
+            HideEvent(entry);
+            foreach (var existing in state.Entries)
+            {
+                if (string.Equals(DisplayIdentityKey(existing), identity, StringComparison.OrdinalIgnoreCase))
+                    HideEvent(existing);
+            }
+
+            string maxDateText = maxDate == DateTime.MinValue
+                ? (entry.Date ?? "").Trim()
+                : maxDate.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            int index = state.HiddenDisplayIdentities.FindIndex(rule =>
+                string.Equals(rule.Identity, identity, StringComparison.OrdinalIgnoreCase));
+            var rule = new HiddenDisplayIdentity { Identity = identity, MaxDate = maxDateText };
+            if (index < 0)
+                state.HiddenDisplayIdentities.Add(rule);
+            else
+            {
+                var existingMax = ParseDate(state.HiddenDisplayIdentities[index].MaxDate) ?? DateTime.MinValue;
+                if (maxDate >= existingMax)
+                    state.HiddenDisplayIdentities[index] = rule;
+            }
             SaveUnlocked(state);
         }
+    }
+
+    private static bool IsHidden(
+        UpdateEntry entry,
+        HashSet<string> hiddenEventKeys,
+        IReadOnlyList<HiddenDisplayIdentity> hiddenIdentities)
+    {
+        if (hiddenEventKeys.Contains(EventKey(entry))) return true;
+        if (hiddenIdentities.Count == 0) return false;
+        string identity = DisplayIdentityKey(entry);
+        var when = ParseDate(entry.Date) ?? DateTime.MinValue;
+        foreach (var rule in hiddenIdentities)
+        {
+            if (!string.Equals(rule.Identity, identity, StringComparison.OrdinalIgnoreCase)) continue;
+            // No recorded cutoff: treat as hide-all for this identity (legacy-safe).
+            if (string.IsNullOrWhiteSpace(rule.MaxDate)) return true;
+            var max = ParseDate(rule.MaxDate) ?? DateTime.MaxValue;
+            if (when <= max) return true;
+        }
+        return false;
     }
 
     internal static bool IsStillOffered(UpdateEntry history, IReadOnlyList<UpdateEntry> pending) =>
@@ -341,5 +439,17 @@ internal static class HistoryArchive
         public List<UpdateEntry> PendingEntries { get; set; } = new();
         public string? LastScanError { get; set; }
         public List<string> HiddenEventKeys { get; set; } = new();
+        /// <summary>
+        /// Collapsed History identities the user hid, with a Date/Time cutoff so older
+        /// duplicates stay hidden while a later new attempt can reappear.
+        /// </summary>
+        public List<HiddenDisplayIdentity> HiddenDisplayIdentities { get; set; } = new();
+    }
+
+    private sealed class HiddenDisplayIdentity
+    {
+        public string Identity { get; set; } = "";
+        /// <summary>Inclusive newest Date/Time (yyyy-MM-dd HH:mm:ss) covered by the hide.</summary>
+        public string MaxDate { get; set; } = "";
     }
 }
