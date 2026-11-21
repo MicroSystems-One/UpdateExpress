@@ -4,8 +4,8 @@
         Title="Error report"
         Width="720" Height="540" MinWidth="640" MinHeight="420"
         WindowStartupLocation="CenterOwner"
-        Background="#F3F6FB" FontFamily="Segoe UI"
-        ShowInTaskbar="False">
+        Background="#F3F3F3" FontFamily="Segoe UI Variable Text, Segoe UI"
+        ShowInTaskbar="False" Icon="Assets/UpdateExpress-U.ico">
   <Window.Resources>
     <!-- Override App.xaml MinHeight=39 / Margin bottom so footer buttons share one row. -->
     <Style x:Key="DialogActionButton" TargetType="Button">
@@ -43,7 +43,7 @@
       </Setter>
     </Style>
   </Window.Resources>
-  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="14" Padding="18">
+  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="8" Padding="18">
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
@@ -51,13 +51,13 @@
         <RowDefinition Height="*"/>
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
-      <TextBlock Text="Error report / AI prompt" FontSize="18" FontWeight="SemiBold" Foreground="#152137"/>
-      <TextBlock Grid.Row="1" Margin="0,8,0,10" TextWrapping="Wrap" Foreground="#52617A"
+      <TextBlock Text="Error report / AI prompt" FontSize="18" FontWeight="SemiBold" Foreground="#1C1C1C"/>
+      <TextBlock Grid.Row="1" Margin="0,8,0,10" TextWrapping="Wrap" Foreground="#5D5D5D"
                  Text="Copy this prompt into an AI chat or ticket for further Windows Update troubleshooting. Generated from the last Windows Update fix run."/>
       <TextBox x:Name="ReportBox" Grid.Row="2" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
                VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-               FontFamily="Consolas" FontSize="11" BorderBrush="#DDE3EB" Padding="10"
-               Background="#F8FAFC"/>
+               FontFamily="Consolas" FontSize="11" BorderBrush="#E5E5E5" Padding="10"
+               Background="#F9F9F9"/>
       <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
                   Height="30" Margin="0,14,0,0">
         <Button Content="Copy to clipboard" Style="{StaticResource DialogActionButton}" Click="Copy_Click"/>
