@@ -123,9 +123,12 @@ public sealed class UpdateEntry
     public string ErrorCode { get; set; } = "";
     /// <summary>Settings feature update. The row opens Windows Update instead of installing through WUA.</summary>
     public bool OpensWindowsUpdate { get; set; }
-    /// <summary>OEM / external catalog link (download or readme). Double-click opens the browser.</summary>
+    /// <summary>OEM package download URL (exe/zip/…). Double-click / Open OEM download opens this.</summary>
     public string ExternalUrl { get; set; } = "";
     public bool OpensExternalUrl => !string.IsNullOrWhiteSpace(ExternalUrl);
+    /// <summary>Optional OEM TXT / README companion (Lenovo). Separate from the installer package.</summary>
+    public string ReadmeUrl { get; set; } = "";
+    public bool OpensExternalReadme => !string.IsNullOrWhiteSpace(ReadmeUrl);
 
     internal UpdateEntry Clone() => new()
     {
@@ -155,6 +158,7 @@ public sealed class UpdateEntry
         Source = Source,
         ErrorCode = ErrorCode,
         OpensWindowsUpdate = OpensWindowsUpdate,
-        ExternalUrl = ExternalUrl
+        ExternalUrl = ExternalUrl,
+        ReadmeUrl = ReadmeUrl
     };
 }

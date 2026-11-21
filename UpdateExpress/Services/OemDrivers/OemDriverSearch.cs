@@ -42,7 +42,8 @@ internal static class OemDriverSearch
     {
         bool firmware = offer.Status.Equals("Firmware", StringComparison.OrdinalIgnoreCase) ||
                         offer.Category.Contains("BIOS", StringComparison.OrdinalIgnoreCase);
-        string openUrl = First(offer.DetailsUrl, offer.DownloadUrl);
+        // Prefer the real package (exe/zip/…) over a details/readme companion URL.
+        string openUrl = First(offer.DownloadUrl, offer.DetailsUrl);
         return new UpdateEntry
         {
             UpdateId = "", // never install through WUA
@@ -63,6 +64,7 @@ internal static class OemDriverSearch
             SafeDefault = false,
             IsSelected = false,
             ExternalUrl = openUrl,
+            ReadmeUrl = offer.ReadmeUrl?.Trim() ?? "",
             // Leave Date empty so DisplayStatus keeps DriverStatus (Recommended/Firmware).
             // Catalog release time goes in DateDisplay for the Date/Time column only.
             Date = "",

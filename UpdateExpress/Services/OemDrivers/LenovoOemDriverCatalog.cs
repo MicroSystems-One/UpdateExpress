@@ -172,23 +172,20 @@ internal sealed class LenovoOemDriverCatalog : IOemDriverCatalog
 
         string downloadUrl = "";
         string detailsUrl = "";
+        string readmeUrl = "";
         DateTimeOffset? released = null;
         if (item.TryGetProperty("Files", out var files) && files.ValueKind == JsonValueKind.Array)
         {
-            JsonElement? main = null;
+            JsonElement? package = null;
             foreach (var file in files.EnumerateArray())
             {
-                string type = Text(file, "TypeString");
-                if (type.Equals("EXE", StringComparison.OrdinalIgnoreCase) ||
-                    type.Equals("zip", StringComparison.OrdinalIgnoreCase) ||
-                    type.Equals("ZIP", StringComparison.OrdinalIgnoreCase))
-                {
-                    main = file;
-                    break;
-                }
+                if (!IsPackageFile(file)) continue;
+                package = file;
+                break;
             }
-            main ??= files.GetArrayLength() > 0 ? files[0] : null;
-            if (main is { } fileNode)
+
+            // Never fall back to files[0] — that is often the TXT README when it precedes EXE.
+            if (package is { } fileNode)
             {
                 downloadUrl = Text(fileNode, "URL");
                 if (string.IsNullOrWhiteSpace(version))
@@ -208,19 +205,28 @@ internal sealed class LenovoOemDriverCatalog : IOemDriverCatalog
             foreach (var file in files.EnumerateArray())
             {
                 string type = Text(file, "TypeString");
-                if (type.Contains("readme", StringComparison.OrdinalIgnoreCase) ||
-                    type.Equals("HTML", StringComparison.OrdinalIgnoreCase))
+                string url = Text(file, "URL");
+                if (string.IsNullOrWhiteSpace(url)) continue;
+
+                if (IsReadmeFile(type, url))
                 {
-                    detailsUrl = Text(file, "URL");
-                    break;
+                    if (string.IsNullOrWhiteSpace(readmeUrl))
+                        readmeUrl = url;
+                    continue;
+                }
+
+                if (type.Equals("HTML", StringComparison.OrdinalIgnoreCase) &&
+                    string.IsNullOrWhiteSpace(detailsUrl))
+                {
+                    detailsUrl = url;
                 }
             }
         }
 
-        if (string.IsNullOrWhiteSpace(downloadUrl) && string.IsNullOrWhiteSpace(detailsUrl))
+        // Package URL is required for Open OEM download. Readme-only rows are skipped.
+        if (string.IsNullOrWhiteSpace(downloadUrl))
             return null;
 
-        string openUrl = Prefer(detailsUrl, downloadUrl);
         string status = MapStatus(priority, category);
         return new OemDriverOffer(
             Brand: "Lenovo",
@@ -231,9 +237,63 @@ internal sealed class LenovoOemDriverCatalog : IOemDriverCatalog
             Priority: string.IsNullOrWhiteSpace(priority) ? "Recommended" : priority.Trim(),
             Status: status,
             DownloadUrl: downloadUrl,
-            DetailsUrl: openUrl,
+            DetailsUrl: detailsUrl,
             ReleasedAt: released,
-            Reason: $"Lenovo PC Support catalog (MT {machineType}). Open link to download; not installed through WUA.");
+            Reason: $"Lenovo PC Support catalog (MT {machineType}). Open OEM download for the installer; TXT file download for the readme when available. Not installed through WUA.",
+            ReadmeUrl: readmeUrl);
+    }
+
+    /// <summary>Installer / archive / image — not readme, HTML, or PDF.</summary>
+    private static bool IsPackageFile(JsonElement file)
+    {
+        string type = Text(file, "TypeString");
+        string url = Text(file, "URL");
+        if (IsReadmeFile(type, url)) return false;
+        if (type.Equals("HTML", StringComparison.OrdinalIgnoreCase) ||
+            type.Equals("PDF", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (type.Equals("EXE", StringComparison.OrdinalIgnoreCase) ||
+            type.Equals("zip", StringComparison.OrdinalIgnoreCase) ||
+            type.Equals("ZIP", StringComparison.OrdinalIgnoreCase) ||
+            type.Equals("ISO", StringComparison.OrdinalIgnoreCase) ||
+            type.Equals("CAB", StringComparison.OrdinalIgnoreCase) ||
+            type.Equals("MSI", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Fallback by extension when TypeString is missing or unexpected.
+        return LooksLikePackageUrl(url);
+    }
+
+    private static bool IsReadmeFile(string type, string url)
+    {
+        if (type.Contains("readme", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (type.Equals("TXT", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        try
+        {
+            string path = new Uri(url).AbsolutePath;
+            return path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return url.EndsWith(".txt", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static bool LooksLikePackageUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        string path;
+        try { path = new Uri(url).AbsolutePath; }
+        catch { path = url; }
+        return path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".iso", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".cab", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".msi", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string MapStatus(string priority, string category)
