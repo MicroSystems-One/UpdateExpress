@@ -54,7 +54,7 @@ internal static class AppUpdateInstaller
 
         // From here the maintenance helper owns the package path; do not delete on launch errors.
         progress?.Invoke("Preparing replacement…");
-        AgentLog.Write($"App update package verified: path={packagePath}; version={offer.AvailableVersion}; sha256={offer.Sha256}");
+        AgentLog.WriteInstall($"App update package verified: path={packagePath}; version={offer.AvailableVersion}; sha256={offer.Sha256}");
         InstallationManager.LaunchSelfUpdate(packagePath);
     }
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Net;
@@ -27,6 +27,7 @@ public sealed class ProxySettingsWindow : Window
     public ProxySettingsWindow()
     {
         Title = "Update Express – Proxy Settings";
+        AppIcon.Apply(this);
         Width = 650; Height = 680; MinWidth = 520; MinHeight = 540;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var panel = new StackPanel { Margin = new Thickness(18) };
