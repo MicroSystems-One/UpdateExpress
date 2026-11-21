@@ -21,3 +21,4 @@
 ## Build notes
 
 - Re-applied WPF/WinForms type qualification from prior dumps so publish succeeds (Authenticode dry-run).
+- Dump-host compile fix: `using System.IO;` in `DellOemDriverCatalog.cs` (Path/File/Directory).
