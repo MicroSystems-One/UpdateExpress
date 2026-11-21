@@ -98,24 +98,23 @@ internal static class AutomationStatePaths
     /// <summary>
     /// Best-effort ACL so interactive users can save prompts/queues after an elevated
     /// helper creates the ProgramData folder (avoids read-only shared state).
+    /// Uses icacls to avoid an extra AccessControl package dependency.
     /// </summary>
     internal static void TryGrantUsersModify(string dir)
     {
         try
         {
             if (!OperatingSystem.IsWindows()) return;
-            var info = new DirectoryInfo(dir);
-            var security = info.GetAccessControl();
-            var rule = new System.Security.AccessControl.FileSystemAccessRule(
-                new System.Security.Principal.SecurityIdentifier(
-                    System.Security.Principal.WellKnownSidType.BuiltinUsersSid, null),
-                System.Security.AccessControl.FileSystemRights.Modify,
-                System.Security.AccessControl.InheritanceFlags.ContainerInherit |
-                System.Security.AccessControl.InheritanceFlags.ObjectInherit,
-                System.Security.AccessControl.PropagationFlags.None,
-                System.Security.AccessControl.AccessControlType.Allow);
-            security.AddAccessRule(rule);
-            info.SetAccessControl(security);
+            using var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "icacls.exe",
+                Arguments = $"\"{dir}\" /grant *S-1-5-32-545:(OI)(CI)M /T /C /Q",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            });
+            proc?.WaitForExit(8000);
         }
         catch (Exception ex)
         {
