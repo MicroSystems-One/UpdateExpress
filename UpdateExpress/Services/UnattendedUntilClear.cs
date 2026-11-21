@@ -28,8 +28,10 @@ internal static class UnattendedUntilClear
     private static int _continueRunning;
     private static int _resultShowing;
 
+    // Must follow AutomationStatePaths so elevated helpers (different admin LocalAppData)
+    // read the tray user's ledger via --automation-state-dir.
     private static string PathFile =>
-        Path.Combine(InstallationManager.InstallDir, "unattended-until-clear.json");
+        Path.Combine(AutomationStatePaths.Directory, "unattended-until-clear.json");
 
     internal static UnattendedUntilClearState Load()
     {
@@ -47,7 +49,7 @@ internal static class UnattendedUntilClear
 
     internal static void Save(UnattendedUntilClearState state)
     {
-        Directory.CreateDirectory(InstallationManager.InstallDir);
+        Directory.CreateDirectory(AutomationStatePaths.Directory);
         File.WriteAllText(PathFile, JsonSerializer.Serialize(state, Json));
     }
 
@@ -101,7 +103,9 @@ internal static class UnattendedUntilClear
                 Message = $"Armed for {scheduledAt:dd.MM HH:mm} ({sourceCategory}).",
                 ResumeAfterReboot = false,
                 LastContinueAt = null,
-                SoftDeferCount = 0
+                SoftDeferCount = 0,
+                ConsecutiveScanFailures = 0,
+                RebootBlockedAtBoot = null
             };
         }
         else
@@ -146,12 +150,26 @@ internal static class UnattendedUntilClear
         {
             state.Phase = "reboot";
             state.ResumeAfterReboot = true;
+            state.RebootBlockedAtBoot = CategoryPromptState.ApproximateBootTime();
             state.Message = $"{category}: restart required; remaining packages resume after reboot.";
             Save(state);
             return;
         }
 
+        // Do not enter clearing while other confirmed categories are still scheduled.
+        if (HasOutstandingScheduledQueues())
+        {
+            state.Phase = "armed";
+            state.ResumeAfterReboot = false;
+            state.RebootBlockedAtBoot = null;
+            state.Message = $"{category} finished — waiting for remaining scheduled queues.";
+            Save(state);
+            AgentLog.Write($"Unattended until-clear: {category} finished; outstanding schedules remain.");
+            return;
+        }
+
         state.ResumeAfterReboot = false;
+        state.RebootBlockedAtBoot = null;
         state.Phase = "clearing";
         state.Message = "Confirmed queue finished — rescanning until clear.";
         // Allow an immediate continue on the next tray tick.
@@ -320,10 +338,20 @@ internal static class UnattendedUntilClear
         {
             var state = Load();
             if (!IsRunActive(state)) return;
+
+            // After a reboot phase: wait for a new boot (or cleared reboot-pending), then clear.
+            if (state.Phase == "reboot")
+            {
+                if (!TryResumeAfterRebootPhase(state))
+                    return;
+                state = Load();
+            }
+
             if (state.Phase is not ("clearing" or "armed"))
                 return;
 
-            // Let confirmed scheduled installs / reboot resumes finish first.
+            // Let confirmed scheduled installs / reboot resumes finish first —
+            // including schedules still in the future (soft defer / other categories).
             if (HasInFlightConfirmedWork())
                 return;
 
@@ -346,10 +374,7 @@ internal static class UnattendedUntilClear
 
             if (RebootPendingReader.IsRebootPending())
             {
-                state.Phase = "reboot";
-                state.ResumeAfterReboot = true;
-                state.Message = "Restart pending before clearing can continue.";
-                Save(state);
+                EnterRebootPhase(state, "Restart pending before clearing can continue.");
                 var policy = UpdatePolicy.Load();
                 policy.Normalize();
                 if (policy.WindowsAutomation.AutoReboot.Enabled)
@@ -380,6 +405,9 @@ internal static class UnattendedUntilClear
             var policyLive = UpdatePolicy.Load();
             policyLive.Normalize();
 
+            bool windowsScanOk = true;
+            bool appsScanOk = true;
+
             // --- Windows Critical / General / Defender signatures (same scope as Update until current) ---
             List<UpdateEntry> windowsMatches = new();
             try
@@ -393,11 +421,14 @@ internal static class UnattendedUntilClear
             }
             catch (Exception ex)
             {
+                windowsScanOk = false;
                 AgentLog.Write("Unattended until-clear: Windows scan failed: " + ex.Message);
             }
 
             if (windowsMatches.Count > 0)
             {
+                state.ConsecutiveScanFailures = 0;
+                Save(state);
                 // Prefer Critical + Defender first; then General (same split as automation categories).
                 var critical = windowsMatches.Where(UpdateCategoryRules.IsCriticalSoftware).ToList();
                 var defender = windowsMatches
@@ -419,7 +450,8 @@ internal static class UnattendedUntilClear
             }
 
             // --- Applications (WinGet), when automatic apps are enabled ---
-            if (policyLive.WindowsAutomation.Enabled && policyLive.AutomaticApplications)
+            bool appsEnabled = policyLive.WindowsAutomation.Enabled && policyLive.AutomaticApplications;
+            if (appsEnabled)
             {
                 try
                 {
@@ -434,17 +466,46 @@ internal static class UnattendedUntilClear
 
                     if (apps.Count > 0)
                     {
+                        state.ConsecutiveScanFailures = 0;
+                        Save(state);
                         QueueApplicationsBatch(apps);
                         return;
                     }
                 }
                 catch (Exception ex)
                 {
+                    appsScanOk = false;
                     AgentLog.Write("Unattended until-clear: WinGet scan failed: " + ex.Message);
                 }
             }
 
-            // Fall through when scans found nothing.
+            // Inventory failed: do not pretend the machine is clear.
+            bool inventoryFailed = !windowsScanOk || (appsEnabled && !appsScanOk);
+            if (inventoryFailed)
+            {
+                state.ConsecutiveScanFailures++;
+                state.Phase = "clearing";
+                state.Message = windowsScanOk
+                    ? "WinGet scan failed — will retry clearing."
+                    : "Windows scan failed — will retry clearing.";
+                Save(state);
+                ActivityLog.TryWrite(
+                    "UnattendedUntilClear",
+                    "ScanFailed",
+                    new { state.ConsecutiveScanFailures, windowsScanOk, appsScanOk },
+                    mode: "Automatic",
+                    source: "TrayAgent");
+                if (state.ConsecutiveScanFailures >= 3)
+                {
+                    Stop(windowsScanOk
+                        ? "Stopped: WinGet inventory failed repeatedly; run incomplete."
+                        : "Stopped: Windows inventory failed repeatedly; run incomplete.");
+                }
+                return;
+            }
+
+            state.ConsecutiveScanFailures = 0;
+            Save(state);
 
             // Nothing left (or only skips).
             int skipped = state.SkipIds.Count;
@@ -462,6 +523,66 @@ internal static class UnattendedUntilClear
         }
     }
 
+    /// <summary>
+    /// When Phase=reboot: wait until reboot-pending clears (new boot or declined),
+    /// then transition back to clearing so rescans resume. Remaining Applications
+    /// resume-across-reboot still takes priority via <see cref="HasInFlightConfirmedWork"/>.
+    /// </summary>
+    private static bool TryResumeAfterRebootPhase(UnattendedUntilClearState state)
+    {
+        if (RebootPendingReader.IsRebootPending())
+            return false;
+
+        // Prefer finishing any remaining Applications queue before a clearing rescan.
+        if (HasInFlightConfirmedWork())
+            return false;
+
+        DateTime currentBoot = CategoryPromptState.ApproximateBootTime();
+        bool sameBoot = state.RebootBlockedAtBoot is DateTime blocked &&
+                        CategoryPromptState.IsSameBoot(blocked, currentBoot);
+        AgentLog.Write(sameBoot
+            ? "Unattended until-clear: reboot pending cleared same boot — resuming clearing."
+            : "Unattended until-clear: resuming clearing after reboot.");
+
+        state.Phase = "clearing";
+        state.ResumeAfterReboot = false;
+        state.RebootBlockedAtBoot = null;
+        state.LastContinueAt = null;
+        state.Message = sameBoot
+            ? "Reboot cleared — continuing until clear."
+            : "Resumed after restart — continuing until clear.";
+        Save(state);
+        ActivityLog.TryWrite(
+            "UnattendedUntilClear",
+            "ResumedAfterReboot",
+            new { SameBoot = sameBoot },
+            mode: "Automatic",
+            source: "TrayAgent");
+        return true;
+    }
+
+    private static void EnterRebootPhase(UnattendedUntilClearState state, string message)
+    {
+        state.Phase = "reboot";
+        state.ResumeAfterReboot = true;
+        state.RebootBlockedAtBoot = CategoryPromptState.ApproximateBootTime();
+        state.Message = message;
+        Save(state);
+    }
+
+    /// <summary>True when any confirmed category still has a future or due scheduled queue.</summary>
+    private static bool HasOutstandingScheduledQueues()
+    {
+        foreach (var cat in new[] { "critical", "general", "applications" })
+        {
+            var prompt = CategoryPromptState.Load(cat);
+            if (string.Equals(prompt.State, "scheduled", StringComparison.OrdinalIgnoreCase) &&
+                prompt.Updates.Count > 0)
+                return true;
+        }
+        return false;
+    }
+
     private static bool HasInFlightConfirmedWork()
     {
         foreach (var cat in new[] { "critical", "general", "applications" })
@@ -469,9 +590,9 @@ internal static class UnattendedUntilClear
             var prompt = CategoryPromptState.Load(cat);
             if (string.Equals(prompt.State, "installing", StringComparison.OrdinalIgnoreCase))
                 return true;
+            // Any outstanding schedule (including soft-defer / future window) must finish
+            // before clearing rescans overwrite the confirmed prompt.
             if (string.Equals(prompt.State, "scheduled", StringComparison.OrdinalIgnoreCase) &&
-                prompt.ScheduledInstallAt is DateTime when &&
-                when <= DateTime.Now.AddMinutes(1) &&
                 prompt.Updates.Count > 0)
                 return true;
 
@@ -695,11 +816,15 @@ internal sealed class UnattendedUntilClearState
     public DateTime? CompletedAt { get; set; }
     public DateTime? ShowResultAfter { get; set; }
     public DateTime? LastContinueAt { get; set; }
+    /// <summary>Boot stamp when Phase entered reboot; used to detect post-restart resume.</summary>
+    public DateTime? RebootBlockedAtBoot { get; set; }
     public bool ResultPending { get; set; }
     public bool ResumeAfterReboot { get; set; }
     public int Round { get; set; }
     public int MaxRounds { get; set; } = UnattendedUntilClear.DefaultMaxRounds;
     public int SoftDeferCount { get; set; }
+    /// <summary>Consecutive clearing rounds where inventory scan failed (not empty).</summary>
+    public int ConsecutiveScanFailures { get; set; }
     public string Message { get; set; } = "";
     public List<string> ConfirmedCategories { get; set; } = new();
     public List<string> SkipIds { get; set; } = new();
