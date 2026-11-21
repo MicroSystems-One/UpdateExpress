@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using UpdateExpress.Models;
@@ -55,18 +56,78 @@ public static class WingetReader
             : $"WinGet exited with code {process.ExitCode}; results may be incomplete.";
         return new(updates, raw, message);
     }
-    public static async Task<(int ExitCode, string Output)> UpgradeAsync(string packageId, CancellationToken cancellationToken)
+    public static async Task<(int ExitCode, string Output)> UpgradeAsync(
+        string packageId,
+        CancellationToken cancellationToken,
+        bool machineScope = true)
     {
         // Never pass a package ID through a shell. Execute only the exact ID returned by the scan.
         if (string.IsNullOrWhiteSpace(packageId) || packageId.Any(c => !(char.IsLetterOrDigit(c) || c is '.' or '-' or '_' or '+')))
             throw new ArgumentException("Invalid package ID.");
         var psi = new ProcessStartInfo("winget") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
-        foreach (var arg in new[] { "upgrade", "--id", packageId, "--exact", "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity" }) psi.ArgumentList.Add(arg);
+        // Automated/scheduled installs default to machine scope (all users) — never offer per-user.
+        var args = new List<string> { "upgrade", "--id", packageId, "--exact", "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity" };
+        if (machineScope)
+            args.AddRange(new[] { "--scope", "machine" });
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("WinGet could not start.");
         var outputTask = proc.StandardOutput.ReadToEndAsync(); var errorTask = proc.StandardError.ReadToEndAsync();
         try { await proc.WaitForExitAsync(cancellationToken); }
         catch (OperationCanceledException) { try { proc.Kill(entireProcessTree: true); } catch { } throw; }
         return (proc.ExitCode, (await outputTask) + Environment.NewLine + (await errorTask));
+    }
+
+    /// <summary>winget APPINSTALLER_CLI_ERROR_UPDATE_INSTALL_TECHNOLOGY_MISMATCH (0x8A15008E).</summary>
+    public const int ExitInstallTechnologyMismatch = unchecked((int)0x8A15008E); // -1978335090
+    /// <summary>Win32 ERROR_SUCCESS_REBOOT_REQUIRED.</summary>
+    public const int ExitRebootRequiredWin32 = 3010;
+    /// <summary>winget APPINSTALLER_CLI_ERROR_INSTALL_REBOOT_REQUIRED (0x8A150109).</summary>
+    public const int ExitInstallRebootRequired = unchecked((int)0x8A150109); // -1978334967
+
+    public static bool IsInstallTechnologyMismatch(int exitCode) => exitCode == ExitInstallTechnologyMismatch;
+
+    /// <summary>
+    /// True when winget signals an OS restart is required before remaining upgrades can continue.
+    /// Ignores "restart the application" style messages.
+    /// </summary>
+    public static bool IndicatesOsRebootRequired(int exitCode, string? output)
+    {
+        if (exitCode == ExitRebootRequiredWin32 || exitCode == ExitInstallRebootRequired)
+            return true;
+
+        if (string.IsNullOrWhiteSpace(output))
+            return false;
+
+        // Reject app-only restart hints before OS reboot phrases.
+        string text = output;
+        if (Regex.IsMatch(text, @"(?i)restart (the )?application") &&
+            !Regex.IsMatch(text, @"(?i)restart (your )?(computer|pc|system)|system restart|reboot (your )?(computer|pc|system)|omstart av (datamaskin|system)|start(e)? (PC|datamaskinen) p[aå] nytt"))
+            return false;
+
+        return Regex.IsMatch(
+            text,
+            @"(?i)(a (system )?restart is required|restart (your )?(computer|pc|system)|reboot (your )?(computer|pc|system)|you must restart|omstart (av )?(datamaskin|system|pc)|start(e)? (PC-?en|datamaskinen) p[aå] nytt)");
+    }
+
+    /// <summary>
+    /// Status label + tooltip/notice for a failed winget upgrade.
+    /// Known codes get a clear EN/NO hint; others keep the raw exit code.
+    /// </summary>
+    public static (string State, string? Tip, string? Notice) DescribeUpgradeFailure(int exitCode, string packageLabel, bool norwegian)
+    {
+        if (IsInstallTechnologyMismatch(exitCode))
+        {
+            string state = norwegian ? "Feilet (teknologi-mismatch)" : "Failed (tech mismatch)";
+            string tip = norwegian
+                ? "WinGet exit -1978335090 (0x8A15008E): pakken er installert via en annen kanal (f.eks. Microsoft Store eller MSI) enn den WinGet vil oppgradere. Avinstaller og installer på nytt via winget, eller oppgrader i Store."
+                : "WinGet exit -1978335090 (0x8A15008E): package was installed via another channel (e.g. Microsoft Store or MSI) than the one WinGet uses to upgrade. Reinstall via winget, or upgrade in the Store.";
+            string notice = norwegian
+                ? $"{packageLabel}: installert via annen kanal — reinstaller via winget eller oppgrader i Store."
+                : $"{packageLabel}: installed via another channel — reinstall via winget or upgrade in the Store.";
+            return (state, tip, notice);
+        }
+
+        return ($"Failed (exit {exitCode})", null, null);
     }
     private static List<AppUpdate> ParseTable(string output)
     {

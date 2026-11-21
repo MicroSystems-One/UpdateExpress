@@ -77,7 +77,7 @@ internal static class DownloadPromptAutomation
             }
 
             string preferred = AutomationSchedule.PreferredOrDefault(cat.PreferredInstallTime);
-            var prompt = CategoryPromptState.Load(category);
+            var prompt = CategoryPromptState.LoadAndReconcile(category);
 
             if (prompt.State == "installing")
                 return;
@@ -87,8 +87,28 @@ internal static class DownloadPromptAutomation
                 scheduled <= DateTime.Now &&
                 prompt.Updates.Count > 0)
             {
-                await PresentPromptAsync(dispatcher, prompt, preferred, displayName, balloonTitle,
-                    $"Scheduled {displayName.ToLowerInvariant()} updates are due.", elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
+                // Missed/overdue schedule (sleep, power-off): re-check the live maintenance
+                // window instead of installing mid-day on an unselected day.
+                int mask = MaintenanceSetup.ClampMask(policy.InstallDaysMask);
+                string windowTime = MaintenanceSetup.NormalizeTime(
+                    string.IsNullOrWhiteSpace(policy.InstallTime) ? preferred : policy.InstallTime,
+                    preferred);
+                if (mask != 0 && !MaintenanceSetup.IsWithinInstallWindow(mask, windowTime, DateTime.Now))
+                {
+                    AgentLog.Write($"{displayName} automation: overdue schedule outside install window — rescheduling.");
+                    await MaybeDeferOrPresentAsync(dispatcher, policy, prompt, preferred, displayName, balloonTitle,
+                        $"Scheduled {displayName.ToLowerInvariant()} updates are due.", elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
+                        .ConfigureAwait(false);
+                    return;
+                }
+                // Install window reached: start elevated install (reboot still follows AutoReboot policy).
+                if (UnattendedUntilClear.IsRunActive() &&
+                    UnattendedUntilClear.TryDeferForActiveSession(prompt, displayName))
+                    return;
+                AgentLog.Write($"{displayName} automation: scheduled install window reached — starting install.");
+                if (UnattendedUntilClear.IsRunActive())
+                    UnattendedUntilClear.MarkInstalling(displayName);
+                await StartElevatedInstallAsync(prompt, preferred, displayName, elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
                     .ConfigureAwait(false);
                 return;
             }
@@ -98,7 +118,7 @@ internal static class DownloadPromptAutomation
 
             if (prompt.State == "awaitingPrompt" && prompt.Updates.Count > 0)
             {
-                await PresentPromptAsync(dispatcher, prompt, preferred, displayName, balloonTitle,
+                await MaybeDeferOrPresentAsync(dispatcher, policy, prompt, preferred, displayName, balloonTitle,
                     $"{displayName} updates are waiting for confirmation.", elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
                     .ConfigureAwait(false);
                 return;
@@ -180,9 +200,9 @@ internal static class DownloadPromptAutomation
                 category,
                 "Awaiting confirmation",
                 $"{matches.Count} update(s) ready · downloaded={downloaded}",
-                NextDue(DateTime.Now, cat, preferred, useWeeklySchedule, minIntervalMinutes));
+                NextDue(DateTime.Now, cat, preferred, useWeeklySchedule, minIntervalMinutes, policy));
 
-            await PresentPromptAsync(dispatcher, prompt, preferred, displayName, balloonTitle,
+            await MaybeDeferOrPresentAsync(dispatcher, policy, prompt, preferred, displayName, balloonTitle,
                 $"{matches.Count} {displayName.ToLowerInvariant()} Windows update(s) available.",
                 elevateArg, cat, useWeeklySchedule, minIntervalMinutes).ConfigureAwait(false);
         }
@@ -198,10 +218,95 @@ internal static class DownloadPromptAutomation
         CategoryAutomationPolicy cat,
         string preferred,
         bool useWeeklySchedule,
-        int minIntervalMinutes) =>
-        useWeeklySchedule
+        int minIntervalMinutes,
+        UpdatePolicy? policy = null)
+    {
+        policy ??= UpdatePolicy.Load();
+        int mask = MaintenanceSetup.ClampMask(policy.InstallDaysMask);
+        string time = MaintenanceSetup.NormalizeTime(
+            string.IsNullOrWhiteSpace(policy.InstallTime) ? preferred : policy.InstallTime,
+            preferred);
+        if (mask != 0 && mask != MaintenanceSetup.AllDaysMask)
+            return AutomationSchedule.ComputeNextInstallWindowDue(from, cat.IntervalMinutes, time, mask, minIntervalMinutes);
+        return useWeeklySchedule
             ? AutomationSchedule.ComputeNextWeeklyDue(from, cat.IntervalMinutes, preferred, cat.Weekday)
             : AutomationSchedule.ComputeNextDue(from, cat.IntervalMinutes, preferred, minIntervalMinutes);
+    }
+
+    /// <summary>
+    /// Outside the install window: schedule + evening notice. Inside window: normal confirmation dialog.
+    /// </summary>
+    private static async Task MaybeDeferOrPresentAsync(
+        Dispatcher dispatcher,
+        UpdatePolicy policy,
+        CategoryPromptState prompt,
+        string preferred,
+        string displayName,
+        string balloonTitle,
+        string balloonText,
+        string elevateArg,
+        CategoryAutomationPolicy cat,
+        bool useWeeklySchedule,
+        int minIntervalMinutes)
+    {
+        policy.Normalize();
+        int mask = MaintenanceSetup.ClampMask(policy.InstallDaysMask);
+        string time = MaintenanceSetup.NormalizeTime(
+            string.IsNullOrWhiteSpace(policy.InstallTime) ? preferred : policy.InstallTime,
+            preferred);
+        bool norwegian = MaintenanceSetup.IsNorwegian();
+        bool autoReboot = policy.WindowsAutomation.AutoReboot.Enabled;
+
+        if (mask != 0 &&
+            !MaintenanceSetup.IsWithinInstallWindow(mask, time, DateTime.Now) &&
+            MaintenanceSetup.NextInstallOccurrence(mask, time, DateTime.Now) is DateTime when &&
+            when > DateTime.Now.AddMinutes(5))
+        {
+            prompt.State = "scheduled";
+            prompt.ScheduledInstallAt = when;
+            prompt.SnoozeUntil = when;
+            prompt.Save();
+            UnattendedUntilClear.Arm(when, prompt.Category);
+            AutomationStatePaths.PublishSharedScheduleNotice(
+                when, displayName,
+                norwegian
+                    ? $"Installasjon kl. {when:HH:mm} — synlig for alle brukere på PC-en."
+                    : $"Install at {when:HH:mm} — visible to every user on this PC.");
+            WindowsAutomationStatus.WriteCategory(
+                prompt.Category, "Scheduled",
+                norwegian
+                    ? $"Installasjon satt til {when:dd.MM HH:mm}. Lagre åpne filer før du går."
+                    : $"Install scheduled for {when:dd.MM HH:mm}. Save open files before you leave.",
+                when);
+            ActivityLog.TryWrite(displayName + "Automation", "ScheduledWindow", new { At = when }, mode: "Automatic", source: "TrayAgent");
+
+            string title = MaintenanceSetup.EveningNoticeTitle(norwegian);
+            string body = when.Date == DateTime.Today
+                ? MaintenanceSetup.EveningNoticeBody(when, norwegian, autoReboot)
+                : (norwegian
+                    ? $"Nye Windows-oppdateringer er lastet ned og klare.\nInstallasjon er satt til {when:ddd dd.MM} kl. {when:HH:mm}.\n\nTips: Lagre åpne dokumenter før PC-en installerer og eventuelt restarter."
+                    : $"New Windows updates are downloaded and ready.\nInstallation is set for {when:ddd dd MMM} at {when:HH:mm}.\n\nTip: Save open files before the PC installs and possibly restarts.");
+
+            try { _balloon?.Invoke(title, MaintenanceSetup.EveningBalloon(when, norwegian)); }
+            catch { }
+
+            try
+            {
+                await dispatcher.InvokeAsync(() =>
+                {
+                    System.Windows.MessageBox.Show(body, title, System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                }).Task.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                AgentLog.Write($"{displayName} automation scheduled notice failed: " + ex.Message);
+            }
+            return;
+        }
+
+        await PresentPromptAsync(dispatcher, prompt, preferred, displayName, balloonTitle, balloonText,
+            elevateArg, cat, useWeeklySchedule, minIntervalMinutes).ConfigureAwait(false);
+    }
 
     private static async Task PresentPromptAsync(
         Dispatcher dispatcher,
@@ -255,14 +360,21 @@ internal static class DownloadPromptAutomation
 
             case SoftwareUpdatesDialog.PromptDecision.InstallAtPreferred:
             {
-                DateTime when = AutomationSchedule.NextPreferredOccurrence(preferred);
+                var pol = UpdatePolicy.Load();
+                pol.Normalize();
+                DateTime when = MaintenanceSetup.NextInstallOccurrence(pol.InstallDaysMask, pol.InstallTime, DateTime.Now)
+                    ?? AutomationSchedule.NextPreferredOccurrence(preferred);
                 prompt.State = "scheduled";
                 prompt.ScheduledInstallAt = when;
                 prompt.SnoozeUntil = when;
                 prompt.Save();
+                UnattendedUntilClear.Arm(when, prompt.Category);
+                AutomationStatePaths.PublishSharedScheduleNotice(
+                    when, displayName,
+                    $"Install at {when:HH:mm} — {displayName} (machine-wide).");
                 WindowsAutomationStatus.WriteCategory(
                     prompt.Category, "Scheduled",
-                    $"Install scheduled for {when:dd.MM HH:mm}. No automatic restart.", when);
+                    $"Install scheduled for {when:dd.MM HH:mm}. Unattended until clear after that.", when);
                 ActivityLog.TryWrite(displayName + "Automation", "Scheduled", new { At = when }, mode: "Automatic", source: "TrayAgent");
                 AgentLog.Write($"{displayName} automation: install scheduled for " + when.ToString("O"));
                 break;
@@ -321,7 +433,7 @@ internal static class DownloadPromptAutomation
             return Task.CompletedTask;
         }
 
-        prompt.State = "installing";
+        prompt.MarkInstalling();
         prompt.Save();
         prompt.WriteInstallQueue(ids);
         ActivityLog.TryWrite(displayName + "Automation", "InstallRequested", new { Count = ids.Count }, mode: "Automatic", source: "TrayAgent");
@@ -329,7 +441,7 @@ internal static class DownloadPromptAutomation
 
         try
         {
-            ElevationHelper.RestartElevated(elevateArg);
+            ElevationHelper.RestartElevated(AutomationStatePaths.ElevateArguments(elevateArg));
             WindowsAutomationStatus.WriteCategory(
                 prompt.Category, "Installing",
                 "Elevated installer started. Update Express will not reboot Windows.",
@@ -338,6 +450,7 @@ internal static class DownloadPromptAutomation
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
             prompt.State = "awaitingPrompt";
+            prompt.InstallingStartedAt = null;
             prompt.Save();
             WindowsAutomationStatus.WriteCategory(prompt.Category, "UAC cancelled", "Administrator approval was cancelled.", DateTime.Now.AddHours(1));
             AgentLog.Write($"{displayName} automation: UAC cancelled for install.");
@@ -345,6 +458,7 @@ internal static class DownloadPromptAutomation
         catch (Exception ex)
         {
             prompt.State = "awaitingPrompt";
+            prompt.InstallingStartedAt = null;
             prompt.Save();
             WindowsAutomationStatus.WriteCategory(prompt.Category, "Failed", "Could not start elevated install: " + ex.Message, DateTime.Now.AddHours(1));
             AgentLog.Write($"{displayName} automation elevated launch failed: " + ex);
@@ -397,33 +511,43 @@ internal static class DownloadPromptAutomation
         manager.Loaded += async (_, _) =>
         {
             manager.PrepareRunning();
-            manager.BeginItem(0, $"Downloading / installing {displayName.ToLowerInvariant()} updates…");
+            bool norwegian = string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase);
+            manager.SetNotice(WuaProgressText.PleaseWait(norwegian));
+            manager.SetStage(norwegian ? "Forbereder nedlasting…" : "Preparing download…");
             try
             {
                 var selected = ids.Select(id => new UpdateEntry { UpdateId = id }).ToList();
-                IProgress<string> progress = new Progress<string>(stage =>
+                IProgress<WuaActivity> activity = new Progress<WuaActivity>(update =>
                 {
-                    try { manager.Dispatcher.BeginInvoke(new Action(() => manager.SetStage(stage))); }
+                    try { manager.ApplyActivity(update, norwegian); }
                     catch { }
-                    AgentLog.Write($"{displayName} install: " + stage);
+                    AgentLog.Write($"{displayName} install: " + WuaProgressText.Stage(norwegian, update.Phase, update.Kb, update.Number, update.Total, update.Percent));
                 });
+                IProgress<string> progress = new Progress<string>(stage => AgentLog.Write($"{displayName} install: " + stage));
 
                 var results = await WindowsUpdateReader.RunStaAsync(() =>
-                        WindowsUpdateReader.InstallSelected(selected, stage => ((IProgress<string>)progress).Report(stage)))
+                        WindowsUpdateReader.InstallSelected(selected, progress.Report, activity.Report))
                     .ConfigureAwait(true);
 
                 for (int i = 0; i < ids.Count; i++)
                 {
                     string id = ids[i];
-                    var result = results.FirstOrDefault(x =>
-                                    !string.IsNullOrWhiteSpace(x.UpdateId) &&
-                                    x.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase))
-                                ?? (i < results.Count ? results[i] : null);
+                    var requested = selected[i];
+                    var result = WindowsUpdateReader.MatchInstallResult(results, requested, i, ids.Count)
+                                 ?? results.FirstOrDefault(x =>
+                                     !string.IsNullOrWhiteSpace(x.UpdateId) &&
+                                     x.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase));
                     string state = result == null ? "Not verified" :
                         result.Status is "Installert" or "Already up to date" ? "Completed" :
                         result.Status is "Delvis fullført" ? "Not verified" :
                         "Failed" + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " " + result.ErrorCode);
-                    manager.CompleteItem(i, state, state.StartsWith("Failed", StringComparison.Ordinal));
+                    bool failed = state.StartsWith("Failed", StringComparison.Ordinal);
+                    manager.CompleteItem(i, state, failed);
+                    string title = queue[i].Name;
+                    if (failed)
+                        UnattendedUntilClear.RecordItem(id, title, displayName, success: false, detail: state);
+                    else if (state is "Completed" or "Not verified")
+                        UnattendedUntilClear.RecordItem(id, title, displayName, success: true, detail: state);
                 }
 
                 CategoryPromptState.ClearInstallQueue(category);
@@ -445,8 +569,11 @@ internal static class DownloadPromptAutomation
                         : $"{ok}/{results.Count} completed.",
                     NextDue(DateTime.Now, cat, preferred, weekly, minInterval));
                 ActivityLog.TryWrite(displayName + "Automation", "Installed", new { ok, Total = results.Count, rebootHint }, mode: "Automatic", source: "ElevatedHelper");
+                try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+                catch (Exception ex) { AgentLog.Write($"{displayName} install: history record failed: " + ex.Message); }
 
                 manager.Finish();
+                UnattendedUntilClear.OnInstallHelperFinished(displayName, remainingAfterReboot: false);
                 if (rebootHint)
                 {
                     bool autoReboot = policy.WindowsAutomation.AutoReboot.Enabled;
@@ -462,18 +589,39 @@ internal static class DownloadPromptAutomation
                 ActivityLog.TryWrite(displayName + "Automation", "InstallFailed", ex.ToString(), mode: "Automatic", source: "ElevatedHelper");
                 WindowsAutomationStatus.WriteCategory(category, "Failed", ex.Message, DateTime.Now.AddHours(1));
                 var retry = CategoryPromptState.Load(category);
-                retry.State = "awaitingPrompt";
-                retry.Save();
-                for (int i = 0; i < queue.Count; i++)
-                    manager.CompleteItem(i, "Failed", true);
+                // Unattended run: do not re-prompt; skip all queued ids for this run.
+                if (UnattendedUntilClear.IsRunActive())
+                {
+                    for (int i = 0; i < ids.Count; i++)
+                    {
+                        UnattendedUntilClear.RecordItem(ids[i], queue[i].Name, displayName, success: false, detail: ex.Message);
+                        manager.CompleteItem(i, "Failed", true);
+                    }
+                    CategoryPromptState.ClearInstallQueue(category);
+                    CategoryPromptState.Clear(category);
+                    UnattendedUntilClear.OnInstallHelperFinished(displayName, remainingAfterReboot: false);
+                }
+                else
+                {
+                    retry.State = "awaitingPrompt";
+                    retry.InstallingStartedAt = null;
+                    retry.Save();
+                    for (int i = 0; i < queue.Count; i++)
+                        manager.CompleteItem(i, "Failed", true);
+                }
+                try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+                catch (Exception hx) { AgentLog.Write($"{displayName} install: history record failed: " + hx.Message); }
                 manager.Finish();
                 manager.SetStage("Failed: " + ex.Message);
-                System.Windows.MessageBox.Show(
-                    manager,
-                    $"Could not install {displayName.ToLowerInvariant()} updates.\n\n" + ex.Message + "\n\nSee agent.log for details.",
-                    "Update Express",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Error);
+                if (!UnattendedUntilClear.IsRunActive())
+                {
+                    System.Windows.MessageBox.Show(
+                        manager,
+                        $"Could not install {displayName.ToLowerInvariant()} updates.\n\n" + ex.Message + "\n\nSee agent.log for details.",
+                        "Update Express",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Error);
+                }
             }
         };
 

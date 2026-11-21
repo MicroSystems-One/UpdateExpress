@@ -30,9 +30,19 @@ internal static class MachineIdentityReader
     }
 
     private static Identity Present(string manufacturer, string model, string product, string serial) =>
-        new(Show(manufacturer), Show(model), Show(product), Show(serial), Show(Environment.MachineName));
+        new(Show(TitleCaseManufacturer(manufacturer)), Show(model), Show(product), Show(serial), Show(Environment.MachineName));
 
     private static string Show(string value) => string.IsNullOrWhiteSpace(value) ? "—" : value.Trim();
+
+    /// <summary>LENOVO → Lenovo; leave short acronyms (HP, IBM) alone.</summary>
+    private static string TitleCaseManufacturer(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return value;
+        var text = value.Trim();
+        if (text.Length <= 3) return text;
+        if (text.Any(char.IsLower)) return text;
+        return char.ToUpperInvariant(text[0]) + text[1..].ToLowerInvariant();
+    }
 
     private readonly record struct Raw(string Manufacturer, string Model, string Product, string Serial);
 
@@ -104,11 +114,41 @@ internal static class MachineIdentityReader
             if (IsGuid(productName)) productName = "";
             if (IsGuid(identifying)) identifying = "";
             // SKU is the product number HP and Dell support pages ask for.
-            // Lenovo often leaves SKU empty and puts the machine type in Name.
-            string product = First(sku, Different(productName, model), Code(productVersion, model));
-            return new(manufacturer, model, product, First(serial, identifying));
+            // Lenovo often leaves SKU empty and puts the MTM in Win32_ComputerSystem.Model
+            // (e.g. 10YM0027MX). The marketing model (e.g. ThinkCentre M630e) may be in
+            // Win32_ComputerSystemProduct.Name OR .Version — #90 only checked Name, so
+            // Version-only Lenovos kept Model=MTM and let Code(Version) park the marketing
+            // name in Produktnr (M630e has digits, so Code treated it as a product code).
+            var (resolvedModel, resolvedProduct) = ResolveModelAndProduct(model, sku, productName, productVersion);
+            return new(manufacturer, resolvedModel, resolvedProduct, First(serial, identifying));
         }
         catch { return default; }
+    }
+
+    /// <summary>
+    /// Map CIM fields to UI Model (marketing) + Product (MTM/SKU).
+    /// </summary>
+    private static (string Model, string Product) ResolveModelAndProduct(
+        string model,
+        string sku,
+        string productName,
+        string productVersion)
+    {
+        string marketing = FirstMarketing(productName, productVersion);
+        if (LooksLikeMachineType(model) && !string.IsNullOrEmpty(marketing))
+            return (marketing, First(MachineTypeOrEmpty(sku), model));
+
+        // Inverted: Model already marketing, Name holds MTM.
+        if (LooksLikeMarketingModel(model) && LooksLikeMachineType(productName))
+            return (model, First(MachineTypeOrEmpty(sku), productName));
+
+        // HP/Dell/etc.: SKU first; never treat a marketing Version (…M630e) as Produktnr.
+        string product = First(
+            sku,
+            MachineTypeOrEmpty(productName),
+            Different(productName, model),
+            MachineTypeOrEmpty(productVersion));
+        return (model, product);
     }
 
     private static string JsonText(JsonElement root, string name) =>
@@ -128,11 +168,15 @@ internal static class MachineIdentityReader
             ? ""
             : value;
 
-    private static string Code(string value, string model)
+    private static string FirstMarketing(params string[] values)
     {
-        value = Different(value, model);
-        return value.Any(char.IsDigit) ? value : "";
+        foreach (var value in values)
+            if (LooksLikeMarketingModel(value)) return value.Trim();
+        return "";
     }
+
+    private static string MachineTypeOrEmpty(string value) =>
+        LooksLikeMachineType(value) ? value.Trim() : "";
 
     private static string Clean(string? value)
     {
@@ -155,4 +199,22 @@ internal static class MachineIdentityReader
     }
 
     private static bool IsGuid(string value) => Guid.TryParse(value, out _);
+
+    /// <summary>Lenovo MTM / product codes: e.g. 10YM0027MX — digits, no spaces.</summary>
+    internal static bool LooksLikeMachineType(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var text = value.Trim();
+        if (text.Contains(' ') || text.Length is < 5 or > 20) return false;
+        return text.Any(char.IsDigit) && text.All(c => char.IsLetterOrDigit(c) || c is '-' or '_');
+    }
+
+    /// <summary>Marketing model names: e.g. ThinkCentre M630e / M720q.</summary>
+    internal static bool LooksLikeMarketingModel(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var text = value.Trim();
+        if (LooksLikeMachineType(text)) return false;
+        return text.Any(char.IsLetter) && (text.Contains(' ') || text.Any(char.IsLower));
+    }
 }
