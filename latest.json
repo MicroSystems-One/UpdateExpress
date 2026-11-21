@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.46",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.46/UpdateExpress_v0.7.2.46.exe",
-  "sha256": "750474b9d57f7be3433915bee6b465e1335909e35c81ff251dad61c099ed4968",
-  "publishedAt": "2026-11-21T12:00:15Z",
-  "releaseNotes": "Unattended UX dump (#85/#83): result activity, reboot UI, machine-scope, quiet gate + until-clear. Tip c8b8c5d (dump 36cf84e)."
+  "version": "0.7.2.47",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.47/UpdateExpress_v0.7.2.47.exe",
+  "sha256": "91e638b8e38a07e3d83fc89139215042ceef335676039ea966a96bcf1c0ea817",
+  "publishedAt": "2026-11-21T13:08:23Z",
+  "releaseNotes": "OEM support dump (#92/#91/#90/#86): manufacturer header button, Kopiert/IM autoclose, PC info Enhet+Lenovo fix, Support dialog. Tip 781cebd (dump d52c41b)."
 }
