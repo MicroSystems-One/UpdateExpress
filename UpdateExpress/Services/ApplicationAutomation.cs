@@ -206,6 +206,17 @@ internal static class ApplicationAutomation
                 scheduled <= DateTime.Now &&
                 prompt.Updates.Count > 0)
             {
+                // Unattended «update until clear»: install the confirmed queue without a second dialog.
+                if (UnattendedUntilClear.ShouldAutoInstallScheduledApps())
+                {
+                    if (UnattendedUntilClear.TryDeferForActiveSession(prompt, DisplayName))
+                        return;
+                    AgentLog.Write("Applications automation: unattended scheduled install — starting without re-prompt.");
+                    UnattendedUntilClear.MarkInstalling(DisplayName);
+                    await StartElevatedInstallAsync(prompt).ConfigureAwait(false);
+                    return;
+                }
+
                 await PresentPromptAsync(dispatcher, prompt, preferred,
                     "Scheduled application updates are due.").ConfigureAwait(false);
                 return;
@@ -350,14 +361,17 @@ internal static class ApplicationAutomation
 
             case SoftwareUpdatesDialog.PromptDecision.InstallAtPreferred:
             {
-                DateTime when = AutomationSchedule.NextPreferredOccurrence(preferred);
+                // Prefer policy install window (e.g. Mon–Fri 17:00) when set; else Critical preferred clock.
+                DateTime when = MaintenanceSetup.NextInstallOccurrence(policy.InstallDaysMask, policy.InstallTime, DateTime.Now)
+                    ?? AutomationSchedule.NextPreferredOccurrence(preferred);
                 prompt.State = "scheduled";
                 prompt.ScheduledInstallAt = when;
                 prompt.SnoozeUntil = when;
                 prompt.Save();
+                UnattendedUntilClear.Arm(when, Category);
                 WindowsAutomationStatus.WriteCategory(
                     Category, "Scheduled",
-                    $"Install scheduled for {when:dd.MM HH:mm}. No automatic restart.", when);
+                    $"Install scheduled for {when:dd.MM HH:mm}. Unattended until clear after that.", when);
                 ActivityLog.TryWrite("ApplicationsAutomation", "Scheduled", new { At = when }, mode: "Automatic", source: "TrayAgent");
                 AgentLog.Write("Applications automation: install scheduled for " + when.ToString("O"));
                 break;
@@ -562,11 +576,14 @@ internal static class ApplicationAutomation
                             AgentLog.Write("Applications install output: " + output.Trim());
 
                         bool osReboot = WingetReader.IndicatesOsRebootRequired(code, output);
+                        string itemTitle = queue[i].Name;
                         if (code == 0 || osReboot)
                         {
                             ok++;
                             manager.CompleteItem(i, osReboot ? "Completed (restart needed)" : "Completed", false);
                             CategoryPromptState.MarkInstallQueueItemDone(Category, id, success: true);
+                            UnattendedUntilClear.RecordItem(id, itemTitle, DisplayName, success: true,
+                                detail: osReboot ? "Completed (restart needed)" : "Completed");
                         }
                         else
                         {
@@ -574,6 +591,8 @@ internal static class ApplicationAutomation
                             var (state, tip, notice) = WingetReader.DescribeUpgradeFailure(code, id, norwegian);
                             manager.CompleteItem(i, state, true, tip);
                             CategoryPromptState.MarkInstallQueueItemDone(Category, id, success: false);
+                            UnattendedUntilClear.RecordItem(id, itemTitle, DisplayName, success: false,
+                                detail: state + (string.IsNullOrWhiteSpace(tip) ? "" : " — " + tip));
                             if (!string.IsNullOrWhiteSpace(notice))
                             {
                                 manager.SetNotice(notice);
@@ -597,6 +616,7 @@ internal static class ApplicationAutomation
                         AgentLog.Write("Applications install item failed: " + ex);
                         manager.CompleteItem(i, "Failed", true);
                         CategoryPromptState.MarkInstallQueueItemDone(Category, id, success: false);
+                        UnattendedUntilClear.RecordItem(id, queue[i].Name, DisplayName, success: false, detail: ex.Message);
                     }
                 }
 
@@ -639,6 +659,7 @@ internal static class ApplicationAutomation
                             : $"Finished — restart required before remaining {remainingAfterReboot.Count} package(s). Auto-reboot is disabled in policy.");
                     AgentLog.Write(
                         $"Applications: reboot required after {rebootPackageId}; {remainingAfterReboot.Count} package(s) queued for resume.");
+                    UnattendedUntilClear.OnInstallHelperFinished(DisplayName, remainingAfterReboot: true);
                     bool rebootArmed = RebootCoordinator.HandleAfterInstall(DisplayName, rebootRequired: true, owner: manager);
                     if (!rebootArmed)
                     {
@@ -648,6 +669,7 @@ internal static class ApplicationAutomation
                         soften.ResumeBlockedAtBoot = null;
                         CategoryPromptState.WriteInstallQueueState(soften);
                         AgentLog.Write("Applications: reboot not armed; remaining packages may resume this session.");
+                        UnattendedUntilClear.OnInstallHelperFinished(DisplayName, remainingAfterReboot: false);
                     }
                     return;
                 }
@@ -674,6 +696,7 @@ internal static class ApplicationAutomation
                         policy.WindowsAutomation.AutoReboot.Enabled
                             ? "Finished — restart required. Optional auto-reboot policy will run next…"
                             : "Finished — a restart may be required. Auto-reboot is disabled in policy.");
+                    UnattendedUntilClear.OnInstallHelperFinished(DisplayName, remainingAfterReboot: false);
                     RebootCoordinator.HandleAfterInstall(DisplayName, rebootRequired: true, owner: manager);
                     return;
                 }
@@ -701,6 +724,7 @@ internal static class ApplicationAutomation
                 try { HistoryArchive.RecordInstallationManagerQueue(queue); }
                 catch (Exception ex) { AgentLog.Write("Applications install: history record failed: " + ex.Message); }
                 manager.Finish();
+                UnattendedUntilClear.OnInstallHelperFinished(DisplayName, remainingAfterReboot: false);
             };
 
             manager.ShowDialog();

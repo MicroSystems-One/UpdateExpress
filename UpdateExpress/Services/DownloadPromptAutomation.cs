@@ -102,7 +102,12 @@ internal static class DownloadPromptAutomation
                     return;
                 }
                 // Install window reached: start elevated install (reboot still follows AutoReboot policy).
+                if (UnattendedUntilClear.IsRunActive() &&
+                    UnattendedUntilClear.TryDeferForActiveSession(prompt, displayName))
+                    return;
                 AgentLog.Write($"{displayName} automation: scheduled install window reached — starting install.");
+                if (UnattendedUntilClear.IsRunActive())
+                    UnattendedUntilClear.MarkInstalling(displayName);
                 await StartElevatedInstallAsync(prompt, preferred, displayName, elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
                     .ConfigureAwait(false);
                 return;
@@ -261,6 +266,7 @@ internal static class DownloadPromptAutomation
             prompt.ScheduledInstallAt = when;
             prompt.SnoozeUntil = when;
             prompt.Save();
+            UnattendedUntilClear.Arm(when, prompt.Category);
             WindowsAutomationStatus.WriteCategory(
                 prompt.Category, "Scheduled",
                 norwegian
@@ -357,9 +363,10 @@ internal static class DownloadPromptAutomation
                 prompt.ScheduledInstallAt = when;
                 prompt.SnoozeUntil = when;
                 prompt.Save();
+                UnattendedUntilClear.Arm(when, prompt.Category);
                 WindowsAutomationStatus.WriteCategory(
                     prompt.Category, "Scheduled",
-                    $"Install scheduled for {when:dd.MM HH:mm}. No automatic restart.", when);
+                    $"Install scheduled for {when:dd.MM HH:mm}. Unattended until clear after that.", when);
                 ActivityLog.TryWrite(displayName + "Automation", "Scheduled", new { At = when }, mode: "Automatic", source: "TrayAgent");
                 AgentLog.Write($"{displayName} automation: install scheduled for " + when.ToString("O"));
                 break;
@@ -526,7 +533,13 @@ internal static class DownloadPromptAutomation
                         result.Status is "Installert" or "Already up to date" ? "Completed" :
                         result.Status is "Delvis fullført" ? "Not verified" :
                         "Failed" + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " " + result.ErrorCode);
-                    manager.CompleteItem(i, state, state.StartsWith("Failed", StringComparison.Ordinal));
+                    bool failed = state.StartsWith("Failed", StringComparison.Ordinal);
+                    manager.CompleteItem(i, state, failed);
+                    string title = queue[i].Name;
+                    if (failed)
+                        UnattendedUntilClear.RecordItem(id, title, displayName, success: false, detail: state);
+                    else if (state is "Completed" or "Not verified")
+                        UnattendedUntilClear.RecordItem(id, title, displayName, success: true, detail: state);
                 }
 
                 CategoryPromptState.ClearInstallQueue(category);
@@ -552,6 +565,7 @@ internal static class DownloadPromptAutomation
                 catch (Exception ex) { AgentLog.Write($"{displayName} install: history record failed: " + ex.Message); }
 
                 manager.Finish();
+                UnattendedUntilClear.OnInstallHelperFinished(displayName, remainingAfterReboot: false);
                 if (rebootHint)
                 {
                     bool autoReboot = policy.WindowsAutomation.AutoReboot.Enabled;
@@ -567,21 +581,39 @@ internal static class DownloadPromptAutomation
                 ActivityLog.TryWrite(displayName + "Automation", "InstallFailed", ex.ToString(), mode: "Automatic", source: "ElevatedHelper");
                 WindowsAutomationStatus.WriteCategory(category, "Failed", ex.Message, DateTime.Now.AddHours(1));
                 var retry = CategoryPromptState.Load(category);
-                retry.State = "awaitingPrompt";
-                retry.InstallingStartedAt = null;
-                retry.Save();
-                for (int i = 0; i < queue.Count; i++)
-                    manager.CompleteItem(i, "Failed", true);
+                // Unattended run: do not re-prompt; skip all queued ids for this run.
+                if (UnattendedUntilClear.IsRunActive())
+                {
+                    for (int i = 0; i < ids.Count; i++)
+                    {
+                        UnattendedUntilClear.RecordItem(ids[i], queue[i].Name, displayName, success: false, detail: ex.Message);
+                        manager.CompleteItem(i, "Failed", true);
+                    }
+                    CategoryPromptState.ClearInstallQueue(category);
+                    CategoryPromptState.Clear(category);
+                    UnattendedUntilClear.OnInstallHelperFinished(displayName, remainingAfterReboot: false);
+                }
+                else
+                {
+                    retry.State = "awaitingPrompt";
+                    retry.InstallingStartedAt = null;
+                    retry.Save();
+                    for (int i = 0; i < queue.Count; i++)
+                        manager.CompleteItem(i, "Failed", true);
+                }
                 try { HistoryArchive.RecordInstallationManagerQueue(queue); }
                 catch (Exception hx) { AgentLog.Write($"{displayName} install: history record failed: " + hx.Message); }
                 manager.Finish();
                 manager.SetStage("Failed: " + ex.Message);
-                System.Windows.MessageBox.Show(
-                    manager,
-                    $"Could not install {displayName.ToLowerInvariant()} updates.\n\n" + ex.Message + "\n\nSee agent.log for details.",
-                    "Update Express",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Error);
+                if (!UnattendedUntilClear.IsRunActive())
+                {
+                    System.Windows.MessageBox.Show(
+                        manager,
+                        $"Could not install {displayName.ToLowerInvariant()} updates.\n\n" + ex.Message + "\n\nSee agent.log for details.",
+                        "Update Express",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Error);
+                }
             }
         };
 

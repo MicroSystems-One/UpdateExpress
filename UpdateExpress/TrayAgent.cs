@@ -85,6 +85,10 @@ internal sealed class TrayAgent : IDisposable
             catch (Exception ex) { AgentLog.Write("Deferred reboot poll failed: " + ex.Message); }
             try { UpdateUntilCurrent.TryLaunchResume(); }
             catch (Exception ex) { AgentLog.Write("Update-until-current resume poll failed: " + ex.Message); }
+            try { _ = UnattendedUntilClear.TryContinueClearingAsync(_dispatcher); }
+            catch (Exception ex) { AgentLog.Write("Unattended until-clear continue failed: " + ex.Message); }
+            try { UnattendedUntilClear.TryShowPendingResult(_dispatcher); }
+            catch (Exception ex) { AgentLog.Write("Unattended until-clear result poll failed: " + ex.Message); }
             try { RmmStatusExport.WriteBestEffort("tray-poll"); }
             catch (Exception ex) { AgentLog.Write("RMM status export failed: " + ex.Message); }
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
@@ -112,6 +116,8 @@ internal sealed class TrayAgent : IDisposable
                                 "Update until current",
                                 "The cycle continues after the restart. Approve the administrator prompt.",
                                 ToolTipIcon.Info);
+                        _ = UnattendedUntilClear.TryContinueClearingAsync(_dispatcher);
+                        UnattendedUntilClear.TryShowPendingResult(_dispatcher);
                     }
                     catch (Exception ex) { AgentLog.Write("Post-reboot resume failed: " + ex.Message); }
                 }));
