@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.50",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.50/UpdateExpress_v0.7.2.50.exe",
-  "sha256": "46fb0110c05e021c9e07a5d09c6a3a355dd7851264d65173afc28308dee44241",
-  "publishedAt": "2026-11-21T16:49:06Z",
-  "releaseNotes": "OEM Open download prefers package EXE over Lenovo TXT (#106 tip 35955fa; dump c82b360). Retains #102 OEM catalogs, #99 interval label, #95 App Control."
+  "version": "0.7.2.51",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.51/UpdateExpress_v0.7.2.51.exe",
+  "sha256": "3a6b39e5aa33d25065b4092335efea3795c62cbc2a13b83d06f7e0a2d252d311",
+  "publishedAt": "2026-11-21T17:56:20Z",
+  "releaseNotes": "Tray Påminnelse when Main closed (#109 tip cbd39fe incl. Codex P2 mutex/schedule sync; dump f77a78c). Retains #106 EXE/TXT, #102 OEM catalogs, #99 interval, #95 App Control."
 }
