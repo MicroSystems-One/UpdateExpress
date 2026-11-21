@@ -31,3 +31,4 @@ Release EXE assets are published as GitHub Releases on this same repository.
 
 - Do not commit published EXE binaries or `bin/` / `obj/` folders.
 - See versioned `CHANGELOG-v*.md` files for release history.
+- Microsoft App Control / WDAC and self-update: see [`docs/app-control-updateexpress.md`](docs/app-control-updateexpress.md).
