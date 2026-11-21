@@ -1,0 +1,20 @@
+{
+  "SetupProfile": "business",
+  "SetupCompleted": true,
+  "InstallDaysMask": 127,
+  "InstallTime": "17:00",
+  "WindowsAutomationEnabled": true,
+  "AutomaticDrivers": false,
+  "AutomaticApplications": false,
+  "ApplicationsIntervalMinutes": 240,
+  "DriversIntervalMinutes": 1440,
+  "WindowsMonitorIntervalMinutes": 360,
+  "AutoRebootEnabled": true,
+  "AutoRebootMode": "outsideActiveHours",
+  "ActiveHoursStart": 7,
+  "ActiveHoursEnd": 17,
+  "RebootCountdownSeconds": 300,
+  "DefenderIntervalMinutes": 60,
+  "CriticalIntervalMinutes": 1440,
+  "GeneralIntervalMinutes": 10080
+}

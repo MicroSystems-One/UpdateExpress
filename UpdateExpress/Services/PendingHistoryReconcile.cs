@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.RegularExpressions;
 using UpdateExpress.Models;
 
@@ -19,10 +18,15 @@ internal static class PendingHistoryReconcile
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
 
-    internal static bool ShouldHide(UpdateEntry pending, IReadOnlyList<UpdateEntry> history, DateTime pendingSnapshotAt)
+    internal static bool ShouldHide(
+        UpdateEntry pending,
+        IReadOnlyList<UpdateEntry> history,
+        DateTime pendingSnapshotAt,
+        Version? installedDefenderSignature = null)
     {
         if (IsDefender(pending))
-            return history.Any(row => row.IsHistorySuccessful && DefenderSuccessCovers(pending, row));
+            return DefenderInstalledCovers(pending, installedDefenderSignature)
+                || history.Any(row => row.IsHistorySuccessful && DefenderSuccessCovers(pending, row));
 
         var cutoff = TruncateToSeconds(pendingSnapshotAt);
         foreach (var row in history)
@@ -35,12 +39,55 @@ internal static class PendingHistoryReconcile
         return false;
     }
 
+    /// <summary>
+    /// True when the live Defender signature version already covers the pending offer.
+    /// </summary>
+    internal static bool DefenderInstalledCovers(UpdateEntry pending, Version? installedSignature) =>
+        IsDefender(pending) && DefenderLineCoveredBySignature(
+            $"{pending.KB} {pending.Title} {pending.UnifiedVersion}".Trim(),
+            installedSignature);
+
+    /// <summary>
+    /// Drop monitor-status lines for Defender definitions already on the PC.
+    /// </summary>
+    internal static string[] FilterInstalledDefenderLines(IEnumerable<string> updates, Version? installedSignature)
+    {
+        if (installedSignature is null) return updates.ToArray();
+        return updates.Where(line => !DefenderLineCoveredBySignature(line, installedSignature)).ToArray();
+    }
+
+    internal static bool DefenderLineCoveredBySignature(string? line, Version? installedSignature)
+    {
+        if (installedSignature is null || string.IsNullOrWhiteSpace(line)) return false;
+        if (!line.Contains("KB2267602", StringComparison.OrdinalIgnoreCase)) return false;
+        var offered = ReadSignatureVersion(line);
+        // No version in the line: any installed Defender signature means this KB is no longer pending.
+        if (offered is null) return true;
+        return installedSignature >= offered;
+    }
+
+    /// <summary>
+    /// Newest successful Defender definition install time from History (local).
+    /// </summary>
+    internal static DateTime? LatestDefenderSuccessAt(IEnumerable<UpdateEntry> history)
+    {
+        DateTime? best = null;
+        foreach (var row in history)
+        {
+            if (!row.IsHistorySuccessful || !IsDefender(row)) continue;
+            var when = ParseDate(row.Date);
+            if (when is null) continue;
+            if (best is null || when > best) best = when;
+        }
+        return best;
+    }
+
     private static bool DefenderSuccessCovers(UpdateEntry pending, UpdateEntry success)
     {
         if (!IsDefender(success)) return false;
         if (TitlesEqual(pending.Title, success.Title)) return true;
-        var pendingVersion = ReadSignatureVersion(pending.Title);
-        var successVersion = ReadSignatureVersion(success.Title);
+        var pendingVersion = ReadEntrySignatureVersion(pending);
+        var successVersion = ReadEntrySignatureVersion(success);
         return pendingVersion is not null && successVersion is not null && successVersion >= pendingVersion;
     }
 
@@ -72,13 +119,29 @@ internal static class PendingHistoryReconcile
         return found;
     }
 
+    private static Version? ReadEntrySignatureVersion(UpdateEntry entry)
+    {
+        if (!string.IsNullOrWhiteSpace(entry.VersionDisplay) &&
+            Version.TryParse(NormalizeVersionText(entry.VersionDisplay), out var fromDisplay))
+            return fromDisplay;
+        if (!string.IsNullOrWhiteSpace(entry.UnifiedVersion) &&
+            Version.TryParse(NormalizeVersionText(entry.UnifiedVersion), out var fromUnified))
+            return fromUnified;
+        return ReadSignatureVersion(entry.Title);
+    }
+
     private static Version? ReadSignatureVersion(string? title)
     {
         var match = SignatureVersion.Match(title ?? "");
         if (!match.Success) return null;
-        string text = match.Groups["version"].Value;
+        return Version.TryParse(NormalizeVersionText(match.Groups["version"].Value), out var version) ? version : null;
+    }
+
+    private static string NormalizeVersionText(string text)
+    {
+        text = text.Trim();
         if (text.Count(c => c == '.') == 2) text += ".0";
-        return Version.TryParse(text, out var version) ? version : null;
+        return text;
     }
 
     private static bool TitlesEqual(string? left, string? right) =>
@@ -89,11 +152,5 @@ internal static class PendingHistoryReconcile
     private static DateTime TruncateToSeconds(DateTime value) =>
         new(value.Year, value.Month, value.Day, value.Hour, value.Minute, value.Second, value.Kind);
 
-    private static DateTime? ParseDate(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        if (DateTime.TryParseExact(value.Trim(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
-            return exact;
-        return DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var parsed) ? parsed : null;
-    }
+    private static DateTime? ParseDate(string? value) => ReminderSchedule.TryParseDate(value);
 }

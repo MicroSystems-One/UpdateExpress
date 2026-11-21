@@ -10,6 +10,11 @@ public sealed class ReminderSchedule
     public string Language { get; set; } = "en";
     /// <summary>text (ddd dd MMM yyyy), dmy (dd.MM.yyyy), iso (yyyy-MM-dd), or mdy (MM/dd/yyyy).</summary>
     public string DateFormat { get; set; } = "text";
+    /// <summary>
+    /// When true, also mirror general agent activity into Logs\verbose.log.
+    /// Install/upgrade/Defender steps always write to Logs\install-update.log regardless.
+    /// </summary>
+    public bool VerboseInstallLogging { get; set; }
     public bool Enabled { get; set; }
     // Monday = 0, Sunday = 6, Every day = 7
     public int Weekday { get; set; } = 2;
@@ -17,6 +22,11 @@ public sealed class ReminderSchedule
     public DateTime? LastPromptedOccurrence { get; set; }
     public DateTime? ConfirmedOccurrence { get; set; }
     public DateTime? SnoozedUntil { get; set; }
+    /// <summary>
+    /// Calendar date of a maintenance day that rolled past midnight without Confirm.
+    /// Shown once on the next reminder, then cleared.
+    /// </summary>
+    public DateTime? MissedUnconfirmedDate { get; set; }
 
     private static string DirectoryPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "UpdateExpress");
     public static string SettingsPath => Path.Combine(DirectoryPath, "schedule.json");
@@ -54,6 +64,46 @@ public sealed class ReminderSchedule
             : time.ToString("h:mm tt", CultureInfo.GetCultureInfo("en-US"));
         return date + " " + clock;
     }
+
+    /// <summary>
+    /// Parse a stored or previously displayed Date/Time (ISO with optional seconds, or Settings formats).
+    /// </summary>
+    public static DateTime? TryParseDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        string text = value.Trim();
+        string[] exact =
+        {
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm",
+            "dd.MM.yyyy HH:mm",
+            "dd.MM.yyyy HH:mm:ss",
+            "MM/dd/yyyy HH:mm",
+            "MM/dd/yyyy h:mm tt",
+            "MM/dd/yyyy HH:mm:ss",
+            "ddd dd MMM yyyy HH:mm",
+            "ddd dd MMM yyyy H:mm",
+            "ddd dd MMM yyyy h:mm tt",
+            "ddd dd MMM yyyy hh:mm tt"
+        };
+        foreach (var culture in new[] { CultureInfo.InvariantCulture, CultureInfo.GetCultureInfo("en-US"), CultureInfo.GetCultureInfo("nb-NO") })
+        {
+            foreach (var pattern in exact)
+            {
+                if (DateTime.TryParseExact(text, pattern, culture, DateTimeStyles.None, out var exactParsed))
+                    return exactParsed;
+            }
+        }
+        if (DateTime.TryParse(text, CultureInfo.GetCultureInfo("en-US"), DateTimeStyles.None, out var en))
+            return en;
+        if (DateTime.TryParse(text, CultureInfo.GetCultureInfo("nb-NO"), DateTimeStyles.None, out var no))
+            return no;
+        return DateTime.TryParse(text, CultureInfo.CurrentCulture, DateTimeStyles.None, out var parsed) ? parsed : null;
+    }
+
+    /// <summary>Format a stored history/install timestamp using current Settings date + clock prefs.</summary>
+    public string FormatDateValue(string? value) =>
+        TryParseDate(value) is DateTime when ? Format(when) : (value ?? "");
     public DateTime NextOccurrence(DateTime now)
     {
         if (!TimeSpan.TryParseExact(Time, @"hh\:mm", System.Globalization.CultureInfo.InvariantCulture, out var at))
@@ -63,5 +113,34 @@ public sealed class ReminderSchedule
         DateTime candidate = now.Date.AddDays(delta).Add(at);
         if (candidate < now) candidate = candidate.AddDays(Weekday == 7 ? 1 : 7);
         return candidate;
+    }
+
+    /// <summary>
+    /// Next :00 or :30 strictly after <paramref name="now"/>.
+    /// Returns null when that would cross midnight (caller should defer to next day).
+    /// </summary>
+    public static DateTime? NextHalfHourSlot(DateTime now)
+    {
+        DateTime candidate;
+        if (now.Minute == 0 && now.Second == 0 && now.Millisecond == 0)
+            candidate = now.AddMinutes(30);
+        else if (now.Minute < 30)
+            candidate = new DateTime(now.Year, now.Month, now.Day, now.Hour, 30, 0);
+        else
+            candidate = new DateTime(now.Year, now.Month, now.Day, now.Hour, 0, 0).AddHours(1);
+
+        return candidate.Date > now.Date ? null : candidate;
+    }
+
+    /// <summary>
+    /// Slot to show for today's reminder: the scheduled time until it has passed,
+    /// then the next half/full hour, or null when rolling would pass midnight.
+    /// </summary>
+    public static DateTime? EffectiveReminderSlot(DateTime now, TimeSpan scheduledTime)
+    {
+        var due = now.Date.Add(scheduledTime);
+        if (now < due) return null; // not due yet
+        if (now <= due.AddMinutes(1)) return due;
+        return NextHalfHourSlot(now);
     }
 }

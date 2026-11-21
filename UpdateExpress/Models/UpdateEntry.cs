@@ -56,12 +56,18 @@ public sealed class UpdateEntry
             return match.Success ? match.Groups["version"].Value : "";
         }
     }
-    public string UnifiedVersion => Category == "Driver / firmware" ? DriverVersion : SoftwareVersion;
+    /// <summary>Optional Version column override (e.g. WinGet installed → available).</summary>
+    public string VersionDisplay { get; set; } = "";
+    public string UnifiedVersion =>
+        !string.IsNullOrWhiteSpace(VersionDisplay) ? VersionDisplay
+        : Category == "Driver / firmware" ? DriverVersion
+        : SoftwareVersion;
     public string DisplayTitle => Category == "Driver / firmware"
         ? System.Text.RegularExpressions.Regex.Replace(
             TrailingVersion.Replace(Title, ""),
             @"\s+-\s+\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M\s*$", "",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim()
+        : Category == "Application" ? Title
         : (string.IsNullOrEmpty(SoftwareVersion) ? Title : SoftwareVersionLabel.Replace(Title, "").Trim());
     public bool IsHistoryFailed => Status is "Mislykket" or "Avbrutt" or "Failed" or "Cancelled" or "Feilet / avbrutt";
     public bool IsHistorySuccessful => Status is "Vellykket" or "Successful" or "Installert";
@@ -89,7 +95,12 @@ public sealed class UpdateEntry
         }
     }
     public string Status { get; set; } = "";
+    /// <summary>Canonical timestamp (yyyy-MM-dd HH:mm:ss) for sort, EventKey, archive, and reconcile.</summary>
     public string Date { get; set; } = "";
+    /// <summary>Settings-formatted Date/Time for History (and similar) grids. Empty falls back to <see cref="Date"/>.</summary>
+    public string DateDisplay { get; set; } = "";
+    /// <summary>Value shown in Date/Time cells; prefers Settings formatting when set.</summary>
+    public string DateShown => string.IsNullOrWhiteSpace(DateDisplay) ? Date : DateDisplay;
     public string Source { get; set; } = "";
     public string ErrorCode { get; set; } = "";
     /// <summary>Settings feature update. The row opens Windows Update instead of installing through WUA.</summary>
@@ -118,6 +129,8 @@ public sealed class UpdateEntry
         Status = Status,
         StatusNote = StatusNote,
         Date = Date,
+        DateDisplay = DateDisplay,
+        VersionDisplay = VersionDisplay,
         Source = Source,
         ErrorCode = ErrorCode,
         OpensWindowsUpdate = OpensWindowsUpdate
