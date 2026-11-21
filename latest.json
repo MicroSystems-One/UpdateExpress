@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.49",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.49/UpdateExpress_v0.7.2.49.exe",
-  "sha256": "e9cacb4e4fc9a019ea5648da79be8d166ff395a0fe4dbe15ab0e692e9278663d",
-  "publishedAt": "2026-11-21T15:47:01Z",
-  "releaseNotes": "OEM Lenovo+Dell+HP catalogs (#102 tip 722ed51; dump b7cac4a). Includes #99 Windows interval label and #95 App Control self-update."
+  "version": "0.7.2.50",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.50/UpdateExpress_v0.7.2.50.exe",
+  "sha256": "46fb0110c05e021c9e07a5d09c6a3a355dd7851264d65173afc28308dee44241",
+  "publishedAt": "2026-11-21T16:49:06Z",
+  "releaseNotes": "OEM Open download prefers package EXE over Lenovo TXT (#106 tip 35955fa; dump c82b360). Retains #102 OEM catalogs, #99 interval label, #95 App Control."
 }
