@@ -50,10 +50,12 @@ public sealed class UpdatePolicy
 {
     public WindowsAutomationPolicy WindowsAutomation { get; set; } = WindowsAutomationPolicy.CreateDefault();
 
-    // Legacy / not yet automated preferences (drivers & WinGet).
+    /// <summary>When true, tray agent downloads assigned WUA drivers and asks before install (firmware stays manual).</summary>
     public bool AutomaticDrivers { get; set; } = false;
     public bool AutomaticFirmware { get; set; } = false;
+    /// <summary>When true, tray agent scans WinGet upgrades and asks before install.</summary>
     public bool AutomaticApplications { get; set; } = false;
+    /// <summary>Optional WinGet package-ID whitelist. Empty = all pending upgrades when AutomaticApplications is on.</summary>
     public HashSet<string> AutomaticApplicationIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Legacy field from older builds; mapped into WindowsAutomation on load.</summary>

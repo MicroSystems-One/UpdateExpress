@@ -488,6 +488,62 @@ public static class WindowsUpdateReader
         return downloadedCount;
     }
 
+    /// <summary>
+    /// Drivers automation: download selected Type='Driver' updates without installing.
+    /// Does not substitute another driver when an ID is missing.
+    /// </summary>
+    public static int DownloadSelectedDrivers(List<string> updateIds, Action<string>? report = null)
+    {
+        if (updateIds.Count == 0) throw new InvalidOperationException("No driver updates selected.");
+        report?.Invoke("Searching for selected driver updates…");
+        dynamic session = Session();
+        dynamic searcher = session.CreateUpdateSearcher();
+        dynamic search = searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Driver'");
+        int total = (int)search.Updates.Count;
+        report?.Invoke($"WUA driver search returned {total} update(s).");
+        dynamic collection = Activator.CreateInstance(Type.GetTypeFromProgID("Microsoft.Update.UpdateColl")!)!;
+        var selectedIds = new HashSet<string>(updateIds, StringComparer.OrdinalIgnoreCase);
+        var foundIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < total; i++)
+        {
+            dynamic update = search.Updates.Item(i);
+            string id = Convert.ToString(update.Identity.UpdateID) ?? "";
+            if (!selectedIds.Contains(id)) continue;
+            foundIds.Add(id);
+            try
+            {
+                if (!(bool)update.EulaAccepted) update.AcceptEula();
+                collection.Add(update);
+                report?.Invoke($"Matched selected driver: {id}");
+            }
+            catch (Exception ex)
+            {
+                report?.Invoke($"Skipped driver {id}: {ex.Message}");
+            }
+        }
+        foreach (string missing in selectedIds.Except(foundIds, StringComparer.OrdinalIgnoreCase))
+            report?.Invoke($"Selected driver not found in fresh search: {missing}");
+        if ((int)collection.Count == 0)
+            throw new InvalidOperationException("No selected drivers could be prepared for download.");
+        dynamic download = WuaJobs.Download(session, collection, report, null);
+        int downloadCode = (int)download.ResultCode;
+        int downloadedCount = 0;
+        for (int i = 0; i < (int)collection.Count; i++)
+        {
+            try
+            {
+                if ((bool)collection.Item(i).IsDownloaded) downloadedCount++;
+            }
+            catch { }
+        }
+        report?.Invoke($"Driver download phase completed: {downloadedCount}/{collection.Count} (result={downloadCode}).");
+        if (downloadCode != 2 && downloadCode != 3)
+            throw new InvalidOperationException($"Driver download failed: result code {downloadCode}.");
+        if (downloadedCount == 0)
+            throw new InvalidOperationException("No drivers were downloaded.");
+        return downloadedCount;
+    }
+
     // Install one explicitly selected driver or firmware update, with a fresh WUA identity
     // and hardware-ID check. Never automatically install or reboot.
     public static List<UpdateEntry> InstallSelectedDriver(UpdateEntry selected, Action<string>? report = null, bool allowInteractive = false, Action<WuaActivity>? activity = null)

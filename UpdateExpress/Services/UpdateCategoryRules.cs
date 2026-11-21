@@ -47,4 +47,18 @@ internal static class UpdateCategoryRules
             return false;
         return entry.Category == "Programvare / sikkerhet" && entry.SafeDefault;
     }
+
+    /// <summary>
+    /// Optional drivers automation: WUA-assigned non-firmware drivers with a verified hardware ID.
+    /// Firmware and unassigned/optional driver offers stay manual.
+    /// </summary>
+    internal static bool IsAutomaticDriver(UpdateEntry entry)
+    {
+        if (entry.Category != "Driver / firmware") return false;
+        if (string.IsNullOrWhiteSpace(entry.UpdateId)) return false;
+        if (string.IsNullOrWhiteSpace(entry.DriverHardwareId)) return false;
+        if (entry.DriverClassification.Equals("Firmware", StringComparison.OrdinalIgnoreCase)) return false;
+        if (entry.DriverStatus.Equals("Firmware", StringComparison.OrdinalIgnoreCase)) return false;
+        return entry.DriverAssigned;
+    }
 }

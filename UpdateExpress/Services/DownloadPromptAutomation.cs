@@ -77,7 +77,7 @@ internal static class DownloadPromptAutomation
             }
 
             string preferred = AutomationSchedule.PreferredOrDefault(cat.PreferredInstallTime);
-            var prompt = CategoryPromptState.Load(category);
+            var prompt = CategoryPromptState.LoadAndReconcile(category);
 
             if (prompt.State == "installing")
                 return;
@@ -321,7 +321,7 @@ internal static class DownloadPromptAutomation
             return Task.CompletedTask;
         }
 
-        prompt.State = "installing";
+        prompt.MarkInstalling();
         prompt.Save();
         prompt.WriteInstallQueue(ids);
         ActivityLog.TryWrite(displayName + "Automation", "InstallRequested", new { Count = ids.Count }, mode: "Automatic", source: "TrayAgent");
@@ -329,7 +329,7 @@ internal static class DownloadPromptAutomation
 
         try
         {
-            ElevationHelper.RestartElevated(elevateArg);
+            ElevationHelper.RestartElevated(AutomationStatePaths.ElevateArguments(elevateArg));
             WindowsAutomationStatus.WriteCategory(
                 prompt.Category, "Installing",
                 "Elevated installer started. Update Express will not reboot Windows.",
@@ -338,6 +338,7 @@ internal static class DownloadPromptAutomation
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
             prompt.State = "awaitingPrompt";
+            prompt.InstallingStartedAt = null;
             prompt.Save();
             WindowsAutomationStatus.WriteCategory(prompt.Category, "UAC cancelled", "Administrator approval was cancelled.", DateTime.Now.AddHours(1));
             AgentLog.Write($"{displayName} automation: UAC cancelled for install.");
@@ -345,6 +346,7 @@ internal static class DownloadPromptAutomation
         catch (Exception ex)
         {
             prompt.State = "awaitingPrompt";
+            prompt.InstallingStartedAt = null;
             prompt.Save();
             WindowsAutomationStatus.WriteCategory(prompt.Category, "Failed", "Could not start elevated install: " + ex.Message, DateTime.Now.AddHours(1));
             AgentLog.Write($"{displayName} automation elevated launch failed: " + ex);
@@ -466,6 +468,7 @@ internal static class DownloadPromptAutomation
                 WindowsAutomationStatus.WriteCategory(category, "Failed", ex.Message, DateTime.Now.AddHours(1));
                 var retry = CategoryPromptState.Load(category);
                 retry.State = "awaitingPrompt";
+                retry.InstallingStartedAt = null;
                 retry.Save();
                 for (int i = 0; i < queue.Count; i++)
                     manager.CompleteItem(i, "Failed", true);
