@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.44",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.44/UpdateExpress_v0.7.2.44.exe",
-  "sha256": "d4f518730407c670056578c24035d4af1a819179d92c891f2032988a182950ab",
-  "publishedAt": "2026-11-21T10:54:36Z",
-  "releaseNotes": "Icon polish 18px refresh/PC (#80/#79); includes 0.7.2.43 app-queue + Historikk. Tip c5878c9 (dump 724d986)."
+  "version": "0.7.2.46",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.46/UpdateExpress_v0.7.2.46.exe",
+  "sha256": "750474b9d57f7be3433915bee6b465e1335909e35c81ff251dad61c099ed4968",
+  "publishedAt": "2026-11-21T12:00:15Z",
+  "releaseNotes": "Unattended UX dump (#85/#83): result activity, reboot UI, machine-scope, quiet gate + until-clear. Tip c8b8c5d (dump 36cf84e)."
 }
