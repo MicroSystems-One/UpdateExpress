@@ -3701,9 +3701,9 @@ public partial class MainWindow : Window
             UpdateUntilCurrent.RebootCountdownSeconds,
             norwegian
                 ? "Update Express fortsetter oppdateringsrunden etter omstart."
-                : "Update Express continues the update cycle after restart.");
-        MessageBox.Show(this, state.Message, norwegian ? "Oppdater til ferdig" : "Update until current",
-            MessageBoxButton.OK, MessageBoxImage.Information);
+                : "Update Express continues the update cycle after restart.",
+            showUi: true,
+            owner: this);
     }
 
     private void StretchResultsHeader()

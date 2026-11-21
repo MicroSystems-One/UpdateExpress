@@ -26,6 +26,8 @@ internal sealed class TrayAgent : IDisposable
     private readonly string _statePath = Path.Combine(InstallationManager.InstallDir, "monitor-state.txt");
     private readonly string _statusPath = Path.Combine(InstallationManager.InstallDir, "monitor-status.json");
     private DateTime _nextScheduled = DateTime.Now.AddMinutes(5);
+    private DateTime? _lastSharedNoticeBalloonAt;
+    private string? _lastSharedNoticeKey;
     private bool _disposed;
     private int _scanRunning;
 
@@ -89,6 +91,8 @@ internal sealed class TrayAgent : IDisposable
             catch (Exception ex) { AgentLog.Write("Unattended until-clear continue failed: " + ex.Message); }
             try { UnattendedUntilClear.TryShowPendingResult(_dispatcher); }
             catch (Exception ex) { AgentLog.Write("Unattended until-clear result poll failed: " + ex.Message); }
+            try { MaybeBalloonSharedSchedule(); }
+            catch (Exception ex) { AgentLog.Write("Shared schedule notice poll failed: " + ex.Message); }
             try { RmmStatusExport.WriteBestEffort("tray-poll"); }
             catch (Exception ex) { AgentLog.Write("RMM status export failed: " + ex.Message); }
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
@@ -278,6 +282,34 @@ internal sealed class TrayAgent : IDisposable
             _tray.ShowBalloonTip(8000);
         }
         catch (Exception ex) { AgentLog.Write("Cannot show app-update balloon: " + ex.Message); }
+    }
+
+    /// <summary>
+    /// Any interactive user session can see Install-at / unattended schedule notices
+    /// published to ProgramData (not only the user who confirmed).
+    /// </summary>
+    private void MaybeBalloonSharedSchedule()
+    {
+        var notice = AutomationStatePaths.LoadSharedScheduleNotice();
+        if (notice is null) return;
+        // Only toast when approaching or overdue (within 2h before → 6h after).
+        if (notice.ScheduledAt > DateTime.Now.AddHours(2)) return;
+        if (notice.ScheduledAt < DateTime.Now.AddHours(-6)) return;
+
+        string key = $"{notice.Category}|{notice.ScheduledAt:O}|{notice.PublishedBy}";
+        if (string.Equals(_lastSharedNoticeKey, key, StringComparison.Ordinal) &&
+            _lastSharedNoticeBalloonAt is DateTime last &&
+            DateTime.Now - last < TimeSpan.FromHours(2))
+            return;
+
+        bool norwegian = AppLanguage.IsNorwegian;
+        string title = norwegian ? "Update Express – Planlagt installasjon" : "Update Express – Scheduled install";
+        string text = norwegian
+            ? $"{notice.Category}: installasjon kl. {notice.ScheduledAt:dd.MM HH:mm}. {(string.IsNullOrWhiteSpace(notice.Detail) ? "Lagre arbeidet før du går." : notice.Detail)}"
+            : $"{notice.Category}: install at {notice.ScheduledAt:dd.MM HH:mm}. {(string.IsNullOrWhiteSpace(notice.Detail) ? "Save your work before you leave." : notice.Detail)}";
+        ShowAppBalloon(title, text, ToolTipIcon.Info);
+        _lastSharedNoticeKey = key;
+        _lastSharedNoticeBalloonAt = DateTime.Now;
     }
 
     private void SetAppUpdateMenuEnabled(bool enabled)
