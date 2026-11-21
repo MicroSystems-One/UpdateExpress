@@ -12,6 +12,7 @@ public partial class WuaStatusReportDialog : Window
     public WuaStatusReportDialog()
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         Loaded += (_, _) => LoadList();
     }
 

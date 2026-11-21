@@ -24,7 +24,6 @@ internal sealed class TrayAgent : IDisposable
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
     private readonly string _baselinePath = Path.Combine(InstallationManager.InstallDir, "monitor-initialized.flag");
     private readonly string _statePath = Path.Combine(InstallationManager.InstallDir, "monitor-state.txt");
-    private readonly TimeSpan _interval = TimeSpan.FromHours(6);
     private readonly string _statusPath = Path.Combine(InstallationManager.InstallDir, "monitor-status.json");
     private DateTime _nextScheduled = DateTime.Now.AddMinutes(5);
     private bool _disposed;
@@ -59,20 +58,59 @@ internal sealed class TrayAgent : IDisposable
             if (e.Button == MouseButtons.Left) Open();
         };
         // Avoid an expensive WUA scan during Windows sign-in. Scan after 5 minutes,
-        // then at most every six hours. Manual scans use the same overlap guard.
-        _timer = new System.Threading.Timer(_ => { _nextScheduled = DateTime.Now.Add(_interval); StartScan(); }, null, TimeSpan.FromMinutes(5), _interval);
-        // Categories 1–3: poll often; each job decides whether it is due.
-        CriticalAutomation.SetBalloon((title, text) => ShowAppBalloon(title, text, ToolTipIcon.Info));
+        // then on the policy interval (default 6h). Manual scans use the same overlap guard.
+        TimeSpan monitorInterval = ResolveMonitorInterval();
+        _timer = new System.Threading.Timer(_ =>
+        {
+            TimeSpan next = ResolveMonitorInterval();
+            _nextScheduled = DateTime.Now.Add(next);
+            StartScan();
+            try { _timer?.Change(next, next); } catch { /* disposed */ }
+        }, null, TimeSpan.FromMinutes(5), monitorInterval);
+        // Categories 1–3 plus optional drivers/apps: poll often; each job decides whether it is due.
+        Action<string, string> balloon = (title, text) => ShowAppBalloon(title, text, ToolTipIcon.Info);
+        CriticalAutomation.SetBalloon(balloon);
+        DriverAutomation.SetBalloon(balloon);
+        ApplicationAutomation.SetBalloon(balloon);
         _defenderTimer = new System.Threading.Timer(_ =>
         {
             _ = DefenderAutomation.RunDueJobAsync();
             _ = CriticalAutomation.RunDueJobAsync(_dispatcher);
             _ = GeneralAutomation.RunDueJobAsync(_dispatcher);
-            try { _dispatcher.BeginInvoke(new Action(RebootCoordinator.RunDueJob)); }
+            _ = DriverAutomation.RunDueJobAsync(_dispatcher);
+            _ = ApplicationAutomation.RunDueJobAsync(_dispatcher);
+            try { _dispatcher.BeginInvoke(new Action(() => RebootCoordinator.RunDueJob(allowUiPrompt: true))); }
             catch (Exception ex) { AgentLog.Write("Deferred reboot poll failed: " + ex.Message); }
+            try { UpdateUntilCurrent.TryLaunchResume(); }
+            catch (Exception ex) { AgentLog.Write("Update-until-current resume poll failed: " + ex.Message); }
+            try { RmmStatusExport.WriteBestEffort("tray-poll"); }
+            catch (Exception ex) { AgentLog.Write("RMM status export failed: " + ex.Message); }
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
         WriteMonitorStatus("waiting", 0, 0, null, null);
-        AgentLog.Write("Tray agent started; WUA monitor every 6h; Defender+Critical+General+reboot poll every 5m.");
+        try { RmmStatusExport.WriteBestEffort("tray-start", force: true); } catch { /* ignore */ }
+        AgentLog.Write($"Tray agent started; WUA monitor every {monitorInterval.TotalHours:0.##}h; Defender+Critical+General+Drivers+Apps+reboot poll every 5m.");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(45));
+                if (_disposed) return;
+                _ = _dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (_disposed) return;
+                        if (UpdateUntilCurrent.TryLaunchResume())
+                            ShowAppBalloon(
+                                "Update until current",
+                                "The cycle continues after the restart. Approve the administrator prompt.",
+                                ToolTipIcon.Info);
+                    }
+                    catch (Exception ex) { AgentLog.Write("Update until current resume failed: " + ex.Message); }
+                }));
+            }
+            catch (Exception ex) { AgentLog.Write("Update until current resume failed: " + ex.Message); }
+        });
         // After sign-in / agent start: quiet Update Express self-update check (prompt only if newer).
         _ = Task.Run(async () =>
         {
@@ -83,6 +121,21 @@ internal sealed class TrayAgent : IDisposable
             }
             catch (Exception ex) { AgentLog.Write("Automatic app update check schedule failed: " + ex.Message); }
         });
+    }
+
+    private static TimeSpan ResolveMonitorInterval()
+    {
+        try
+        {
+            var policy = UpdatePolicy.Load();
+            policy.Normalize();
+            int minutes = Math.Max(60, policy.WindowsMonitorIntervalMinutes);
+            return TimeSpan.FromMinutes(minutes);
+        }
+        catch
+        {
+            return TimeSpan.FromHours(6);
+        }
     }
 
     private void StartScan()
@@ -146,7 +199,8 @@ internal sealed class TrayAgent : IDisposable
     private void StartAppUpdateInstall(AppUpdateCheckResult offer)
     {
         SetAppUpdateMenuEnabled(false);
-        ShowAppBalloon("Update Express", "Downloading update…", ToolTipIcon.Info);
+        // Stages are logged only. A balloon per stage is queued by Windows and keeps
+        // appearing after the replacement has already started the new version.
         _ = Task.Run(async () =>
         {
             try
@@ -154,8 +208,6 @@ internal sealed class TrayAgent : IDisposable
                 await AppUpdateInstaller.PrepareAndLaunchAsync(offer, stage =>
                 {
                     AgentLog.Write("App update: " + stage);
-                    try { _dispatcher.BeginInvoke(new Action(() => ShowAppBalloon("Update Express", stage, ToolTipIcon.Info))); }
-                    catch { }
                 }).ConfigureAwait(false);
                 // LaunchSelfUpdate shuts down this process on success.
             }
@@ -190,8 +242,8 @@ internal sealed class TrayAgent : IDisposable
         // Prefer the embedded U icon so toast/tray notifications do not reuse a cached M icon.
         try
         {
-            using var stream = typeof(TrayAgent).Assembly.GetManifestResourceStream("UpdateExpress.Assets.UpdateExpress.ico");
-            if (stream is not null) return new Icon(stream);
+            var embedded = AppIcon.TryLoadDrawingIcon();
+            if (embedded is not null) return embedded;
         }
         catch (Exception ex) { AgentLog.Write("Embedded tray icon load failed: " + ex.Message); }
         try

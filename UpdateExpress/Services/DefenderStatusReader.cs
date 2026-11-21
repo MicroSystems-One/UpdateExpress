@@ -1,15 +1,26 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
-using System.Threading;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace UpdateExpress.Services;
 
-public sealed record DefenderState(string Level, string Label, string Details, DateTime CheckedAt);
+public sealed record DefenderState(
+    string Level,
+    string Label,
+    string Details,
+    DateTime CheckedAt,
+    DateTime? SignatureLastUpdated = null,
+    string SignatureVersion = "");
 
 public static class DefenderStatusReader
 {
+    private static readonly Regex MicrosoftJsonDate = new(
+        @"^/Date\((-?\d+)(?:[+-]\d+)?\)/$",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public static Task<DefenderState> ReadAsync() => Task.Run(Read);
 
     private static DefenderState Read()
@@ -18,7 +29,9 @@ public static class DefenderStatusReader
         try
         {
             // Read-only Microsoft Defender cmdlet; do not change AV settings or signatures.
-            const string command = "$ErrorActionPreference='Stop'; $mp=$null; try {$mp=Get-MpComputerStatus | Select-Object AntivirusEnabled,RealTimeProtectionEnabled,AMServiceEnabled,AntivirusSignatureLastUpdated,AntivirusSignatureAge,AntivirusSignatureVersion,AMRunningMode} catch {}; $products=@(); try {$products=@(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntivirusProduct | Select-Object displayName,productState)} catch {}; @{ Defender=$mp; Products=$products } | ConvertTo-Json -Compress -Depth 4";
+            // Emit SignatureLastUpdated as round-trip ISO so ConvertTo-Json cannot turn it into /Date(...)/.
+            const string command =
+                "$ErrorActionPreference='Stop'; $mp=$null; try {$raw=Get-MpComputerStatus; $mp=[pscustomobject]@{ AntivirusEnabled=$raw.AntivirusEnabled; RealTimeProtectionEnabled=$raw.RealTimeProtectionEnabled; AMServiceEnabled=$raw.AMServiceEnabled; AntivirusSignatureLastUpdated= if ($raw.AntivirusSignatureLastUpdated) { ([datetime]$raw.AntivirusSignatureLastUpdated).ToString('o') } else { $null }; AntivirusSignatureAge=$raw.AntivirusSignatureAge; AntivirusSignatureVersion=[string]$raw.AntivirusSignatureVersion; AMRunningMode=[string]$raw.AMRunningMode }} catch {}; $products=@(); try {$products=@(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntivirusProduct | Select-Object displayName,productState)} catch {}; @{ Defender=$mp; Products=$products } | ConvertTo-Json -Compress -Depth 4";
             var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(command));
             var start = new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -EncodedCommand " + encoded)
             {
@@ -58,23 +71,42 @@ public static class DefenderStatusReader
             var mode = Str(root, "AMRunningMode");
             var version = Str(root, "AntivirusSignatureVersion");
             var dateString = Str(root, "AntivirusSignatureLastUpdated");
-            DateTime? updated = DateTime.TryParse(dateString, System.Globalization.CultureInfo.CurrentCulture, System.Globalization.DateTimeStyles.None, out var parsed) ? parsed : null;
+            DateTime? updated = TryParseSignatureTime(dateString);
             int? age = Int(root, "AntivirusSignatureAge");
             // The cmdlet's age field is whole days. Use timestamp for the 48-hour boundary.
             var ageSpan = updated.HasValue ? checkedAt - updated.Value : (age.HasValue ? TimeSpan.FromDays(age.Value) : (TimeSpan?)null);
-            var detail = $"Signature: {version}\nLast updated: {(updated.HasValue ? updated.Value.ToString("dd.MM.yyyy HH:mm") : "Unknown")}\nReal-time protection: {(realtime == true ? "On" : "Off/unknown")}\nChecked: {checkedAt:dd.MM.yyyy HH:mm}";
+            var lastUpdatedText = updated.HasValue ? updated.Value.ToString("dd.MM.yyyy HH:mm") : "Unknown";
+            var detail = $"Signature: {version}\nLast updated: {lastUpdatedText}\nReal-time protection: {(realtime == true ? "On" : "Off/unknown")}\nChecked: {checkedAt:dd.MM.yyyy HH:mm}";
             if (mode.Contains("Passive", StringComparison.OrdinalIgnoreCase) || mode.Contains("EDR Block", StringComparison.OrdinalIgnoreCase) || (enabled == false && thirdParty.Count > 0))
-                return new("unknown", thirdParty.Count > 0 ? string.Join(", ", thirdParty) : "Defender passive", detail + "\nThird-party antivirus detected. Protection health could not be independently verified.", checkedAt);
+                return new("unknown", thirdParty.Count > 0 ? string.Join(", ", thirdParty) : "Defender passive", detail + "\nThird-party antivirus detected. Protection health could not be independently verified.", checkedAt, updated, version);
             if (enabled == false || realtime == false || service == false)
-                return new("red", "Protection disabled", detail + "\nCheck Defender services.", checkedAt);
+                return new("red", "Protection disabled", detail + "\nCheck Defender services.", checkedAt, updated, version);
             if (enabled != true || realtime != true || service != true || !ageSpan.HasValue || ageSpan.Value < TimeSpan.Zero)
-                return new("unknown", "Unknown", detail, checkedAt);
-            if (ageSpan.Value >= TimeSpan.FromDays(7)) return new("red", "Critical: 7+ days", detail, checkedAt);
-            if (ageSpan.Value >= TimeSpan.FromDays(2)) return new("orange", "Warning: 2–6 days", detail, checkedAt);
-            return new("green", "Updated", detail, checkedAt);
+                return new("unknown", "Unknown", detail, checkedAt, updated, version);
+            if (ageSpan.Value >= TimeSpan.FromDays(7)) return new("red", "Critical: 7+ days", detail, checkedAt, updated, version);
+            if (ageSpan.Value >= TimeSpan.FromDays(2)) return new("orange", "Warning: 2–6 days", detail, checkedAt, updated, version);
+            return new("green", "Updated", detail, checkedAt, updated, version);
         }
         catch (Exception ex) { return new("unknown", "Unknown", "Check failed: " + Trim(ex.Message), checkedAt); }
     }
+
+    /// <summary>
+    /// Prefer ISO from our PowerShell helper; also accept culture dates and legacy /Date(ms)/ JSON.
+    /// </summary>
+    internal static DateTime? TryParseSignatureTime(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        value = value.Trim();
+        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var iso))
+            return iso.ToLocalTime();
+        if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var local))
+            return local.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(local, DateTimeKind.Local) : local.ToLocalTime();
+        var match = MicrosoftJsonDate.Match(value);
+        if (match.Success && long.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms))
+            return DateTimeOffset.FromUnixTimeMilliseconds(ms).LocalDateTime;
+        return null;
+    }
+
     private static string Trim(string s) => s.Length > 180 ? s[..180] + "…" : s;
     private static string Str(JsonElement obj, string key) => obj.TryGetProperty(key, out var value) && value.ValueKind != JsonValueKind.Null ? value.ToString() : "";
     private static bool? Bool(JsonElement obj, string key) => obj.TryGetProperty(key, out var value) ? value.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, _ => null } : null;

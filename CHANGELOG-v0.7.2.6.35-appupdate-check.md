@@ -2,7 +2,7 @@
 
 - Rename tray item to **Sjekk Windows-oppdateringer** (existing WUA scan).
 - Add tray item **Sjekk Update Express-oppdatering**.
-- Read public channel: `https://raw.githubusercontent.com/BlackAdder5/UpdateExpress-Releases/main/latest.json`
+- Read public channel: `https://raw.githubusercontent.com/MicroSystems-One/UpdateExpress/main/latest.json`
 - Show up-to-date / update-available / check-failed dialogs.
 - Optional open of HTTPS download URL in the browser.
 - No automatic download into the install directory.
