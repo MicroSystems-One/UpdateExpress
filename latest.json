@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.52",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.52/UpdateExpress_v0.7.2.52.exe",
-  "sha256": "439ce19fa7c62b859c4ebfa989d627337e79ac3138d7383c6e58870a018de460",
-  "publishedAt": "2026-11-21T19:32:40Z",
-  "releaseNotes": "UPD-168 Codex from #111 + #112 P2 (migrate delete; resume scanning; cycle mutex for install/scan). Tip e7e5331. Retains #109/#106/#102/#99/#95."
+  "version": "0.7.2.53",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.53/UpdateExpress_v0.7.2.53.exe",
+  "sha256": "f999178b456c41ffffb1125376ebd14e490a871c95e849f518007e79b78c0397",
+  "publishedAt": "2026-11-21T21:02:43Z",
+  "releaseNotes": "UPD-173 Slice A+B optional/Preview honesty (#115). Diagnostics + UI tip; Slice C blocked. Tip e099c5a. Retains #112/#109/#106/#102/#99/#95."
 }
