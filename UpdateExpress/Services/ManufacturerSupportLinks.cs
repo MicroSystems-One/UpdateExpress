@@ -32,8 +32,11 @@ internal static class ManufacturerSupportLinks
 
         if (ContainsAny(raw, "lenovo"))
         {
-            // Produktnr / MTM (e.g. 10T7006XMX) deep-links warranty + drivers.
-            string query = Prefer(product, serialId, model);
+            // Always deep-link with Produktnr / MTM (e.g. 10YM0027MX), never the
+            // marketing model name (ThinkCentre M630e) — even if PcInfo fields were swapped.
+            string query = PreferMachineType(product, model, serialId);
+            if (string.IsNullOrEmpty(query))
+                query = Prefer(product, serialId, model);
             link = new("Lenovo", LenovoUrl(query));
             return true;
         }
@@ -123,6 +126,21 @@ internal static class ManufacturerSupportLinks
             var text = value.Trim();
             if (IsPlaceholder(text)) continue;
             return text;
+        }
+        return "";
+    }
+
+    /// <summary>First value that looks like a Lenovo MTM / product code (not marketing model).</summary>
+    private static string PreferMachineType(params string[] values)
+    {
+        foreach (var value in values)
+        {
+            if (string.IsNullOrWhiteSpace(value)) continue;
+            var text = value.Trim();
+            if (IsPlaceholder(text)) continue;
+            if (MachineIdentityReader.LooksLikeMachineType(text) &&
+                !MachineIdentityReader.LooksLikeMarketingModel(text))
+                return text;
         }
         return "";
     }
