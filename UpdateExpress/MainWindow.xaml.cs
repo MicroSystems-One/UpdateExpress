@@ -1917,7 +1917,7 @@ public partial class MainWindow : Window
             "Hvor ofte bakgrunnsagenten ser etter oppdateringer. Programmer er standard 4 timer; drivere 24 timer; Windows-overvåking 6 timer. Fastvare forblir manuell.",
         ["Applications (hours)"] = "Programmer (timer)",
         ["Drivers (hours)"] = "Drivere (timer)",
-        ["Windows monitor (hours)"] = "Windows-overvåking (timer)",
+        ["Windows monitor (hours)"] = "Sjekk Windows-oppdateringer hver (timer)",
         ["Advanced categories (intervals)"] = "Avanserte kategorier (intervaller)",
         ["Interval (minutes)"] = "Intervall (minutter)", ["Preferred time"] = "Foretrukket tid",
         ["Mode: Auto-install (K1)"] = "Modus: Auto-installasjon (K1)",
