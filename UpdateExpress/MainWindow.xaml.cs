@@ -1149,8 +1149,20 @@ public partial class MainWindow : Window
         OpenWindowsUpdateButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void IncludeOptionalUpdates_Changed(object sender, RoutedEventArgs e) => RefreshOptionalParityHint();
+
+    private void RefreshOptionalParityHint()
+    {
+        bool optionalOn = IncludeOptionalUpdates?.IsChecked == true;
+        if (OptionalParityInfo is not null)
+            OptionalParityInfo.Visibility = optionalOn ? Visibility.Visible : Visibility.Collapsed;
+        if (OptionalOpenWindowsUpdateButton is not null)
+            OptionalOpenWindowsUpdateButton.Visibility = optionalOn ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void OpenWindowsUpdate_Click(object sender, RoutedEventArgs e)
     {
+        // Opens Settings only (ms-settings:windowsupdate). No scan/download/install.
         try { FeatureUpdateOfferReader.OpenWindowsUpdate(); }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
@@ -1726,6 +1738,7 @@ public partial class MainWindow : Window
         DayChoice.SelectedIndex = _schedule.Weekday == 7 ? 0 : Math.Clamp(_schedule.Weekday, 0, 6) + 1;
         TimeChoice.Text = _schedule.Time;
         ApplyLanguage(); // sets AppSubtitle / Title from language + version
+        RefreshOptionalParityHint();
         RemindersEnabled.IsChecked = _schedule.Enabled;
         LoadAutomationPolicyIntoUi();
         BuildInstallDayChips();
@@ -1909,6 +1922,10 @@ public partial class MainWindow : Window
         ["Check for Updates"] = "Se etter oppdateringer",
         ["Check for updates"] = "Se etter oppdateringer",
         ["Open Windows Update"] = "Åpne Windows Update", ["Open Windows Update to install"] = "Åpne Windows Update for å installere",
+        ["Some optional and preview updates may be available directly in Windows Update without appearing in UpdateExpress."] =
+            "Enkelte valgfrie oppdateringer og forhåndsvisningsoppdateringer (Preview) kan være tilgjengelige direkte i Windows Update uten å vises i UpdateExpress.",
+        ["Opens Windows Update in Settings (ms-settings:windowsupdate). Does not scan, download, or install."] =
+            "Åpner Windows Update i Innstillinger (ms-settings:windowsupdate). Starter ikke skanning, nedlasting eller installasjon.",
         ["Manufacturer"] = "Produsent", ["Model"] = "Modell/nr", ["Product no."] = "Produktnr.", ["Serial no."] = "Serienr.", ["Device name"] = "Enhetsnavn", ["Uptime"] = "Oppetid",
         ["Copy"] = "Kopier",
         ["Install Selected Updates"] = "Installer valgte oppdateringer", ["Installation History"] = "Installasjonshistorikk",
@@ -2056,6 +2073,13 @@ public partial class MainWindow : Window
         MachineProductCopy.ToolTip = copyTip;
         MachineSerialCopy.ToolTip = copyTip;
         MachineDeviceCopy.ToolTip = copyTip;
+        const string optionalParityEn = "Some optional and preview updates may be available directly in Windows Update without appearing in UpdateExpress.";
+        string optionalParityTip = norwegian && Norwegian.TryGetValue(optionalParityEn, out var optionalNo) ? optionalNo : optionalParityEn;
+        if (IncludeOptionalUpdates is not null) IncludeOptionalUpdates.ToolTip = optionalParityTip;
+        if (OptionalParityInfo is not null) OptionalParityInfo.ToolTip = optionalParityTip;
+        const string openWuEn = "Opens Windows Update in Settings (ms-settings:windowsupdate). Does not scan, download, or install.";
+        if (OptionalOpenWindowsUpdateButton is not null)
+            OptionalOpenWindowsUpdateButton.ToolTip = norwegian && Norwegian.TryGetValue(openWuEn, out var openWuNo) ? openWuNo : openWuEn;
         if (RebootNeededBanner is not null) RebootNeededBanner.Text = RebootBannerText();
         RefreshLongUptimeHint();
         RefreshAppChromeLanguage();
@@ -2064,6 +2088,7 @@ public partial class MainWindow : Window
             StatusFixItCta.ToolTip = norwegian
                 ? "Reparer og diagnostiser Windows Update-problemer"
                 : "Repair and diagnose Windows Update problems";
+        RefreshOptionalParityHint();
         RefreshScheduleStatus();
         RefreshUpdateUntilCurrentUi();
         RefreshMonitorPanel(); // also refreshes Results heading times
