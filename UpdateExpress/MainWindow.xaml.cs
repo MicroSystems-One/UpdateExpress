@@ -13,6 +13,7 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 using UpdateExpress.Models;
 using UpdateExpress.Services;
+using UpdateExpress.Services.OemDrivers;
 namespace UpdateExpress;
 public partial class MainWindow : Window
 {
@@ -264,9 +265,62 @@ public partial class MainWindow : Window
     }
     private void DriverMode_Changed(object sender, RoutedEventArgs e)
     {
-        // The mode changes the WUA query, not just the UI. A fresh scan is required.
+        // Mode changes the WUA / OEM query, not just the UI. A fresh scan is required.
         if (!IsLoaded || StatusText is null) return;
-        StatusText.Text = "Driver mode changed. Click Check for Updates to refresh WUA results.";
+        StatusText.Text = _schedule.Language == "no"
+            ? "Drivermodus endret. Klikk Se etter oppdateringer for å oppdatere WUA-/OEM-resultater."
+            : "Driver mode changed. Click Check for Updates to refresh WUA / OEM results.";
+    }
+
+    private static bool IsMissingIdentity(string value) =>
+        string.IsNullOrWhiteSpace(value) || value is "—" or "…" or "-" or "N/A" or "n/a";
+
+    private void OpenOemDriverEntry(UpdateEntry entry)
+    {
+        bool norwegian = _schedule.Language == "no";
+        string url = entry.ExternalUrl;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            MessageBox.Show(this,
+                norwegian ? "Ingen nedlastingslenke for denne OEM-oppføringen." : "No download link for this OEM entry.",
+                norwegian ? "OEM-driver" : "OEM driver",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        string details =
+            $"{(norwegian ? "Driver" : "Driver")}: {entry.DisplayTitle}\n" +
+            $"{(norwegian ? "Versjon" : "Version")}: {entry.UnifiedVersion}\n" +
+            $"{(norwegian ? "Kategori" : "Category")}: {entry.DriverClass}\n" +
+            $"{(norwegian ? "Kilde" : "Source")}: {entry.Source}\n" +
+            $"{(norwegian ? "Status" : "Status")}: {entry.DriverStatus}\n\n" +
+            $"{entry.DriverReason}\n\n" +
+            (norwegian
+                ? "JA: åpne nedlasting/readme i nettleser.\nNEI: lukk."
+                : "YES: open download/readme in the browser.\nNO: close.");
+        string brand = entry.Source.StartsWith("OEM / ", StringComparison.OrdinalIgnoreCase)
+            ? entry.Source["OEM / ".Length..].Trim()
+            : "OEM";
+        var answer = MessageBox.Show(this, details,
+            norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
+            MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes);
+        if (answer != MessageBoxResult.Yes) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message,
+                norwegian ? "Kunne ikke åpne lenke" : "Could not open link",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void OpenOemDriver_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: UpdateEntry entry })
+            OpenOemDriverEntry(entry);
     }
     private async void PmeControl_Click(object sender, RoutedEventArgs e)
     {
@@ -765,9 +819,15 @@ public partial class MainWindow : Window
     {
         int windows = _pendingSnapshot.Count(x => x.Category != "Driver / firmware" &&
             (!string.IsNullOrEmpty(x.UpdateId) || x.Source == FeatureUpdateOfferReader.Source));
+        // OEM catalog rows are listed in Drivers but are not WUA "available" installs.
         int drivers = _pendingSnapshot.Count(x => x.Category == "Driver / firmware" && !string.IsNullOrEmpty(x.UpdateId));
-        return _schedule.Language == "no"
-            ? $"Windows: {windows} tilgjengelig  |  Drivere: {drivers} tilgjengelig  |  Programmer: {_appEntries.Count} tilgjengelig"
+        int oem = _pendingSnapshot.Count(x => x.Category == "Driver / firmware" && x.OpensExternalUrl);
+        if (_schedule.Language == "no")
+            return oem > 0
+                ? $"Windows: {windows} tilgjengelig  |  Drivere: {drivers} tilgjengelig (+{oem} OEM)  |  Programmer: {_appEntries.Count} tilgjengelig"
+                : $"Windows: {windows} tilgjengelig  |  Drivere: {drivers} tilgjengelig  |  Programmer: {_appEntries.Count} tilgjengelig";
+        return oem > 0
+            ? $"Windows: {windows} available  |  Drivers: {drivers} available (+{oem} OEM)  |  Applications: {_appEntries.Count} available"
             : $"Windows: {windows} available  |  Drivers: {drivers} available  |  Applications: {_appEntries.Count} available";
     }
 
@@ -1892,6 +1952,8 @@ public partial class MainWindow : Window
         ["Checking Windows…"] = "Sjekker Windows…",
         ["Include optional"] = "Inkluder valgfrie",
         ["All WUA drivers"] = "Alle WUA-drivere",
+        ["OEM drivers"] = "OEM-drivere",
+        ["Open OEM download"] = "Åpne OEM-nedlasting",
         ["Change setup…"] = "Endre oppsett…",
         ["About Update Express vs Windows Update"] = "Om Update Express vs Windows Update",
         ["Maintenance window"] = "Vedlikeholdsvindu",
@@ -2416,20 +2478,53 @@ public partial class MainWindow : Window
             // Accessing IncludeOptionalUpdates from the worker throws InvalidOperationException.
             bool includeOptional = IncludeOptionalUpdates.IsChecked == true;
             bool allDrivers = ShowAllDrivers.IsChecked == true;
+            bool oemDrivers = ShowOemDrivers.IsChecked == true;
             var windows = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(includeOptional, allDrivers));
+            int oemCount = 0;
+            if (oemDrivers)
+            {
+                try
+                {
+                    var identity = _machineIdentity;
+                    if (IsMissingIdentity(identity.Manufacturer) || IsMissingIdentity(identity.Product) && IsMissingIdentity(identity.Model))
+                        identity = await Task.Run(MachineIdentityReader.Read).ConfigureAwait(true);
+                    var oem = await OemDriverSearch.SearchAsync(
+                        identity,
+                        msg => Dispatcher.Invoke(() =>
+                        {
+                            if (StatusText is not null) StatusText.Text = msg;
+                        })).ConfigureAwait(true);
+                    oemCount = oem.Count;
+                    if (oemCount > 0)
+                    {
+                        var merged = new List<UpdateEntry>(windows.Count + oem.Count);
+                        merged.AddRange(windows);
+                        merged.AddRange(oem);
+                        windows = merged;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ActivityLog.TryWrite("OemDriverSearch", "Failed", new { Exception = ex.ToString() });
+                    StatusText.Text = (_schedule.Language == "no" ? "OEM-drivernsøk feilet: " : "OEM driver search failed: ") + ex.Message;
+                }
+            }
             ReplacePendingSnapshot(windows);
             _lastSuccessfulScan = DateTime.Now;
             // Keep the user's current results tab (All is the startup default).
             SetTab(_activeTab);
             SyncResultsExpandedForPending(windows.Count);
             int driverCount = windows.Count(e => e.Category == "Driver / firmware");
+            int wuaDriverCount = windows.Count(e => e.Category == "Driver / firmware" && !e.OpensExternalUrl);
             try
             {
                 var apps = await WingetReader.ScanAsync();
                 WingetAvailableCache.Write(apps.Updates, apps.Raw);
                 ApplyAppScanResult(apps.Updates, apps.Raw);
                 ReconcileApplicationsPromptWithScan(apps.Updates);
-                StatusText.Text = $"Windows: {windows.Count - driverCount}, drivers: {driverCount}, applications: {apps.Updates.Count}.";
+                StatusText.Text = oemCount > 0
+                    ? $"Windows: {windows.Count - driverCount}, drivers: {wuaDriverCount} WUA + {oemCount} OEM, applications: {apps.Updates.Count}."
+                    : $"Windows: {windows.Count - driverCount}, drivers: {driverCount}, applications: {apps.Updates.Count}.";
             }
             catch (Exception ex)
             {
@@ -2785,6 +2880,11 @@ public partial class MainWindow : Window
         if (entry.OpensWindowsUpdate)
         {
             OpenWindowsUpdate_Click(sender, e);
+            return;
+        }
+        if (entry.OpensExternalUrl)
+        {
+            OpenOemDriverEntry(entry);
             return;
         }
         if (entry.HasFixableErrorCode)
