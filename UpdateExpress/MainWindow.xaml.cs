@@ -42,6 +42,7 @@ public partial class MainWindow : Window
     }
     public bool CanSelectDisplayedEntry => _activeTab == "history" || _activeTab == "drivers" || _activeTab == "software";
     private bool _busy;
+    private bool _scanButtonSearching;
     private static bool IsManuallyInstallableDriver(UpdateEntry e) =>
         e.Category == "Driver / firmware" &&
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
@@ -1025,6 +1026,9 @@ public partial class MainWindow : Window
         ListHeading.Text = norwegian ? "Søk etter oppdateringer og resultater" : "Check for Updates & Results";
         RefreshScheduleStatus();
         RefreshUpdateUntilCurrentUi();
+        // Translate() restores ScanButton from Tag; keep the busy label while a scan is running.
+        if (_scanButtonSearching)
+            ScanButton.Content = norwegian ? "Søker...." : "Searching....";
     }
     private void RefreshScheduleStatus()
     {
@@ -1104,6 +1108,27 @@ public partial class MainWindow : Window
             : english;
     }
 
+    private void ResetScanButtonLabel()
+    {
+        _scanButtonSearching = false;
+        const string english = "⌕  Check for Updates";
+        // ApplyLanguage stores the first text it sees in Tag. A busy "Searching...." /
+        // "Søker...." label captured there would be restored on the next language pass.
+        if (ScanButton.Tag is not string tag
+            || tag.Contains("Searching", StringComparison.Ordinal)
+            || tag.Contains("Søker", StringComparison.Ordinal))
+            ScanButton.Tag = english;
+        ScanButton.Content = _schedule.Language == "no"
+            ? "⌕  Søk etter oppdateringer"
+            : english;
+    }
+
+    private void SetScanButtonSearching()
+    {
+        _scanButtonSearching = true;
+        ScanButton.Content = _schedule.Language == "no" ? "Søker...." : "Searching....";
+    }
+
     private async Task LoadAsync(Func<List<UpdateEntry>> operation)
     {
         if (_busy) return;
@@ -1140,10 +1165,9 @@ public partial class MainWindow : Window
         _busy = true;
         ScanButton.IsEnabled = HistoryButton.IsEnabled = AppsScanButton.IsEnabled = false;
         UpdateSelectionControls(); UpdateAppSelection();
-        ScanProgressText.Visibility = Visibility.Visible;
+        SetScanButtonSearching();
         try
         {
-            ScanProgressText.Text = "Scanning Windows updates and drivers…";
             // Capture WPF checkbox state on the UI thread BEFORE passing work to the STA worker.
             // Accessing IncludeOptionalUpdates from the worker throws InvalidOperationException.
             bool includeOptional = IncludeOptionalUpdates.IsChecked == true;
@@ -1153,7 +1177,6 @@ public partial class MainWindow : Window
             _lastSuccessfulScan = DateTime.Now;
             SetTab("software");
             int driverCount = windows.Count(e => e.Category == "Driver / firmware");
-            ScanProgressText.Text = "Scanning applications (WinGet)…";
             try
             {
                 var apps = await WingetReader.ScanAsync();
@@ -1168,20 +1191,17 @@ public partial class MainWindow : Window
                 StatusText.Text = $"Windows scan complete; WinGet failed: {ex.Message}";
             }
             RefreshHealthSummary();
-            ScanProgressText.Text = "Scan complete";
-            await Task.Delay(900);
         }
         catch (Exception ex)
         {
-            ScanProgressText.Text = "Scan failed";
             ActivityLog.TryWrite("UpdateScan", "Failed", new { Exception = ex.ToString() });
             MessageBox.Show(this, ex.Message, "Update scan error", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
         {
-            ScanProgressText.Visibility = Visibility.Collapsed;
             _busy = false;
             ScanButton.IsEnabled = HistoryButton.IsEnabled = AppsScanButton.IsEnabled = true;
+            ResetScanButtonLabel();
             UpdateSelectionControls(); UpdateAppSelection();
         }
     }
