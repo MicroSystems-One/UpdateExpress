@@ -79,9 +79,24 @@ public partial class MainWindow : Window
         _showingHistory = tab == "history";
         // Entries is the visible table only. Keep pending and history in separate snapshots.
         // Never reuse history rows when returning to Windows Updates / Drivers.
-        IEnumerable<UpdateEntry> source = _showingHistory ? _historySnapshot : _pendingSnapshot;
         Entries.Clear();
-        foreach (var entry in source) Entries.Add(entry);
+        if (_showingHistory)
+        {
+            // Keep raw Date on the same objects (EventKey / hide / Fixed). Format only DateDisplay for the grid.
+            foreach (var entry in _historySnapshot)
+            {
+                entry.DateDisplay = _schedule.FormatDateValue(entry.Date);
+                Entries.Add(entry);
+            }
+        }
+        else
+        {
+            foreach (var entry in _pendingSnapshot)
+            {
+                entry.DateDisplay = string.IsNullOrWhiteSpace(entry.Date) ? "" : _schedule.FormatDateValue(entry.Date);
+                Entries.Add(entry);
+            }
+        }
         _entriesView.Refresh();
         // All tabs share the same visible column order. Empty values remain blank.
         SoftwareTab.FontWeight = DriversTab.FontWeight = HistoryTab.FontWeight = AppsTab.FontWeight = FontWeights.Normal;
@@ -266,7 +281,7 @@ public partial class MainWindow : Window
         var selected = _appEntries.Where(a => a.IsSelected).ToList();
         if (selected.Count == 0) return;
         var names = string.Join("\n", selected.Select(a => $"• {a.Name} ({a.Id}): {a.Installed} → {a.Available}"));
-        if (MessageBox.Show(this, $"Install {selected.Count} selected application updates?\n\n{names}\n\nSave your work and close affected applications. Remote support software may disconnect. No automatic restart will be initiated by Update Express.", "Confirm WinGet Installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (AppDialog.Show(this, $"Install {selected.Count} selected application updates?\n\n{names}\n\nSave your work and close affected applications. Remote support software may disconnect. No automatic restart will be initiated by Update Express.", "Confirm WinGet Installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         _busy = true; AppsScanButton.IsEnabled = false; UpdateAppSelection();
         var logs = new List<string>();
         var activityRunId = Guid.NewGuid().ToString("N");
@@ -490,7 +505,7 @@ public partial class MainWindow : Window
         }
         var failures = _historySnapshot.Where(x => x.Status is "Mislykket" or "Avbrutt").ToList();
         var success = _historySnapshot.Where(x => x.Status == "Vellykket").ToList();
-        var latestSuccess = success.Select(x => DateTime.TryParse(x.Date, out var d) ? d : DateTime.MinValue).DefaultIfEmpty().Max();
+        var latestSuccess = success.Select(x => ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue).DefaultIfEmpty().Max();
         var pendingKbs = _pendingSnapshot.SelectMany(x => SplitKbs(x.KB)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         int fixedCount = _historySnapshot.Count(x => x.IsHistoryFixed);
         int laterSuccess = 0, stillPending = 0, unresolved = 0;
@@ -498,9 +513,9 @@ public partial class MainWindow : Window
         {
             var keys = SplitKbs(failure.KB).ToArray();
             if (keys.Length == 0) { unresolved++; continue; }
-            var failureDate = DateTime.TryParse(failure.Date, out var d) ? d : DateTime.MinValue;
+            var failureDate = ReminderSchedule.TryParseDate(failure.Date) ?? DateTime.MinValue;
             if (keys.Any(k => pendingKbs.Contains(k))) { stillPending++; continue; }
-            if (success.Any(x => DateTime.TryParse(x.Date, out var sd) && sd > failureDate && SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any())) laterSuccess++;
+            if (success.Any(x => (ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue) > failureDate && SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any())) laterSuccess++;
             else unresolved++;
         }
         HealthSummary.Text = CategorySummary() + $"\nHistory: {_historySnapshot.Count}  |  Failures: {failures.Count}  |  Fixed: {fixedCount}  |  Resolved KB: {laterSuccess}  |  Unresolved: {unresolved}";
@@ -709,7 +724,7 @@ public partial class MainWindow : Window
     private void ConfirmAndRestart()
     {
         bool norwegian = _schedule.Language == "no";
-        var answer = MessageBox.Show(this,
+        var answer = AppDialog.Show(this,
             norwegian
                 ? "Vil du starte denne datamaskinen på nytt nå?\n\nLagre arbeidet ditt først. Det du ikke har lagret, går tapt."
                 : "Restart this computer now?\n\nSave your work first. Anything you have not saved will be lost.",
@@ -914,6 +929,7 @@ public partial class MainWindow : Window
         _reminderTimer.Start();
         _monitorUiTimer.Tick += (_, _) =>
         {
+            ReloadDisplaySettings();
             RefreshMonitorPanel();
             RefreshAutomationStatusTexts();
             RefreshRebootNeededBanner();
@@ -1036,6 +1052,9 @@ public partial class MainWindow : Window
         _schedule.DateFormat = dateFormat;
         ApplyLanguage();
         RefreshScheduleStatus();
+        // History Date/Time follows Settings date format + 12h/24h clock.
+        if (_showingHistory)
+            SetTab("history");
     }
     private bool _languageReady;
     private static readonly Dictionary<string, string> Norwegian = new(StringComparer.Ordinal)
@@ -1575,7 +1594,7 @@ public partial class MainWindow : Window
             return;
         }
         string note = string.IsNullOrWhiteSpace(entry.StatusNote) ? "" : entry.StatusNote + "\n\n";
-        MessageBox.Show(this, $"Update: {entry.Title}\nKB: {entry.KB}\nCategory: {entry.Category}\nPriority: {entry.PriorityDisplay}\nStatus: {entry.Status}\nDate: {entry.Date}\nError: {entry.ErrorCode}\n\n{note}{assessment}\n\nUninstall is not implemented.", "Update Details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show(this, $"Update: {entry.Title}\nKB: {entry.KB}\nCategory: {entry.Category}\nPriority: {entry.PriorityDisplay}\nStatus: {entry.Status}\nDate: {entry.DateShown}\nError: {entry.ErrorCode}\n\n{note}{assessment}\n\nUninstall is not implemented.", "Update Details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
     }
     private void Export_Click(object sender, RoutedEventArgs e)
     {
@@ -1584,7 +1603,7 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) != true) return;
         static string Q(string? s) => "\"" + (s ?? "").Replace("\"", "\"\"") + "\"";
         var sb = new StringBuilder("KB;Update;Status;DateTime;Source;ErrorCode\r\n");
-        foreach (var x in Entries) sb.AppendLine(string.Join(';', new[] { x.KB, x.Title, x.Status, x.Date, x.Source, x.ErrorCode }.Select(Q)));
+        foreach (var x in Entries) sb.AppendLine(string.Join(';', new[] { x.KB, x.Title, x.Status, x.DateShown, x.Source, x.ErrorCode }.Select(Q)));
         File.WriteAllText(dialog.FileName, sb.ToString(), new UTF8Encoding(true));
         StatusText.Text = $"Exported {Entries.Count} entries to {dialog.FileName}";
     }
@@ -1630,7 +1649,7 @@ public partial class MainWindow : Window
         // WUA may return 0x80240044 when a non-elevated process attempts a download.
         if (!UpdateExpress.Services.ElevationHelper.IsElevated)
         {
-            var choice = MessageBox.Show(this,
+            var choice = AppDialog.Show(this,
                 "Installation requires administrator privileges.\n\n" +
                 "Restart Update Express as administrator?\n\n" +
                 "No updates will be installed automatically. Scan again and select updates after restart.",
@@ -1643,25 +1662,25 @@ public partial class MainWindow : Window
             }
             catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
             {
-                MessageBox.Show(this, "Administrator approval cancelled. No installation was started.",
+                AppDialog.Show(this, "Administrator approval cancelled. No installation was started.",
                     "Update Express", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Unable to restart as administrator: " + ex.Message,
+                AppDialog.Show(this, "Unable to restart as administrator: " + ex.Message,
                     "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             return;
         }
         if (drivers.Any(x => !IsManuallyInstallableDriver(x)))
         {
-            MessageBox.Show(this, "A selected driver or firmware update has no verified hardware ID, so it was not installed.", "Driver safety", MessageBoxButton.OK, MessageBoxImage.Warning);
+            AppDialog.Show(this, "A selected driver or firmware update has no verified hardware ID, so it was not installed.", "Driver safety", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         if (drivers.Count > 0)
         {
             var summary = string.Join("\n", drivers.Select(d => $"• {d.Title} [{d.DriverHardwareId}]"));
-            if (MessageBox.Show(this,
+            if (AppDialog.Show(this,
                 $"Install {drivers.Count} manually selected driver or firmware update(s), sequentially?\n\n{summary}\n\nEach one is rechecked against WUA and its hardware ID. A failure will not stop the next one. Nothing is installed automatically, and there is no automatic restart.",
                 "Confirm driver installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         }
@@ -1670,7 +1689,7 @@ public partial class MainWindow : Window
         queue.AddRange(drivers.Select(x => new InstallationQueueItem("Driver", x.Title)));
         queue.AddRange(apps.Select(x => new InstallationQueueItem("WinGet", x.DisplayName)));
         var manager = new InstallationManagerWindow(queue) { Owner = this };
-        if (MessageBox.Show(this, $"Install {queue.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}\n\nNo automatic restart will be performed.", "Confirm combined installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (AppDialog.Show(this, $"Install {queue.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}\n\nNo automatic restart will be performed.", "Confirm combined installation", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         _busy = true;
         InstallButtonActive = true;
         InstallButton.Content = "Installing updates…";
@@ -1986,7 +2005,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var answer = MessageBox.Show(this,
+        var answer = AppDialog.Show(this,
             norwegian
                 ? "Oppdater til ferdig søker, laster ned og installerer Windows-oppdateringer.\n\nNår Windows krever omstart, starter PC-en på nytt etter 90 sekunder. Etter innlogging må administrator-spørsmålet godkjennes, så fortsetter runden til det ikke er flere slike oppdateringer.\n\nDrivere, fastvare og funksjonsoppdateringer tas ikke med. Høyeste antall runder er 8."
                 : "Update until current searches, downloads, and installs Windows software updates.\n\nWhen Windows requires a restart, the PC restarts after 90 seconds. After you sign in, approve the administrator prompt and the cycle continues until none of those updates remain.\n\nDrivers, firmware, and feature updates are not included. The cycle stops after 8 rounds.",

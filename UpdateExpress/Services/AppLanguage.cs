@@ -32,6 +32,7 @@ internal static class AppLanguage
         ["A newer Update Express version is available."] = "En nyere versjon av Update Express er tilgjengelig.",
         ["Installed: {0}"] = "Installert: {0}",
         ["Available: {0}"] = "Tilgjengelig: {0}",
+        ["Install now"] = "Installer nå",
         ["Install now (closes open Update Express, then download + verify SHA-256 + replace)"] =
             "Installer nå (lukker åpen Update Express, deretter last ned + verifiser SHA-256 + erstatt)",
         ["Open download page"] = "Åpne nedlastingssiden",
