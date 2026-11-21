@@ -131,9 +131,21 @@ internal static class HistoryArchive
             : item.Source.Contains("Driver", StringComparison.OrdinalIgnoreCase) ? "Driver / firmware"
             : "Windows Update";
 
+        // Match WindowsUpdateReader.History(): KB column from title so DisplayIdentityKey
+        // can collapse this synthetic row with the live WUA event once it appears.
+        string title = item.Name ?? "";
+        var kbs = new List<string>();
+        foreach (Match match in KbPattern.Matches(title))
+        {
+            string kb = match.Value.ToUpperInvariant();
+            if (!kbs.Contains(kb, StringComparer.OrdinalIgnoreCase))
+                kbs.Add(kb);
+        }
+
         return new UpdateEntry
         {
-            Title = item.Name,
+            Title = title,
+            KB = string.Join(", ", kbs),
             Category = category,
             Source = string.IsNullOrWhiteSpace(item.Source) ? "Installation Manager" : item.Source,
             Status = failed ? "Mislykket" : "Vellykket",
