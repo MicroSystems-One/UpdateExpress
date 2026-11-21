@@ -4,15 +4,15 @@ namespace UpdateExpress.Services.OemDrivers;
 
 /// <summary>
 /// Routes OEM driver search to the catalog matching Manufacturer.
-/// Lenovo is registered in v1; add Dell/HP/ASUS catalogs here later.
+/// Lenovo, Dell, and HP are registered; ASUS can plug in later.
 /// </summary>
 internal static class OemDriverSearch
 {
     private static readonly IOemDriverCatalog[] Catalogs =
     {
-        new LenovoOemDriverCatalog()
-        // new DellOemDriverCatalog(),
-        // new HpOemDriverCatalog(),
+        new LenovoOemDriverCatalog(),
+        new DellOemDriverCatalog(),
+        new HpOemDriverCatalog()
         // new AsusOemDriverCatalog(),
     };
 
@@ -30,7 +30,7 @@ internal static class OemDriverSearch
         var catalog = Catalogs.FirstOrDefault(c => c.Matches(identity.Manufacturer));
         if (catalog is null)
         {
-            report?.Invoke($"OEM drivers: no catalog for «{identity.Manufacturer}» yet (Lenovo in v1).");
+            report?.Invoke($"OEM drivers: no catalog for «{identity.Manufacturer}» yet (Lenovo / Dell / HP in v1).");
             return Array.Empty<UpdateEntry>();
         }
 

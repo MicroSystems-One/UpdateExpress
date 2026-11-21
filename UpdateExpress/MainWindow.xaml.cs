@@ -298,8 +298,11 @@ public partial class MainWindow : Window
             (norwegian
                 ? "JA: åpne nedlasting/readme i nettleser.\nNEI: lukk."
                 : "YES: open download/readme in the browser.\nNO: close.");
+        string brand = entry.Source.StartsWith("OEM / ", StringComparison.OrdinalIgnoreCase)
+            ? entry.Source["OEM / ".Length..].Trim()
+            : "OEM";
         var answer = MessageBox.Show(this, details,
-            norwegian ? "OEM-driver (Lenovo)" : "OEM driver (Lenovo)",
+            norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
             MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes);
         if (answer != MessageBoxResult.Yes) return;
         try

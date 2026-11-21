@@ -1,7 +1,7 @@
 namespace UpdateExpress.Services.OemDrivers;
 
 /// <summary>
-/// OEM support-catalog search. Lenovo is v1; Dell/HP/ASUS plug in behind the same shape.
+/// OEM support-catalog search. Lenovo / Dell / HP in v1; ASUS can plug in later.
 /// </summary>
 internal interface IOemDriverCatalog
 {
