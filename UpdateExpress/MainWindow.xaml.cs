@@ -1604,8 +1604,9 @@ public partial class MainWindow : Window
     private void FlashCopied(Button button)
     {
         bool norwegian = _schedule.Language == "no";
-        button.ToolTip = norwegian ? "Kopiert" : "Copied";
-        var iconTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        button.ToolTip = norwegian ? "Kopiert!" : "Copied!";
+        CopiedToast.Show(button, norwegian);
+        var iconTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
         iconTimer.Tick += (_, _) =>
         {
             iconTimer.Stop();
