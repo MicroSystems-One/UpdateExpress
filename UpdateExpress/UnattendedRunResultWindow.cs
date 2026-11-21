@@ -6,6 +6,8 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using UpdateExpress.Services;
+using WpfFontFamily = System.Windows.Media.FontFamily;
+using WpfTextBox = System.Windows.Controls.TextBox;
 
 namespace UpdateExpress;
 
@@ -36,7 +38,7 @@ internal sealed class UnattendedRunResultWindow : Window
         ShowInTaskbar = true;
         Topmost = true;
         Background = new SolidColorBrush(Color.FromRgb(0xF3, 0xF6, 0xFB));
-        FontFamily = new FontFamily("Segoe UI");
+        FontFamily = new WpfFontFamily("Segoe UI");
 
         int ok = state.Successful.Count;
         int failed = state.Failed.Count;
@@ -179,7 +181,7 @@ internal sealed class UnattendedRunResultWindow : Window
             return panel;
         }
 
-        var box = new TextBox
+        var box = new WpfTextBox
         {
             Text = string.Join("\n", lines),
             IsReadOnly = true,
