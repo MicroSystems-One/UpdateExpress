@@ -78,15 +78,7 @@ internal sealed class PcInfoWindow : Window
 
         body.Children.Add(Divider());
 
-        body.Children.Add(SectionLabel(norwegian ? "Nettverk" : "Network"));
-        body.Children.Add(Field(norwegian ? "Lokal IP" : "Local IP", network.LocalIp, copy: true));
-        body.Children.Add(Field(norwegian ? "Subnettmaske" : "Subnet mask", network.SubnetMask, copy: false));
-        body.Children.Add(Field("Gateway", network.Gateway, copy: false));
-        body.Children.Add(Field(norwegian ? "Primær DNS" : "Primary DNS", network.PrimaryDns, copy: false));
-        body.Children.Add(Field(norwegian ? "Sekundær DNS" : "Secondary DNS", network.SecondaryDns, copy: false));
-
-        body.Children.Add(Divider());
-
+        // Device above Network (UPD-150).
         body.Children.Add(SectionLabel(norwegian ? "Enhet" : "Device"));
         string manufacturerModel = CombineManufacturerModel(identity.Manufacturer, identity.Model);
         body.Children.Add(Field(
@@ -101,6 +93,15 @@ internal sealed class PcInfoWindow : Window
             uptimeText,
             copy: false,
             valueTooltip: uptimeTooltip));
+
+        body.Children.Add(Divider());
+
+        body.Children.Add(SectionLabel(norwegian ? "Nettverk" : "Network"));
+        body.Children.Add(Field(norwegian ? "Lokal IP" : "Local IP", network.LocalIp, copy: true));
+        body.Children.Add(Field(norwegian ? "Subnettmaske" : "Subnet mask", network.SubnetMask, copy: false));
+        body.Children.Add(Field("Gateway", network.Gateway, copy: false));
+        body.Children.Add(Field(norwegian ? "Primær DNS" : "Primary DNS", network.PrimaryDns, copy: false));
+        body.Children.Add(Field(norwegian ? "Sekundær DNS" : "Secondary DNS", network.SecondaryDns, copy: false));
 
         var close = AppDialog.CreateChromeButton(norwegian ? "Lukk" : "Close", primary: true, isDefault: true);
         close.HorizontalAlignment = WpfHorizontalAlignment.Right;
