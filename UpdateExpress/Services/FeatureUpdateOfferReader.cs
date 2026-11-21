@@ -39,7 +39,12 @@ internal static class FeatureUpdateOfferReader
             lines.Add("No newer feature update without a safeguard hold. This does not query Windows Settings.");
         else
             lines.Add($"Shown in Windows Updates: {chosen.Version} (build {chosen.DestBuild}). Not a WUA package. Install from Windows Update in Settings.");
-        lines.Add("WUA COM does not return this Settings offer. Include optional only adds BrowseOnly updates.");
+        // Never word this as if a concrete Settings offer was observed: this reader only
+        // evaluates compatibility-assessment registry keys and does not query Settings.
+        lines.Add(chosen is null
+            ? "No specific Windows Settings offer is identified or verified by this report."
+            : "This candidate is derived from the compatibility assessment in the registry. It is not a verified Windows Settings offer.");
+        lines.Add("General limitation: offers shown in Windows Settings are not necessarily returned by WUA COM. Include optional only adds the WUA BrowseOnly search.");
         return lines;
     }
 

@@ -221,9 +221,10 @@ public static class WindowsUpdateReader
             "UPDATE EXPRESS v" + ProductVersion.Display + " – DIAGNOSTICS",
             "Tid: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             "Maskin: " + Environment.MachineName,
-            "OS: " + Environment.OSVersion,
-            ""
+            "OS: " + Environment.OSVersion
         };
+        lines.AddRange(WindowsBuildDiagnosticLines());
+        lines.Add("");
 
         string serverSelectionRaw = "?";
         string onlineRaw = "?";
@@ -292,7 +293,20 @@ public static class WindowsUpdateReader
 
         // Keyed snapshots reused for set compare + Preview/KB title scan (no repeated Search calls).
         var snapshots = new Dictionary<string, List<DiagnosticUpdateRow>>(StringComparer.OrdinalIgnoreCase);
-        var queryOutcomes = new List<(string Name, string Outcome, int Count, long Ms)>();
+        // ResultCode: WUA OperationResultCode, -1 when unreadable, -2 when Search threw.
+        // WarningCount: -1 when ISearchResult.Warnings could not be read.
+        var queryOutcomes = new List<(string Name, string Outcome, int Count, long Ms, int ResultCode, int WarningCount)>();
+
+        var queries = new (string Name, string Criteria)[]
+        {
+            ("A pending / visible (no Type)", "IsInstalled=0 and IsHidden=0"),
+            ("B software pending / visible", "IsInstalled=0 and IsHidden=0 and Type='Software'"),
+            ("C software pending / browse only", "IsInstalled=0 and IsHidden=0 and Type='Software' and BrowseOnly=1"),
+            ("D software pending / not browse only", "IsInstalled=0 and IsHidden=0 and Type='Software' and BrowseOnly=0"),
+            ("Software pending / including hidden", "IsInstalled=0 and Type='Software'"),
+            ("Drivers pending / visible", "IsInstalled=0 and IsHidden=0 and Type='Driver'"),
+            ("Drivers pending / assigned", "IsInstalled=0 and IsHidden=0 and Type='Driver' and IsAssigned=1")
+        };
 
         try
         {
@@ -303,17 +317,6 @@ public static class WindowsUpdateReader
             lines.Add("Searcher ServerSelection: " + FormatServerSelection(Convert.ToString(diagnosticSearcher.ServerSelection) ?? "?"));
             try { lines.Add("Searcher ServiceID: " + FormatServiceId(Convert.ToString(diagnosticSearcher.ServiceID) ?? "")); }
             catch { lines.Add("Searcher ServiceID: default / not explicitly set"); }
-
-            var queries = new (string Name, string Criteria)[]
-            {
-                ("A pending / visible (no Type)", "IsInstalled=0 and IsHidden=0"),
-                ("B software pending / visible", "IsInstalled=0 and IsHidden=0 and Type='Software'"),
-                ("C software pending / browse only", "IsInstalled=0 and IsHidden=0 and Type='Software' and BrowseOnly=1"),
-                ("D software pending / not browse only", "IsInstalled=0 and IsHidden=0 and Type='Software' and BrowseOnly=0"),
-                ("Software pending / including hidden", "IsInstalled=0 and Type='Software'"),
-                ("Drivers pending / visible", "IsInstalled=0 and IsHidden=0 and Type='Driver'"),
-                ("Drivers pending / assigned", "IsInstalled=0 and IsHidden=0 and Type='Driver' and IsAssigned=1")
-            };
 
             foreach (var query in queries)
             {
@@ -330,6 +333,7 @@ public static class WindowsUpdateReader
                     try { resultCode = (int)results.ResultCode; } catch { }
                     string outcome = FormatOperationResultCode(resultCode);
                     string warnings = FormatSearchWarnings(results);
+                    int warningCount = SearchWarningCount(results);
                     int count = 0;
                     try { count = (int)results.Updates.Count; } catch { }
                     lines.Add("RESULT CODE: " + outcome + " (raw=" + resultCode + ")");
@@ -355,7 +359,7 @@ public static class WindowsUpdateReader
                     }
                     if (count > displayLimit)
                         lines.Add($"  REPORT TRUNCATED: {count - displayLimit} additional entries omitted from display (max {displayLimit}); full cache used for set compare / Preview scan ({rowList.Count} rows).");
-                    queryOutcomes.Add((query.Name, outcome, count, sw.ElapsedMilliseconds));
+                    queryOutcomes.Add((query.Name, outcome, count, sw.ElapsedMilliseconds, resultCode, warningCount));
                 }
                 catch (Exception ex)
                 {
@@ -366,7 +370,7 @@ public static class WindowsUpdateReader
                     lines.Add("RESULT CODE: Failed (exception; search did not complete)");
                     lines.Add("ELAPSED MS: " + sw.ElapsedMilliseconds);
                     lines.Add("NOTE: Search failed. RAW COUNT 0 after failure does not mean the PC is fully up to date.");
-                    queryOutcomes.Add((query.Name, "Failed (exception)", 0, sw.ElapsedMilliseconds));
+                    queryOutcomes.Add((query.Name, "Failed (exception)", 0, sw.ElapsedMilliseconds, -2, 0));
                 }
             }
         }
@@ -386,6 +390,7 @@ public static class WindowsUpdateReader
 
         lines.Add("\n=== PREVIEW / OPTIONAL TITLE SCAN (cached rows; no extra Search) ===");
         bool previewHit = false;
+        var previewHitKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var kv in snapshots)
         {
             foreach (var row in kv.Value)
@@ -393,6 +398,7 @@ public static class WindowsUpdateReader
                 if (LooksLikePreviewOrOptionalOffer(row))
                 {
                     previewHit = true;
+                    previewHitKeys.Add(string.IsNullOrWhiteSpace(row.UpdateId) ? row.Title + "|" + row.Kb : row.IdentityKey);
                     lines.Add($"HIT in {kv.Key}: {row.Title} | {row.Kb} | BrowseOnly={row.BrowseOnly} | UpdateID={row.UpdateId}");
                 }
             }
@@ -409,6 +415,9 @@ public static class WindowsUpdateReader
             lines.Add($"  {q.Name}: {q.Outcome}; count={q.Count}; {q.Ms} ms");
 
         lines.Add("\n=== DRIVER CLASSIFICATION (READ ONLY) ===");
+        lines.Add("Runs the ordinary application scan (AdvancedPending, optional + all drivers): its own WUA searches plus the installed-driver inventory.");
+        lines.Add("Those searches are separate from the diagnostic searches above and do not report ResultCode.");
+        var driverClassificationSw = Stopwatch.StartNew();
         try
         {
             foreach (var entry in AdvancedPending(includeOptional: true, allDrivers: true)
@@ -420,8 +429,13 @@ public static class WindowsUpdateReader
             }
         }
         catch (Exception ex) { lines.Add("Driver classification diagnostic error: " + ex.Message); }
+        driverClassificationSw.Stop();
+        lines.Add("SECTION ELAPSED MS: " + driverClassificationSw.ElapsedMilliseconds);
         lines.Add("\n=== FEATURE UPDATES ===");
+        var featureUpdateSw = Stopwatch.StartNew();
         lines.AddRange(FeatureUpdateOfferReader.DiagnosticLines());
+        featureUpdateSw.Stop();
+        lines.Add("SECTION ELAPSED MS: " + featureUpdateSw.ElapsedMilliseconds);
         lines.Add("\n=== MANUAL PREVIEW / OPTIONAL INSTALL LIMIT ===");
         lines.Add("CollectSoftwareUpdates re-searches default Software only (no BrowseOnly). SafeDefault gates Install Selected and automation.");
         lines.Add("Preview / optional updates that are not SafeDefault must be installed from Windows Update when COM install is unavailable.");
@@ -430,7 +444,75 @@ public static class WindowsUpdateReader
         lines.Add("\nTOTAL DIAGNOSTICS ELAPSED MS: " + totalSw.ElapsedMilliseconds);
         lines.Add("\nInterpretation: Observed WUA COM / Windows Settings offer discrepancy is possible; Settings may show offers not returned by these WUA searches. No installation performed.");
         lines.Add("Merk: WUA-søk følger PC-ens konfigurerte kilde og policy. Ikke alle valgfrie oppdateringer er nødvendigvis tilgjengelige via COM API.");
+
+        int succeeded = queryOutcomes.Count(q => q.ResultCode == 2);
+        int succeededWithErrors = queryOutcomes.Count(q => q.ResultCode == 3);
+        int notRun = queries.Length - queryOutcomes.Count;
+        int failed = queryOutcomes.Count - succeeded - succeededWithErrors + notRun;
+        int searchesWithWarnings = queryOutcomes.Count(q => q.WarningCount > 0);
+        int totalWarnings = queryOutcomes.Where(q => q.WarningCount > 0).Sum(q => q.WarningCount);
+        int warningsUnreadable = queryOutcomes.Count(q => q.WarningCount < 0);
+        int rawRows = queryOutcomes.Sum(q => q.Count);
+        var uniqueUpdates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rows in snapshots.Values)
+            foreach (var row in rows)
+                if (!string.IsNullOrWhiteSpace(row.UpdateId))
+                    uniqueUpdates.Add(row.IdentityKey);
+        long searchMs = queryOutcomes.Sum(q => q.Ms);
+        long otherMs = Math.Max(0, totalSw.ElapsedMilliseconds - searchMs - driverClassificationSw.ElapsedMilliseconds - featureUpdateSw.ElapsedMilliseconds);
+
+        lines.Add("\n=== DIAGNOSTICS SUMMARY ===");
+        lines.Add($"Diagnostic WUA searches: {queries.Length} planned, {queryOutcomes.Count} run");
+        lines.Add($"  Succeeded: {succeeded}");
+        lines.Add($"  SucceededWithErrors: {succeededWithErrors}");
+        lines.Add($"  Failed / aborted / not run: {failed}");
+        lines.Add($"Searches with warnings: {searchesWithWarnings} (warnings in total: {totalWarnings})" +
+                  (warningsUnreadable > 0 ? $"; warnings unreadable for {warningsUnreadable} search(es)" : ""));
+        lines.Add($"Updates returned, all searches (raw rows before app filtering): {rawRows}");
+        lines.Add($"Unique updates (UpdateID:RevisionNumber): {uniqueUpdates.Count}");
+        lines.Add($"Updates returned by search C (BrowseOnly=1, unique): {setC.Count}");
+        lines.Add($"Preview/optional-looking updates (unique): {previewHitKeys.Count}");
+        lines.Add($"Total elapsed: {totalSw.ElapsedMilliseconds} ms");
+        lines.Add($"  Diagnostic searches: {searchMs} ms");
+        lines.Add($"  Driver classification (ordinary application scan: own WUA searches + installed-driver inventory): {driverClassificationSw.ElapsedMilliseconds} ms");
+        lines.Add($"  Feature update check: {featureUpdateSw.ElapsedMilliseconds} ms");
+        lines.Add($"  Other (WUA session setup, policy/registry/PME reads, row capture): {otherMs} ms");
+        lines.Add(succeeded == queries.Length
+            ? "All diagnostic searches succeeded. The counts above are what WUA COM returned for these criteria; Windows Settings was not queried."
+            : "Not every diagnostic search succeeded. A count of 0 is not proof that the PC is fully up to date.");
         return string.Join(Environment.NewLine, lines);
+    }
+
+    /// <summary>
+    /// Diagnostics only. Reads the OS build identity from the CurrentVersion registry key.
+    /// A value that is missing is reported as missing, never substituted.
+    /// </summary>
+    private static List<string> WindowsBuildDiagnosticLines()
+    {
+        var lines = new List<string>();
+        try
+        {
+            using var hive = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64);
+            using var key = hive.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            if (key is null)
+            {
+                lines.Add("OS Build: unavailable (CurrentVersion registry key not found)");
+                return lines;
+            }
+            string Value(string name)
+            {
+                string text = Convert.ToString(key.GetValue(name), System.Globalization.CultureInfo.InvariantCulture)?.Trim() ?? "";
+                return text.Length == 0 ? "(not set)" : text;
+            }
+            string build = Value("CurrentBuildNumber");
+            if (build == "(not set)") build = Value("CurrentBuild");
+            lines.Add($"OS Build: {build}.{Value("UBR")} (CurrentBuild.UBR)");
+            lines.Add("DisplayVersion: " + Value("DisplayVersion"));
+            lines.Add("EditionID: " + Value("EditionID"));
+            lines.Add("InstallationType: " + Value("InstallationType"));
+        }
+        catch (Exception ex) { lines.Add("OS Build: unavailable (" + ex.Message + ")"); }
+        return lines;
     }
 
     private sealed class DiagnosticUpdateRow
@@ -515,6 +597,12 @@ public static class WindowsUpdateReader
         -1 => "Unavailable",
         _ => "Other (" + code + ")"
     };
+
+    private static int SearchWarningCount(dynamic results)
+    {
+        try { return (int)results.Warnings.Count; }
+        catch { return -1; }
+    }
 
     private static string FormatSearchWarnings(dynamic results)
     {
