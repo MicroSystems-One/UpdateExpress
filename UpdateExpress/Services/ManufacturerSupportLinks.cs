@@ -96,9 +96,14 @@ internal static class ManufacturerSupportLinks
         return false;
     }
 
+    /// <summary>
+    /// Lenovo product home via support-site search (HTTPS).
+    /// Do not use /products?searchType=search&amp;searchValue= — that form redirects to pagenotfound.
+    /// Homepage search with searchType=5&amp;keyWordSearch={MTM} lands on product home for the SKU.
+    /// </summary>
     private static string LenovoUrl(string query) =>
         !string.IsNullOrEmpty(query)
-            ? $"https://pcsupport.lenovo.com/us/en/products?searchType=search&searchValue={Uri.EscapeDataString(query)}"
+            ? $"https://pcsupport.lenovo.com/us/en/?searchType=5&keyWordSearch={Uri.EscapeDataString(query)}"
             : "https://pcsupport.lenovo.com/";
 
     private static bool ContainsAny(string manufacturer, params string[] tokens)
