@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     public bool AutomaticAppsEnabled => AutoApplications?.IsChecked == true;
     private readonly ObservableCollection<AppUpdate> _appEntries;
     private string _rawWinget = "";
+    private DateTimeOffset? _appliedWingetCacheAt;
     private UpdatePolicy _policy = UpdatePolicy.Load();
     private DateTime? _lastSuccessfulScan;
     private readonly ObservableCollection<UpdateEntry> _pendingSnapshot = new();
@@ -185,6 +186,59 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ApplyAppScanResult(IReadOnlyList<AppUpdate> updates, string? raw, DateTimeOffset? cacheWrittenAt = null)
+    {
+        if (raw is not null) _rawWinget = raw;
+        _appEntries.Clear();
+        LoadAppPreferences(updates);
+        if (cacheWrittenAt is DateTimeOffset at)
+            _appliedWingetCacheAt = at;
+        else
+            _appliedWingetCacheAt = DateTimeOffset.Now;
+        RefreshHealthSummary();
+        UpdateAppSelection();
+    }
+
+    /// <summary>Pull tray/automation WinGet snapshot into the Applications grid when newer than last apply.</summary>
+    private void TrySyncAppsFromWingetCache()
+    {
+        if (_busy) return;
+        if (!WingetAvailableCache.TryRead(out var writtenAt, out var updates, out var raw)) return;
+        if (_appliedWingetCacheAt is DateTimeOffset applied && writtenAt <= applied) return;
+        ApplyAppScanResult(updates, raw, writtenAt);
+        if (updates.Count == 0)
+            CategoryPromptState.Clear("applications");
+    }
+
+    private void ReconcileApplicationsPromptWithScan(IReadOnlyList<AppUpdate> remaining)
+    {
+        try
+        {
+            var prompt = CategoryPromptState.Load("applications");
+            if (prompt.Updates.Count == 0)
+            {
+                if (remaining.Count == 0) CategoryPromptState.Clear("applications");
+                return;
+            }
+
+            var still = prompt.Updates
+                .Where(u => remaining.Any(r => r.Id.Equals(u.UpdateId, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (still.Count == 0)
+            {
+                CategoryPromptState.Clear("applications");
+                return;
+            }
+
+            if (still.Count != prompt.Updates.Count)
+            {
+                prompt.Updates = still;
+                prompt.Save();
+            }
+        }
+        catch { /* prompt reconcile is best-effort */ }
+    }
+
     private async void AppsScan_Click(object sender, RoutedEventArgs e)
     {
         ScanProgressText.Text = "Scanning applications with WinGet…";
@@ -194,8 +248,9 @@ public partial class MainWindow : Window
         try
         {
             var result = await WingetReader.ScanAsync();
-            _rawWinget = result.Raw;
-            _appEntries.Clear(); LoadAppPreferences(result.Updates);
+            WingetAvailableCache.Write(result.Updates, result.Raw);
+            ApplyAppScanResult(result.Updates, result.Raw);
+            ReconcileApplicationsPromptWithScan(result.Updates);
             HealthSummary.Text = CategorySummary() + $"\nHistory: {_historySnapshot.Count}  |  Run Check Status for detailed history.";
             StatusText.Text = $"WinGet: {result.Updates.Count} available updates.";
         }
@@ -232,9 +287,22 @@ public partial class MainWindow : Window
                 ActivityLog.TryWrite("WinGetUpgrade", code == 0 ? "Command completed - verification pending" : "Failed", new { app.Name, app.Id, app.Installed, app.Available, ExitCode = code, Output = output }, source: "WinGet", runId: activityRunId);
                 logs.Add($"{app.Name}: {(code == 0 ? "Command completed" : $"Failed (exit {code})")}");
             }
-            RefreshHealthSummary();
-            ActivityLog.TryWrite("WinGetUpgrade", "Completed - rescan required", new { Count = selected.Count }, source: "WinGet", runId: activityRunId);
-            MessageBox.Show(this, string.Join("\n", logs) + "\n\nPlease rescan to verify the installed versions.\nLog: " + logPath, "WinGet Installation Results", MessageBoxButton.OK, MessageBoxImage.Information);
+
+            ScanProgressText.Text = "Refreshing WinGet results…";
+            try
+            {
+                var scan = await WingetReader.ScanAsync();
+                WingetAvailableCache.Write(scan.Updates, scan.Raw);
+                ApplyAppScanResult(scan.Updates, scan.Raw);
+                ReconcileApplicationsPromptWithScan(scan.Updates);
+                ActivityLog.TryWrite("WinGetUpgrade", "Completed", new { Count = selected.Count, Remaining = scan.Updates.Count }, source: "WinGet", runId: activityRunId);
+                MessageBox.Show(this, string.Join("\n", logs) + $"\n\nAvailable after refresh: {scan.Updates.Count}.\nLog: " + logPath, "WinGet Installation Results", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                ActivityLog.TryWrite("WinGetUpgrade", "Completed - rescan failed", new { Count = selected.Count, Error = ex.Message }, source: "WinGet", runId: activityRunId);
+                MessageBox.Show(this, string.Join("\n", logs) + "\n\nPost-install WinGet refresh failed: " + ex.Message + "\nLog: " + logPath, "WinGet Installation Results", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
         finally { _busy = false; AppsScanButton.IsEnabled = true; UpdateAppSelection(); }
     }
@@ -825,14 +893,31 @@ public partial class MainWindow : Window
         RefreshScheduleStatus();
         _reminderTimer.Tick += (_, _) => CheckReminder();
         _reminderTimer.Start();
-        _monitorUiTimer.Tick += (_, _) => { RefreshMonitorPanel(); RefreshAutomationStatusTexts(); RefreshRebootNeededBanner(); };
+        _monitorUiTimer.Tick += (_, _) =>
+        {
+            RefreshMonitorPanel();
+            RefreshAutomationStatusTexts();
+            RefreshRebootNeededBanner();
+            TrySyncAppsFromWingetCache();
+        };
         _monitorUiTimer.Start();
         _uptimeTimer.Tick += (_, _) => RefreshUptime();
         _uptimeTimer.Start();
         RefreshUptime();
         _pendingReconcileTimer.Tick += (_, _) => { _ = ReconcilePendingFromHistoryAsync(); };
         _pendingReconcileTimer.Start();
-        Activated += (_, _) => { ReloadDisplaySettings(); _ = ReconcilePendingFromHistoryAsync(); };
+        Activated += (_, _) =>
+        {
+            ReloadDisplaySettings();
+            TrySyncAppsFromWingetCache();
+            _ = ReconcilePendingFromHistoryAsync();
+        };
+        WingetAvailableCache.Changed += () =>
+        {
+            try { Dispatcher.BeginInvoke(new Action(TrySyncAppsFromWingetCache)); }
+            catch { /* window may be closing */ }
+        };
+        TrySyncAppsFromWingetCache();
         _rebootBlinkTimer.Tick += RebootBlinkTimer_Tick;
         RefreshMonitorPanel();
         RefreshAutomationStatusTexts();
@@ -1183,9 +1268,9 @@ public partial class MainWindow : Window
             try
             {
                 var apps = await WingetReader.ScanAsync();
-                _rawWinget = apps.Raw;
-                _appEntries.Clear(); LoadAppPreferences(apps.Updates);
-                RefreshHealthSummary();
+                WingetAvailableCache.Write(apps.Updates, apps.Raw);
+                ApplyAppScanResult(apps.Updates, apps.Raw);
+                ReconcileApplicationsPromptWithScan(apps.Updates);
                 StatusText.Text = $"Windows: {windows.Count - driverCount}, drivers: {driverCount}, applications: {apps.Updates.Count}.";
             }
             catch (Exception ex)
@@ -1685,8 +1770,9 @@ public partial class MainWindow : Window
                     timeoutMessage: norwegian ? "Verifisering (WinGet-rescan) tidsavbrutt." : "Verification (WinGet rescan) timed out.",
                     abandonOnTimeout: true);
                 outstandingWork.Remove(scanTask);
-                _rawWinget = scan.Raw;
-                _appEntries.Clear(); LoadAppPreferences(scan.Updates);
+                WingetAvailableCache.Write(scan.Updates, scan.Raw);
+                ApplyAppScanResult(scan.Updates, scan.Raw);
+                ReconcileApplicationsPromptWithScan(scan.Updates);
                 foreach (var item in apps.Select((app, i) => new { app, i }))
                 {
                     int qi = software.Count + drivers.Count + item.i;

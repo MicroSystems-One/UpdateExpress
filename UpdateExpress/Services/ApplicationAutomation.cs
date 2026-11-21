@@ -10,14 +10,18 @@ namespace UpdateExpress.Services;
 
 /// <summary>
 /// Optional WinGet applications automation: scan upgrades → ask before install → elevated winget upgrade.
-/// Mirrors Critical/General download+prompt timing (preferred time from Critical policy). No auto-reboot.
+/// Preferred install time still comes from Critical policy (Install at HH:mm). Scan cadence uses
+/// ApplicationsIntervalMinutes (default 240, floor 60) — not the Critical once-per-day snap.
 /// </summary>
 internal static class ApplicationAutomation
 {
     private const string Category = "applications";
     private const string DisplayName = "Applications";
     private const string ElevateArg = "--apply-applications-install";
-    private const int MinIntervalMinutes = 1440;
+    /// <summary>Default scan interval when policy has no ApplicationsIntervalMinutes yet.</summary>
+    internal const int DefaultIntervalMinutes = 240;
+    /// <summary>Hard floor for Applications scan cadence.</summary>
+    internal const int AbsoluteFloorMinutes = 60;
 
     private static int _running;
     private static Action<string, string>? _balloon;
@@ -37,8 +41,7 @@ internal static class ApplicationAutomation
                 return;
             }
 
-            var schedule = policy.WindowsAutomation.Critical;
-            string preferred = AutomationSchedule.PreferredOrDefault(schedule.PreferredInstallTime);
+            string preferred = AutomationSchedule.PreferredOrDefault(policy.WindowsAutomation.Critical.PreferredInstallTime);
             var prompt = CategoryPromptState.LoadAndReconcile(Category);
 
             if (prompt.State == "installing")
@@ -66,9 +69,9 @@ internal static class ApplicationAutomation
 
             var status = WindowsAutomationStatus.Load();
             var entry = status.Applications;
-            DateTime nextDue = entry.NextDue ?? AutomationSchedule.NextPreferredOccurrence(preferred);
+            DateTime nextDue = entry.NextDue ?? NextScanDue(DateTime.Now.AddMinutes(-ResolveIntervalMinutes(policy)));
             if (entry.LastRun is DateTime last && entry.NextDue is null)
-                nextDue = NextDue(last, schedule, preferred);
+                nextDue = NextScanDue(last, policy);
             if (DateTime.Now < nextDue && entry.LastRun is not null)
                 return;
 
@@ -82,11 +85,14 @@ internal static class ApplicationAutomation
             }
             catch (Exception ex)
             {
-                WindowsAutomationStatus.WriteCategory(Category, "Failed", "Scan failed: " + ex.Message, NextDue(DateTime.Now, schedule, preferred));
+                WindowsAutomationStatus.WriteCategory(Category, "Failed", "Scan failed: " + ex.Message, NextScanDue(DateTime.Now, policy));
                 ActivityLog.TryWrite("ApplicationsAutomation", "ScanFailed", ex.ToString(), mode: "Automatic", source: "TrayAgent");
                 AgentLog.Write("Applications automation scan failed: " + ex);
                 return;
             }
+
+            // Full WinGet list for main UI; automation prompt may filter by allow-list.
+            WingetAvailableCache.Write(scan.Updates, scan.Raw);
 
             var allowIds = policy.AutomaticApplicationIds ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var matches = scan.Updates
@@ -98,7 +104,7 @@ internal static class ApplicationAutomation
                 CategoryPromptState.Clear(Category);
                 WindowsAutomationStatus.WriteCategory(
                     Category, "None pending", "No WinGet application upgrades pending.",
-                    NextDue(DateTime.Now, schedule, preferred));
+                    NextScanDue(DateTime.Now, policy));
                 ActivityLog.TryWrite("ApplicationsAutomation", "NonePending", new { Count = 0 }, mode: "Automatic", source: "TrayAgent");
                 AgentLog.Write("Applications automation: no matching application upgrades pending.");
                 return;
@@ -125,7 +131,7 @@ internal static class ApplicationAutomation
                 Category,
                 "Awaiting confirmation",
                 $"{matches.Count} application upgrade(s) ready",
-                NextDue(DateTime.Now, schedule, preferred));
+                NextScanDue(DateTime.Now, policy));
 
             await PresentPromptAsync(dispatcher, prompt, preferred,
                 $"{matches.Count} application upgrade(s) available via WinGet.").ConfigureAwait(false);
@@ -136,8 +142,16 @@ internal static class ApplicationAutomation
         }
     }
 
-    private static DateTime NextDue(DateTime from, CategoryAutomationPolicy cat, string preferred) =>
-        AutomationSchedule.ComputeNextDue(from, cat.IntervalMinutes, preferred, MinIntervalMinutes);
+    internal static int ResolveIntervalMinutes(UpdatePolicy? policy = null)
+    {
+        policy ??= UpdatePolicy.Load();
+        policy.Normalize();
+        return Math.Max(AbsoluteFloorMinutes, policy.ApplicationsIntervalMinutes);
+    }
+
+    /// <summary>Interval-based scan cadence (no preferred-time snap). Preferred time is only for Install at HH:mm.</summary>
+    private static DateTime NextScanDue(DateTime from, UpdatePolicy? policy = null) =>
+        from.AddMinutes(ResolveIntervalMinutes(policy));
 
     private static async Task PresentPromptAsync(
         Dispatcher dispatcher,
@@ -174,12 +188,11 @@ internal static class ApplicationAutomation
     {
         var policy = UpdatePolicy.Load();
         policy.Normalize();
-        var schedule = policy.WindowsAutomation.Critical;
 
         switch (decision)
         {
             case SoftwareUpdatesDialog.PromptDecision.InstallNow:
-                return StartElevatedInstallAsync(prompt, preferred, schedule);
+                return StartElevatedInstallAsync(prompt);
 
             case SoftwareUpdatesDialog.PromptDecision.InstallAtPreferred:
             {
@@ -233,10 +246,7 @@ internal static class ApplicationAutomation
         return Task.CompletedTask;
     }
 
-    private static Task StartElevatedInstallAsync(
-        CategoryPromptState prompt,
-        string preferred,
-        CategoryAutomationPolicy schedule)
+    private static Task StartElevatedInstallAsync(CategoryPromptState prompt)
     {
         var ids = prompt.Updates.Select(u => u.UpdateId).Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
         if (ids.Count == 0)
@@ -257,7 +267,7 @@ internal static class ApplicationAutomation
             WindowsAutomationStatus.WriteCategory(
                 Category, "Installing",
                 "Elevated WinGet installer started. Update Express will not reboot Windows.",
-                NextDue(DateTime.Now, schedule, preferred));
+                NextScanDue(DateTime.Now));
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
@@ -346,15 +356,24 @@ internal static class ApplicationAutomation
             CategoryPromptState.ClearInstallQueue(Category);
             CategoryPromptState.Clear(Category);
 
+            try
+            {
+                var rescan = await WingetReader.ScanAsync().ConfigureAwait(true);
+                WingetAvailableCache.Write(rescan.Updates, rescan.Raw);
+            }
+            catch (Exception ex)
+            {
+                // Keep the previous winget-available snapshot — do not publish an empty list on scan failure.
+                AgentLog.Write("Applications install helper: post-install WinGet rescan failed: " + ex.Message);
+            }
+
             var policy = UpdatePolicy.Load();
             policy.Normalize();
-            var schedule = policy.WindowsAutomation.Critical;
-            string preferred = AutomationSchedule.PreferredOrDefault(schedule.PreferredInstallTime);
             WindowsAutomationStatus.WriteCategory(
                 Category,
                 "Installed",
                 $"{ok}/{ids.Count} completed.",
-                NextDue(DateTime.Now, schedule, preferred));
+                NextScanDue(DateTime.Now, policy));
             ActivityLog.TryWrite("ApplicationsAutomation", "Installed", new { ok, Total = ids.Count }, mode: "Automatic", source: "ElevatedHelper");
             manager.Finish();
         };
