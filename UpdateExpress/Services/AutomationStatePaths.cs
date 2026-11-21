@@ -27,14 +27,34 @@ internal static class AutomationStatePaths
         {
             if (!string.IsNullOrWhiteSpace(_overrideDirectory))
                 return _overrideDirectory!;
-            // Prefer shared machine state when it already holds automation files.
+            // Prefer shared machine state only when the current identity can write it.
+            // Read-only ProgramData (created by another admin) must not break tray Save().
             try
             {
-                if (System.IO.Directory.Exists(SharedDirectory) && HasAutomationFiles(SharedDirectory))
+                if (System.IO.Directory.Exists(SharedDirectory) &&
+                    HasAutomationFiles(SharedDirectory) &&
+                    IsDirectoryWritable(SharedDirectory))
                     return SharedDirectory;
             }
             catch { /* ignore */ }
             return InstallationManager.InstallDir;
+        }
+    }
+
+    /// <summary>Probe create/delete — existence alone is not enough for Users without modify ACL.</summary>
+    internal static bool IsDirectoryWritable(string dir)
+    {
+        try
+        {
+            if (!System.IO.Directory.Exists(dir)) return false;
+            string probe = Path.Combine(dir, ".ue-write-probe-" + Guid.NewGuid().ToString("N"));
+            File.WriteAllText(probe, "ok");
+            File.Delete(probe);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -63,6 +83,7 @@ internal static class AutomationStatePaths
         try
         {
             System.IO.Directory.CreateDirectory(SharedDirectory);
+            TryGrantUsersModify(SharedDirectory);
             TryMigrateUserStateIntoShared();
             _overrideDirectory = SharedDirectory;
             return SharedDirectory;
@@ -71,6 +92,34 @@ internal static class AutomationStatePaths
         {
             AgentLog.Write("Could not prefer shared automation state dir: " + ex.Message);
             return Directory;
+        }
+    }
+
+    /// <summary>
+    /// Best-effort ACL so interactive users can save prompts/queues after an elevated
+    /// helper creates the ProgramData folder (avoids read-only shared state).
+    /// </summary>
+    internal static void TryGrantUsersModify(string dir)
+    {
+        try
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            var info = new DirectoryInfo(dir);
+            var security = info.GetAccessControl();
+            var rule = new System.Security.AccessControl.FileSystemAccessRule(
+                new System.Security.Principal.SecurityIdentifier(
+                    System.Security.Principal.WellKnownSidType.BuiltinUsersSid, null),
+                System.Security.AccessControl.FileSystemRights.Modify,
+                System.Security.AccessControl.InheritanceFlags.ContainerInherit |
+                System.Security.AccessControl.InheritanceFlags.ObjectInherit,
+                System.Security.AccessControl.PropagationFlags.None,
+                System.Security.AccessControl.AccessControlType.Allow);
+            security.AddAccessRule(rule);
+            info.SetAccessControl(security);
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Could not grant Users modify on shared state dir: " + ex.Message);
         }
     }
 
@@ -244,12 +293,17 @@ internal static class AutomationStatePaths
                 if (createIfShared && isShared)
                 {
                     System.IO.Directory.CreateDirectory(fullPath);
+                    TryGrantUsersModify(fullPath);
                 }
                 else
                 {
                     reason = "directory does not exist";
                     return false;
                 }
+            }
+            else if (createIfShared && isShared)
+            {
+                TryGrantUsersModify(fullPath);
             }
             return true;
         }

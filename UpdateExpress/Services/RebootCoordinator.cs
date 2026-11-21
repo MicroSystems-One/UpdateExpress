@@ -24,6 +24,11 @@ internal sealed class PendingRebootState
     public string Reason { get; set; } = "";
     public string Source { get; set; } = "";
     public bool Cancelled { get; set; }
+    /// <summary>
+    /// True when the user explicitly authorized this reboot (countdown Postpone /
+    /// Update-until-current). Honored even when AutoReboot policy is disabled.
+    /// </summary>
+    public bool UserAuthorized { get; set; }
 }
 
 /// <summary>
@@ -107,16 +112,16 @@ internal static class RebootCoordinator
     private static bool PromptConfirmAndMaybeReboot(string source, AutoRebootPolicy reboot, System.Windows.Window? owner)
     {
         // Countdown modal lets any signed-in user Cancel / Restart now / Postpone 30m.
-        StartCountdownReboot(
+        // False when the user cancels — callers (e.g. Applications mid-queue) must recover.
+        return StartCountdownReboot(
             source,
             reboot.CountdownSeconds,
             "Update Express: restart required after Windows updates. Save your work.",
             showUi: true,
             owner: owner);
-        return true;
     }
 
-    internal static void SchedulePending(string source, DateTime earliest, string reason)
+    internal static void SchedulePending(string source, DateTime earliest, string reason, bool userAuthorized = false)
     {
         var state = new PendingRebootState
         {
@@ -124,14 +129,15 @@ internal static class RebootCoordinator
             EarliestRebootAt = earliest,
             Reason = reason,
             Source = source,
-            Cancelled = false
+            Cancelled = false,
+            UserAuthorized = userAuthorized
         };
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(PendingPath)!);
             File.WriteAllText(PendingPath, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
             AgentLog.Write($"Pending reboot scheduled for {earliest:O} ({source}): {reason}");
-            ActivityLog.TryWrite("AutoReboot", "Scheduled", new { earliest, source, reason }, mode: "Automatic", source: "RebootCoordinator");
+            ActivityLog.TryWrite("AutoReboot", "Scheduled", new { earliest, source, reason, userAuthorized }, mode: "Automatic", source: "RebootCoordinator");
         }
         catch (Exception ex) { AgentLog.Write("Could not save pending reboot: " + ex.Message); }
     }
@@ -197,7 +203,13 @@ internal static class RebootCoordinator
             return;
         }
 
-        if (!reboot.Enabled)
+        // Explicit user authorization (e.g. Update-until-current Postpone) survives AutoReboot=off.
+        bool userAuthorized =
+            pending.UserAuthorized ||
+            string.Equals(pending.Source, "Update until current", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(pending.Source, "Unattended until clear", StringComparison.OrdinalIgnoreCase);
+
+        if (!reboot.Enabled && !userAuthorized)
         {
             ClearPending();
             return;
@@ -225,8 +237,9 @@ internal static class RebootCoordinator
     /// <summary>
     /// Start a Windows restart countdown. When <paramref name="showUi"/> is true, show the
     /// centered Avbryt / Omstart nå / Utsett 30 minutter modal for any signed-in user.
+    /// Returns false only when the user cancels (so mid-queue resume can recover same-boot).
     /// </summary>
-    internal static void StartCountdownReboot(
+    internal static bool StartCountdownReboot(
         string source,
         int countdownSeconds,
         string comment,
@@ -238,8 +251,7 @@ internal static class RebootCoordinator
         {
             try
             {
-                RebootCountdownWindow.RunWithUi(source, seconds, comment, owner);
-                return;
+                return RebootCountdownWindow.RunWithUi(source, seconds, comment, owner);
             }
             catch (Exception ex)
             {
@@ -248,6 +260,7 @@ internal static class RebootCoordinator
         }
 
         StartCountdownRebootCore(source, seconds, comment);
+        return true;
     }
 
     /// <summary>Issue <c>shutdown /r /t …</c> without UI (used by the countdown modal and fallbacks).</summary>

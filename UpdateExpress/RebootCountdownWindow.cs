@@ -174,8 +174,9 @@ internal sealed class RebootCountdownWindow : Window
 
     /// <summary>
     /// Start OS countdown and show the modal. Applies Cancel / Restart now / Postpone.
+    /// Returns false when the user cancels (reboot not armed); true otherwise.
     /// </summary>
-    internal static void RunWithUi(string source, int countdownSeconds, string comment, Window? owner = null)
+    internal static bool RunWithUi(string source, int countdownSeconds, string comment, Window? owner = null)
     {
         bool norwegian = AppLanguage.IsNorwegian;
         int seconds = Math.Clamp(countdownSeconds, 60, 3600);
@@ -193,20 +194,24 @@ internal sealed class RebootCountdownWindow : Window
             case Choice.Cancel:
                 RebootCoordinator.CancelCountdownReboot("user cancelled from countdown UI");
                 RebootCoordinator.ClearPending();
-                break;
+                return false;
             case Choice.RestartNow:
                 RebootCoordinator.CancelCountdownReboot("user chose restart now");
                 RebootCoordinator.StartCountdownRebootCore(source, 5,
                     norwegian ? "Update Express: omstart nå." : "Update Express: restart now.");
-                break;
+                return true;
             case Choice.Postpone30:
                 RebootCoordinator.CancelCountdownReboot("user postponed 30 minutes");
-                RebootCoordinator.SchedulePending(source, DateTime.Now.AddMinutes(30),
-                    norwegian ? "Utsett 30 minutter fra omstarts-dialog." : "Postponed 30 minutes from countdown dialog.");
-                break;
+                // UserAuthorized so Update-until-current / unattended postpones survive AutoReboot=off.
+                RebootCoordinator.SchedulePending(
+                    source,
+                    DateTime.Now.AddMinutes(30),
+                    norwegian ? "Utsett 30 minutter fra omstarts-dialog." : "Postponed 30 minutes from countdown dialog.",
+                    userAuthorized: true);
+                return true;
             default:
                 // Countdown finished / window closed without choice — OS reboot proceeds.
-                break;
+                return true;
         }
     }
 }
