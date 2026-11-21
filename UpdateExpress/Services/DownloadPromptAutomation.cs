@@ -420,10 +420,11 @@ internal static class DownloadPromptAutomation
                 for (int i = 0; i < ids.Count; i++)
                 {
                     string id = ids[i];
-                    var result = results.FirstOrDefault(x =>
-                                    !string.IsNullOrWhiteSpace(x.UpdateId) &&
-                                    x.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase))
-                                ?? (i < results.Count ? results[i] : null);
+                    var requested = selected[i];
+                    var result = WindowsUpdateReader.MatchInstallResult(results, requested, i)
+                                 ?? results.FirstOrDefault(x =>
+                                     !string.IsNullOrWhiteSpace(x.UpdateId) &&
+                                     x.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase));
                     string state = result == null ? "Not verified" :
                         result.Status is "Installert" or "Already up to date" ? "Completed" :
                         result.Status is "Delvis fullført" ? "Not verified" :
