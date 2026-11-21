@@ -178,6 +178,20 @@ internal static class RebootCoordinator
         var reboot = policy.WindowsAutomation.AutoReboot;
         int countdown = Math.Clamp(reboot.CountdownSeconds, 60, 3600);
 
+        // Do not cut a confirmed Applications queue short (same tray poll race as 2026-11-21).
+        // Applications-sourced reboots are allowed through so mid-queue resume can proceed.
+        if (!string.Equals(pending.Source, "Applications", StringComparison.OrdinalIgnoreCase) &&
+            ApplicationAutomation.ShouldHoldExternalReboot())
+        {
+            var slip = DateTime.Now.AddMinutes(10);
+            SchedulePending(
+                pending.Source,
+                slip,
+                (pending.Reason ?? "") + " (waiting for application installs)");
+            AgentLog.Write($"Deferred {pending.Source} reboot until {slip:O} — applications install queue active.");
+            return;
+        }
+
         // User already confirmed the maintenance reminder — honor it from tray or service.
         if (string.Equals(pending.Source, "reminder", StringComparison.OrdinalIgnoreCase))
         {

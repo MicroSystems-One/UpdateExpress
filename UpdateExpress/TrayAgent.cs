@@ -78,6 +78,8 @@ internal sealed class TrayAgent : IDisposable
             _ = CriticalAutomation.RunDueJobAsync(_dispatcher);
             _ = GeneralAutomation.RunDueJobAsync(_dispatcher);
             _ = DriverAutomation.RunDueJobAsync(_dispatcher);
+            try { ApplicationAutomation.TryResumeAfterReboot(); }
+            catch (Exception ex) { AgentLog.Write("Applications resume poll failed: " + ex.Message); }
             _ = ApplicationAutomation.RunDueJobAsync(_dispatcher);
             try { _dispatcher.BeginInvoke(new Action(() => RebootCoordinator.RunDueJob(allowUiPrompt: true))); }
             catch (Exception ex) { AgentLog.Write("Deferred reboot poll failed: " + ex.Message); }
@@ -100,16 +102,21 @@ internal sealed class TrayAgent : IDisposable
                     try
                     {
                         if (_disposed) return;
+                        if (ApplicationAutomation.TryResumeAfterReboot())
+                            ShowAppBalloon(
+                                "Application updates",
+                                "Remaining app installs continue after the restart. Approve the administrator prompt.",
+                                ToolTipIcon.Info);
                         if (UpdateUntilCurrent.TryLaunchResume())
                             ShowAppBalloon(
                                 "Update until current",
                                 "The cycle continues after the restart. Approve the administrator prompt.",
                                 ToolTipIcon.Info);
                     }
-                    catch (Exception ex) { AgentLog.Write("Update until current resume failed: " + ex.Message); }
+                    catch (Exception ex) { AgentLog.Write("Post-reboot resume failed: " + ex.Message); }
                 }));
             }
-            catch (Exception ex) { AgentLog.Write("Update until current resume failed: " + ex.Message); }
+            catch (Exception ex) { AgentLog.Write("Post-reboot resume failed: " + ex.Message); }
         });
         // After sign-in / agent start: quiet Update Express self-update check (prompt only if newer).
         _ = Task.Run(async () =>

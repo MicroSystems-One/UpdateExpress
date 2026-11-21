@@ -54,6 +54,8 @@ internal sealed class CategoryPromptState
 
     /// <summary>
     /// Load prompt state and recover abandoned "installing" after helper crash / reboot.
+    /// Applications keep an installing + remaining-queue marker so resume can relaunch
+    /// without asking the user to confirm the same batch again.
     /// </summary>
     internal static CategoryPromptState LoadAndReconcile(string category)
     {
@@ -64,6 +66,22 @@ internal sealed class CategoryPromptState
         DateTime started = state.InstallingStartedAt ?? state.CreatedAt;
         if (DateTime.Now - started < InstallingTimeout)
             return state;
+
+        var queue = ReadInstallQueueState(category);
+        if (string.Equals(NormalizeCategory(category), "applications", StringComparison.OrdinalIgnoreCase) &&
+            queue.UpdateIds.Count > 0)
+        {
+            AgentLog.Write(
+                $"{state.Category} automation: abandoned installing with {queue.UpdateIds.Count} remaining; marking resume-after-reboot.");
+            MarkInstallQueueResumeAfterReboot(category, resume: true);
+            // Keep State=installing so TryResumeAfterReboot can elevate without re-prompting.
+            WindowsAutomationStatus.WriteCategory(
+                state.Category,
+                "Recovered",
+                $"Previous elevated install did not finish; {queue.UpdateIds.Count} package(s) will resume.",
+                DateTime.Now.AddMinutes(2));
+            return state;
+        }
 
         AgentLog.Write(
             $"{state.Category} automation: abandoned installing state older than {InstallingTimeout.TotalMinutes:0}m; restoring confirmable state.");
@@ -103,37 +121,77 @@ internal sealed class CategoryPromptState
         empty.Save();
     }
 
-    internal void WriteInstallQueue(IEnumerable<string> updateIds)
-    {
-        Directory.CreateDirectory(StateDir);
-        var payload = new
+    internal void WriteInstallQueue(IEnumerable<string> updateIds) =>
+        WriteInstallQueueState(new InstallQueueState
         {
+            Category = Category,
             CreatedAt = DateTime.Now,
-            UpdateIds = updateIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
-        };
-        File.WriteAllText(QueuePath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+            UpdateIds = updateIds.Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
+        });
+
+    internal static void WriteInstallQueueState(InstallQueueState state)
+    {
+        string category = NormalizeCategory(
+            string.IsNullOrWhiteSpace(state.Category) ? "critical" : state.Category);
+        state.Category = category;
+        string path = Path.Combine(StateDir, category + "-install-queue.json");
+        Directory.CreateDirectory(StateDir);
+        state.UpdateIds = (state.UpdateIds ?? new())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        state.CompletedIds = (state.CompletedIds ?? new())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        File.WriteAllText(path, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    internal static List<string> ReadInstallQueue(string category)
+    internal static InstallQueueState ReadInstallQueueState(string category)
     {
         string path = Path.Combine(StateDir, NormalizeCategory(category) + "-install-queue.json");
         try
         {
-            if (!File.Exists(path)) return new();
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            if (!doc.RootElement.TryGetProperty("UpdateIds", out var ids) || ids.ValueKind != JsonValueKind.Array)
-                return new();
-            return ids.EnumerateArray()
-                .Select(x => x.GetString() ?? "")
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            if (!File.Exists(path)) return new InstallQueueState { Category = NormalizeCategory(category) };
+            var loaded = JsonSerializer.Deserialize<InstallQueueState>(File.ReadAllText(path))
+                         ?? new InstallQueueState();
+            loaded.Category = NormalizeCategory(category);
+            loaded.UpdateIds ??= new();
+            loaded.CompletedIds ??= new();
+            return loaded;
         }
         catch (Exception ex)
         {
             AgentLog.Write($"Could not read {category} install queue: " + ex.Message);
-            return new();
+            return new InstallQueueState { Category = NormalizeCategory(category) };
         }
+    }
+
+    internal static List<string> ReadInstallQueue(string category) =>
+        ReadInstallQueueState(category).UpdateIds;
+
+    /// <summary>
+    /// Persist remaining packages after each item so a reboot mid-queue can resume.
+    /// </summary>
+    internal static void MarkInstallQueueItemDone(string category, string packageId, bool success)
+    {
+        var state = ReadInstallQueueState(category);
+        state.UpdateIds = state.UpdateIds
+            .Where(id => !id.Equals(packageId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (success &&
+            !state.CompletedIds.Any(id => id.Equals(packageId, StringComparison.OrdinalIgnoreCase)))
+            state.CompletedIds.Add(packageId);
+        WriteInstallQueueState(state);
+    }
+
+    internal static void MarkInstallQueueResumeAfterReboot(string category, bool resume = true)
+    {
+        var state = ReadInstallQueueState(category);
+        state.ResumeAfterReboot = resume;
+        WriteInstallQueueState(state);
     }
 
     internal static void ClearInstallQueue(string category)
@@ -150,4 +208,20 @@ internal sealed class CategoryPromptState
         if (string.Equals(category, "applications", StringComparison.OrdinalIgnoreCase)) return "applications";
         return "critical";
     }
+}
+
+/// <summary>Persisted elevated install queue (remaining UpdateIds survive reboot).</summary>
+internal sealed class InstallQueueState
+{
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    /// <summary>Package / update IDs still waiting to install.</summary>
+    public List<string> UpdateIds { get; set; } = new();
+    /// <summary>Successfully finished in this confirmed queue (best-effort).</summary>
+    public List<string> CompletedIds { get; set; } = new();
+    /// <summary>Continue remaining IDs automatically after the next reboot.</summary>
+    public bool ResumeAfterReboot { get; set; }
+    public DateTime? LastResumeLaunch { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string Category { get; set; } = "critical";
 }
