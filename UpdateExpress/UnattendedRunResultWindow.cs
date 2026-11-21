@@ -1,8 +1,10 @@
+using System;
 using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using UpdateExpress.Services;
 
 namespace UpdateExpress;
@@ -10,10 +12,16 @@ namespace UpdateExpress;
 /// <summary>
 /// Next-day summary of an unattended «update until clear» run:
 /// Successful vs Failed (skipped-for-failure this run).
+/// Soft-dismisses after <paramref name="autoCloseSeconds"/> (default 5 minutes).
 /// </summary>
 internal sealed class UnattendedRunResultWindow : Window
 {
-    public UnattendedRunResultWindow(UnattendedUntilClearState state, bool norwegian)
+    public bool AutoClosed { get; private set; }
+
+    private readonly DispatcherTimer? _timer;
+    private readonly TextBlock? _countdown;
+
+    public UnattendedRunResultWindow(UnattendedUntilClearState state, bool norwegian, int autoCloseSeconds = 300)
     {
         Title = norwegian
             ? "Update Express – Resultat av nattlig oppdatering"
@@ -70,9 +78,28 @@ internal sealed class UnattendedRunResultWindow : Window
             Color.FromRgb(0xB4, 0x23, 0x18));
 
         var close = AppDialog.CreateChromeButton(norwegian ? "Lukk" : "Close", primary: true, isDefault: true);
-        close.HorizontalAlignment = HorizontalAlignment.Right;
-        close.Margin = new Thickness(0, 16, 0, 0);
+        close.Height = 30;
+        close.MinHeight = 30;
+        close.MaxHeight = 30;
+        close.Padding = new Thickness(12, 0, 12, 0);
         close.Click += (_, _) => Close();
+
+        int remaining = Math.Max(30, autoCloseSeconds);
+        _countdown = new TextBlock
+        {
+            Text = norwegian
+                ? $"Lukkes automatisk om {FormatMmSs(remaining)}…"
+                : $"Closes automatically in {FormatMmSs(remaining)}…",
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x52, 0x61, 0x7A)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0)
+        };
+
+        var footer = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 16, 0, 0) };
+        DockPanel.SetDock(close, Dock.Right);
+        footer.Children.Add(close);
+        footer.Children.Add(_countdown);
 
         Content = new Border
         {
@@ -84,9 +111,37 @@ internal sealed class UnattendedRunResultWindow : Window
             Padding = new Thickness(20),
             Child = new StackPanel
             {
-                Children = { heading, subtitle, okBlock, failBlock, close }
+                Children = { heading, subtitle, okBlock, failBlock, footer }
             }
         };
+
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _timer.Tick += (_, _) =>
+        {
+            remaining--;
+            if (remaining <= 0)
+            {
+                _timer.Stop();
+                AutoClosed = true;
+                Close();
+                return;
+            }
+            if (_countdown is not null)
+            {
+                _countdown.Text = norwegian
+                    ? $"Lukkes automatisk om {FormatMmSs(remaining)}…"
+                    : $"Closes automatically in {FormatMmSs(remaining)}…";
+            }
+        };
+        Loaded += (_, _) => _timer.Start();
+        Closed += (_, _) => _timer.Stop();
+    }
+
+    private static string FormatMmSs(int seconds)
+    {
+        int m = seconds / 60;
+        int s = seconds % 60;
+        return $"{m}:{s:00}";
     }
 
     private static string FormatItem(UnattendedRunItem item)

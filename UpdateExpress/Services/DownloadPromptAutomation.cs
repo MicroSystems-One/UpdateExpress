@@ -267,6 +267,11 @@ internal static class DownloadPromptAutomation
             prompt.SnoozeUntil = when;
             prompt.Save();
             UnattendedUntilClear.Arm(when, prompt.Category);
+            AutomationStatePaths.PublishSharedScheduleNotice(
+                when, displayName,
+                norwegian
+                    ? $"Installasjon kl. {when:HH:mm} — synlig for alle brukere på PC-en."
+                    : $"Install at {when:HH:mm} — visible to every user on this PC.");
             WindowsAutomationStatus.WriteCategory(
                 prompt.Category, "Scheduled",
                 norwegian
@@ -364,6 +369,9 @@ internal static class DownloadPromptAutomation
                 prompt.SnoozeUntil = when;
                 prompt.Save();
                 UnattendedUntilClear.Arm(when, prompt.Category);
+                AutomationStatePaths.PublishSharedScheduleNotice(
+                    when, displayName,
+                    $"Install at {when:HH:mm} — {displayName} (machine-wide).");
                 WindowsAutomationStatus.WriteCategory(
                     prompt.Category, "Scheduled",
                     $"Install scheduled for {when:dd.MM HH:mm}. Unattended until clear after that.", when);

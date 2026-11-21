@@ -119,6 +119,11 @@ internal static class UnattendedUntilClear
             state.ConfirmedCategories.Add(sourceCategory);
 
         Save(state);
+        AutomationStatePaths.PublishSharedScheduleNotice(
+            scheduledAt,
+            sourceCategory,
+            $"Install at {scheduledAt:HH:mm} — unattended until clear.");
+        try { AutomationStatePaths.EnsureSharedDirectoryForElevate(); } catch { /* best effort */ }
         AgentLog.Write($"Unattended until-clear: armed ({sourceCategory}) for {scheduledAt:O}.");
         ActivityLog.TryWrite(
             "UnattendedUntilClear",
@@ -234,11 +239,11 @@ internal static class UnattendedUntilClear
         state.Message = message;
         state.CompletedAt = DateTime.Now;
         state.ResultPending = true;
-        // Prefer next calendar morning; never sooner than a quiet window after finish.
-        var tomorrowMorning = DateTime.Today.AddDays(1).AddHours(7);
-        var quiet = DateTime.Now.AddMinutes(ResultQuietMinutes);
-        state.ShowResultAfter = tomorrowMorning > quiet ? tomorrowMorning : quiet;
+        // Show when measured keyboard/mouse activity returns after a short quiet window
+        // (not login-only). Soft-dismiss after 5 minutes in the result window.
+        state.ShowResultAfter = DateTime.Now.AddMinutes(ResultQuietMinutes);
         Save(state);
+        try { AutomationStatePaths.ClearSharedScheduleNotice(); } catch { /* ignore */ }
         AgentLog.Write("Unattended until-clear complete: " + message);
         ActivityLog.TryWrite(
             "UnattendedUntilClear",
@@ -294,15 +299,15 @@ internal static class UnattendedUntilClear
     }
 
     /// <summary>
-    /// When a scheduled install is due but the user is still active, push the schedule
-    /// forward once per category call. Returns true if the caller should abort this tick.
+    /// When a scheduled install is due but the session is not quiet (recent input or
+    /// interactive apps), push the schedule forward. Returns true if the caller should abort.
     /// </summary>
     internal static bool TryDeferForActiveSession(CategoryPromptState prompt, string displayName)
     {
         var state = Load();
         if (!IsRunActive(state)) return false;
         if (state.Phase is not ("armed" or "installing")) return false;
-        if (IsSessionQuiet()) return false;
+        if (QuietSessionHeuristics.IsQuietEnoughForUnattended()) return false;
         if (state.SoftDeferCount >= 8) return false; // ~2h of 15m slips — proceed anyway
 
         DateTime when = DateTime.Now.AddMinutes(ActiveDeferMinutes);
@@ -313,13 +318,17 @@ internal static class UnattendedUntilClear
 
         state.SoftDeferCount++;
         state.ScheduledStartAt = when;
-        state.Message = $"Deferred {ActiveDeferMinutes}m — session still active ({displayName}).";
+        bool busyApps = QuietSessionHeuristics.HasInteractiveUserApps();
+        state.Message = busyApps
+            ? $"Deferred {ActiveDeferMinutes}m — interactive apps open ({displayName})."
+            : $"Deferred {ActiveDeferMinutes}m — session still active ({displayName}).";
         Save(state);
-        AgentLog.Write($"Unattended until-clear: soft-defer {displayName} to {when:O} (session active).");
+        AutomationStatePaths.PublishSharedScheduleNotice(when, displayName, state.Message);
+        AgentLog.Write($"Unattended until-clear: soft-defer {displayName} to {when:O} (quiet-session check).");
         ActivityLog.TryWrite(
             "UnattendedUntilClear",
             "SoftDefer",
-            new { Category = displayName, At = when, state.SoftDeferCount },
+            new { Category = displayName, At = when, state.SoftDeferCount, BusyApps = busyApps },
             mode: "Automatic",
             source: "TrayAgent");
         return true;
@@ -750,11 +759,12 @@ internal static class UnattendedUntilClear
                 return;
             }
 
-            // Prefer an interactive user; after 12h past ShowResultAfter, show even if idle.
-            bool userPresent = !IsSessionQuiet(TimeSpan.FromMinutes(3));
+            // Show when measured PC activity returns (keyboard/mouse), not login-only.
+            // After 12h past ShowResultAfter, show even if still idle.
+            bool userActive = !IsSessionQuiet(TimeSpan.FromMinutes(2));
             bool overdue = state.ShowResultAfter is DateTime showAfter &&
                            DateTime.Now >= showAfter.AddHours(12);
-            if (!userPresent && !overdue)
+            if (!userActive && !overdue)
             {
                 Interlocked.Exchange(ref _resultShowing, 0);
                 return;
@@ -766,7 +776,7 @@ internal static class UnattendedUntilClear
             {
                 try
                 {
-                    var dlg = new UnattendedRunResultWindow(snapshot, norwegian);
+                    var dlg = new UnattendedRunResultWindow(snapshot, norwegian, autoCloseSeconds: 300);
                     dlg.ShowDialog();
                     var done = Load();
                     done.ResultPending = false;
@@ -776,7 +786,7 @@ internal static class UnattendedUntilClear
                     ActivityLog.TryWrite(
                         "UnattendedUntilClear",
                         "ResultShown",
-                        new { Ok = snapshot.Successful.Count, Failed = snapshot.Failed.Count },
+                        new { Ok = snapshot.Successful.Count, Failed = snapshot.Failed.Count, AutoClosed = dlg.AutoClosed },
                         mode: "Automatic",
                         source: "TrayAgent");
                 }

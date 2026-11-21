@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using UpdateExpress.Models;
@@ -55,13 +56,20 @@ public static class WingetReader
             : $"WinGet exited with code {process.ExitCode}; results may be incomplete.";
         return new(updates, raw, message);
     }
-    public static async Task<(int ExitCode, string Output)> UpgradeAsync(string packageId, CancellationToken cancellationToken)
+    public static async Task<(int ExitCode, string Output)> UpgradeAsync(
+        string packageId,
+        CancellationToken cancellationToken,
+        bool machineScope = true)
     {
         // Never pass a package ID through a shell. Execute only the exact ID returned by the scan.
         if (string.IsNullOrWhiteSpace(packageId) || packageId.Any(c => !(char.IsLetterOrDigit(c) || c is '.' or '-' or '_' or '+')))
             throw new ArgumentException("Invalid package ID.");
         var psi = new ProcessStartInfo("winget") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
-        foreach (var arg in new[] { "upgrade", "--id", packageId, "--exact", "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity" }) psi.ArgumentList.Add(arg);
+        // Automated/scheduled installs default to machine scope (all users) — never offer per-user.
+        var args = new List<string> { "upgrade", "--id", packageId, "--exact", "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity" };
+        if (machineScope)
+            args.AddRange(new[] { "--scope", "machine" });
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("WinGet could not start.");
         var outputTask = proc.StandardOutput.ReadToEndAsync(); var errorTask = proc.StandardError.ReadToEndAsync();
         try { await proc.WaitForExitAsync(cancellationToken); }

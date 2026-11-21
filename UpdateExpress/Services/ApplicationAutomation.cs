@@ -369,6 +369,9 @@ internal static class ApplicationAutomation
                 prompt.SnoozeUntil = when;
                 prompt.Save();
                 UnattendedUntilClear.Arm(when, Category);
+                AutomationStatePaths.PublishSharedScheduleNotice(
+                    when, DisplayName,
+                    $"Install at {when:HH:mm} — applications (all users / machine scope).");
                 WindowsAutomationStatus.WriteCategory(
                     Category, "Scheduled",
                     $"Install scheduled for {when:dd.MM HH:mm}. Unattended until clear after that.", when);
@@ -570,7 +573,8 @@ internal static class ApplicationAutomation
                     try
                     {
                         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(20));
-                        var (code, output) = await WingetReader.UpgradeAsync(id, timeout.Token).ConfigureAwait(true);
+                        // Automated installs: machine scope (all users) — never per-user.
+                        var (code, output) = await WingetReader.UpgradeAsync(id, timeout.Token, machineScope: true).ConfigureAwait(true);
                         AgentLog.Write($"Applications install {id}: exit={code}");
                         if (!string.IsNullOrWhiteSpace(output))
                             AgentLog.Write("Applications install output: " + output.Trim());
