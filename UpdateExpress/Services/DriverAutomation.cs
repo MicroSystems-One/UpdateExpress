@@ -414,6 +414,8 @@ internal static class DriverAutomation
                     : $"{ok}/{selected.Count} completed.",
                 NextDue(DateTime.Now, ResolveIntervalMinutes(policy), preferred));
             ActivityLog.TryWrite("DriversAutomation", "Installed", new { ok, Total = selected.Count, rebootHint }, mode: "Automatic", source: "ElevatedHelper");
+            try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+            catch (Exception ex) { AgentLog.Write("Drivers install: history record failed: " + ex.Message); }
 
             manager.Finish();
             if (rebootHint)

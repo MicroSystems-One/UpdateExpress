@@ -73,6 +73,98 @@ internal static class HistoryArchive
         }
     }
 
+    /// <summary>
+    /// Persist Installation Manager Completed/Failed rows into the same archive Historikk reads.
+    /// WinGet (and driver/WUA installs that are not yet in live WUA history) otherwise never appear.
+    /// </summary>
+    internal static int RecordInstallOutcomes(IReadOnlyList<UpdateEntry> outcomes)
+    {
+        if (outcomes == null || outcomes.Count == 0) return 0;
+        lock (Gate)
+        {
+            var state = LoadUnlocked();
+            int recorded = 0;
+            foreach (var entry in outcomes)
+            {
+                if (entry == null) continue;
+                if (!entry.IsHistorySuccessful && !entry.IsHistoryFailed) continue;
+                var copy = entry.Clone();
+                if (string.IsNullOrWhiteSpace(copy.Date))
+                    copy.Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                OperationalPriority.Apply(copy);
+                string key = EventKey(copy);
+                int index = state.Entries.FindIndex(existing => EventKey(existing) == key);
+                if (index < 0) state.Entries.Add(copy);
+                else state.Entries[index] = copy;
+                recorded++;
+            }
+            if (recorded == 0) return 0;
+            Trim(state);
+            SaveUnlocked(state);
+            return recorded;
+        }
+    }
+
+    /// <summary>
+    /// Build a Historikk row from an Installation Manager queue item.
+    /// Returns null for non-terminal states (Pending / Verifying / Not verified).
+    /// </summary>
+    internal static UpdateEntry? FromInstallationQueueItem(InstallationQueueItem item, DateTime? at = null)
+    {
+        if (item == null) return null;
+        bool failed = item.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase)
+            || item.State.StartsWith("Feilet", StringComparison.OrdinalIgnoreCase);
+        bool completed = InstallationManagerWindow.IsCompletedState(item.State);
+        if (!failed && !completed) return null;
+
+        string blob = item.State + " " + (item.Tip ?? "");
+        var hr = Regex.Match(blob, @"0x[0-9A-Fa-f]{8}");
+        string error = hr.Success ? hr.Value : "";
+        if (string.IsNullOrWhiteSpace(error) &&
+            (item.State.Contains("tech mismatch", StringComparison.OrdinalIgnoreCase)
+             || item.State.Contains("teknologi-mismatch", StringComparison.OrdinalIgnoreCase)
+             || (item.Tip?.Contains("0x8A15008E", StringComparison.OrdinalIgnoreCase) ?? false)
+             || (item.Tip?.Contains("-1978335090", StringComparison.OrdinalIgnoreCase) ?? false)))
+            error = "0x8A15008E";
+
+        string category = item.Source.Contains("WinGet", StringComparison.OrdinalIgnoreCase) ? "Application"
+            : item.Source.Contains("Driver", StringComparison.OrdinalIgnoreCase) ? "Driver / firmware"
+            : "Windows Update";
+
+        return new UpdateEntry
+        {
+            Title = item.Name,
+            Category = category,
+            Source = string.IsNullOrWhiteSpace(item.Source) ? "Installation Manager" : item.Source,
+            Status = failed ? "Mislykket" : "Vellykket",
+            ErrorCode = error,
+            StatusNote = string.IsNullOrWhiteSpace(item.Tip) ? "" : item.Tip,
+            Date = (at ?? DateTime.Now).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            UpdateId = "",
+            SafeDefault = false
+        };
+    }
+
+    /// <summary>
+    /// Record Completed and Failed Installation Manager rows for Historikk.
+    /// </summary>
+    internal static int RecordInstallationManagerQueue(IEnumerable<InstallationQueueItem> queue, DateTime? at = null)
+    {
+        if (queue == null) return 0;
+        var when = at ?? DateTime.Now;
+        // Stagger identical titles by one second when needed so EventKey stays unique within a run.
+        int offsetSeconds = 0;
+        var entries = new List<UpdateEntry>();
+        foreach (var item in queue)
+        {
+            var entry = FromInstallationQueueItem(item, when.AddSeconds(offsetSeconds));
+            if (entry == null) continue;
+            entries.Add(entry);
+            offsetSeconds++;
+        }
+        return RecordInstallOutcomes(entries);
+    }
+
     internal static void RecordScan(IReadOnlyList<UpdateEntry> pending, bool success, string? error)
     {
         lock (Gate)
@@ -118,7 +210,7 @@ internal static class HistoryArchive
 
         foreach (var pair in combined)
         {
-            if (!liveKeys.Contains(pair.Key))
+            if (!liveKeys.Contains(pair.Key) && ShouldMarkPreservedSource(pair.Value))
                 MarkPreservedSource(pair.Value);
         }
 
@@ -346,6 +438,22 @@ internal static class HistoryArchive
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Only WUA-backed archive rows should get the "saved before Windows Update fix" label.
+    /// Installation Manager outcomes (WinGet / Driver / Windows Update) are not WUA history copies.
+    /// </summary>
+    private static bool ShouldMarkPreservedSource(UpdateEntry entry)
+    {
+        string source = entry.Source ?? "";
+        if (string.IsNullOrWhiteSpace(source)) return true;
+        if (source.Contains("WinGet", StringComparison.OrdinalIgnoreCase)) return false;
+        if (source.Contains("Installation Manager", StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.Equals(source, "Driver", StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.Equals(source, "Windows Update", StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.Equals(source, "Application", StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
     }
 
     private static void MarkPreservedSource(UpdateEntry entry)

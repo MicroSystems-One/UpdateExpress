@@ -389,6 +389,8 @@ internal static class ApplicationAutomation
                 $"{ok}/{ids.Count} completed.",
                 NextScanDue(DateTime.Now, policy));
             ActivityLog.TryWrite("ApplicationsAutomation", "Installed", new { ok, Total = ids.Count }, mode: "Automatic", source: "ElevatedHelper");
+            try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+            catch (Exception ex) { AgentLog.Write("Applications install: history record failed: " + ex.Message); }
             manager.Finish();
         };
 
