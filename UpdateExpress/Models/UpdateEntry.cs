@@ -62,13 +62,28 @@ public sealed class UpdateEntry
         !string.IsNullOrWhiteSpace(VersionDisplay) ? VersionDisplay
         : Category == "Driver / firmware" ? DriverVersion
         : SoftwareVersion;
-    public string DisplayTitle => Category == "Driver / firmware"
-        ? System.Text.RegularExpressions.Regex.Replace(
-            TrailingVersion.Replace(Title, ""),
-            @"\s+-\s+\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M\s*$", "",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim()
-        : Category == "Application" ? Title
-        : (string.IsNullOrEmpty(SoftwareVersion) ? Title : SoftwareVersionLabel.Replace(Title, "").Trim());
+    public string DisplayTitle
+    {
+        get
+        {
+            if (Category == "Application") return Title;
+            if (Category != "Driver / firmware")
+                return string.IsNullOrEmpty(SoftwareVersion) ? Title : SoftwareVersionLabel.Replace(Title, "").Trim();
+
+            // Strip trailing WUA date noise, keep a clean base name, then append version so
+            // near-identical driver titles stay distinguishable in the Update column.
+            string baseTitle = System.Text.RegularExpressions.Regex.Replace(
+                TrailingVersion.Replace(Title, ""),
+                @"\s+-\s+\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M\s*$", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+            string version = UnifiedVersion;
+            if (string.IsNullOrWhiteSpace(version) || version == "—")
+                return baseTitle;
+            if (baseTitle.Contains(version, StringComparison.OrdinalIgnoreCase))
+                return baseTitle;
+            return $"{baseTitle}  ·  {version}";
+        }
+    }
     public bool IsHistoryFailed => Status is "Mislykket" or "Avbrutt" or "Failed" or "Cancelled" or "Feilet / avbrutt";
     public bool IsHistorySuccessful => Status is "Vellykket" or "Successful" or "Installert";
     public bool IsHistoryPartial => Status is "Vellykket med feil" or "Delvis fullført" or "Partial";
@@ -105,6 +120,9 @@ public sealed class UpdateEntry
     public string ErrorCode { get; set; } = "";
     /// <summary>Settings feature update. The row opens Windows Update instead of installing through WUA.</summary>
     public bool OpensWindowsUpdate { get; set; }
+    /// <summary>OEM / external catalog link (download or readme). Double-click opens the browser.</summary>
+    public string ExternalUrl { get; set; } = "";
+    public bool OpensExternalUrl => !string.IsNullOrWhiteSpace(ExternalUrl);
 
     internal UpdateEntry Clone() => new()
     {
@@ -133,6 +151,7 @@ public sealed class UpdateEntry
         VersionDisplay = VersionDisplay,
         Source = Source,
         ErrorCode = ErrorCode,
-        OpensWindowsUpdate = OpensWindowsUpdate
+        OpensWindowsUpdate = OpensWindowsUpdate,
+        ExternalUrl = ExternalUrl
     };
 }
