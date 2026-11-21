@@ -22,4 +22,4 @@
 
 ## Publish
 
-Await SVHA approval before shipping a production build.
+SVHA approved production publish of Slice A+B → channel **0.7.2.53** (Slice C remains blocked).

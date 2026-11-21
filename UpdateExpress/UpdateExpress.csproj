@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>UpdateExpress</AssemblyName>
     <Version>0.7.2.53</Version>
-    <InformationalVersion>0.7.2.53-test</InformationalVersion>
+    <InformationalVersion>0.7.2.53</InformationalVersion>
     <FileVersion>0.7.2.53</FileVersion>
     <AssemblyVersion>0.7.2.53</AssemblyVersion>
     <Product>Update Express</Product>
