@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.47",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.47/UpdateExpress_v0.7.2.47.exe",
-  "sha256": "91e638b8e38a07e3d83fc89139215042ceef335676039ea966a96bcf1c0ea817",
-  "publishedAt": "2026-11-21T13:08:23Z",
-  "releaseNotes": "OEM support dump (#92/#91/#90/#86): manufacturer header button, Kopiert/IM autoclose, PC info Enhet+Lenovo fix, Support dialog. Tip 781cebd (dump d52c41b)."
+  "version": "0.7.2.48",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.48/UpdateExpress_v0.7.2.48.exe",
+  "sha256": "817735c5dfe6fc791d4298aaa287f558d03d6ef3e52cd94836706b2a01224c67",
+  "publishedAt": "2026-11-21T13:54:04Z",
+  "releaseNotes": "Lenovo Model/Product + MTM URL dump (#96): marketing from CIM Version; support uses MTM. Tip a5597f7 (dump 77ee47e). #95 App Control left out (merge conflict)."
 }
