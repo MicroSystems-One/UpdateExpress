@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -29,8 +30,16 @@ internal static class InstallationManager
     internal static bool IsInstalled => File.Exists(UserExe) || File.Exists(MachineExe);
     internal static bool RunningInstalledCopy => string.Equals(Path.GetFullPath(Environment.ProcessPath ?? ""), Path.GetFullPath(UserExe), StringComparison.OrdinalIgnoreCase) || RunningMachineCopy;
 
-    // Maintenance is always performed by a temporary, detached copy of this executable.
-    // The installed EXE is never asked to overwrite or delete itself.
+    // Maintenance is always performed by a detached copy of this executable (different file name).
+    // The installed UpdateExpress.exe is never asked to overwrite or delete itself.
+    // Prefer staging under the install directory — Microsoft App Control / WDAC often blocks
+    // unsigned helpers launched from %TEMP%.
+    private const string MaintenanceHelperFileName = "UpdateExpress-Maintenance.exe";
+    // ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION — "A Windows App Control policy has blocked this file."
+    private const int NativeErrorAppControlBlocked = 4551;
+    // ERROR_ACCESS_DISABLED_BY_POLICY — broader policy block (sometimes used instead of 4551).
+    private const int NativeErrorAccessDisabledByPolicy = 1260;
+
     internal static void InstallOrRepair(bool repair)
     {
         var dialog = new InstallationOptionsWindow(repair);
@@ -80,20 +89,140 @@ internal static class InstallationManager
     {
         string running = Environment.ProcessPath ?? throw new InvalidOperationException("Fant ikke programfilen.");
         string source = packageSource ?? running;
-        // Stage the helper outside InstallDir so the target file can be replaced safely.
-        // Helper must be the currently running build (contains this maintenance code).
-        string helperDir = Path.Combine(Path.GetTempPath(), "MicroSystems-UpdateExpress-Maintenance", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(helperDir);
-        string helper = Path.Combine(helperDir, "UpdateExpress-Maintenance.exe");
-        File.Copy(running, helper);
+        // Stage a sibling helper (different file name) so UpdateExpress.exe can be replaced safely.
+        // Prefer the install directory over %TEMP% — App Control frequently blocks Temp launches.
+        string helper = StageMaintenanceHelper(running, allUsers);
+        string helperDir = Path.GetDirectoryName(helper) ?? UserInstallDir;
         int parentPid = Environment.ProcessId;
         string arguments = $"--apply-maintenance {operation} {parentPid} \"{source}\" {(allUsers ? "machine" : "user")} {(desktop ? 1 : 0)} {(startMenu ? 1 : 0)} {(agent ? 1 : 0)}";
-        AgentLog.Write($"Launching detached maintenance: {operation} (parent {parentPid})");
-        using var maintenanceProcess = Process.Start(new ProcessStartInfo(helper, arguments) { UseShellExecute = true, WorkingDirectory = helperDir, Verb = allUsers ? "runas" : "open" })
-            ?? throw new InvalidOperationException("Kunne ikke starte vedlikeholdsprosessen.");
+        AgentLog.Write($"Launching detached maintenance: {operation} (parent {parentPid}); helper={helper}");
+        try
+        {
+            using var maintenanceProcess = Process.Start(new ProcessStartInfo(helper, arguments)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = helperDir,
+                Verb = allUsers ? "runas" : "open"
+            }) ?? throw new InvalidOperationException("Kunne ikke starte vedlikeholdsprosessen.");
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            throw new InvalidOperationException(FormatMaintenanceLaunchFailure(helper, ex), ex);
+        }
         // Release locks before the helper replaces files. Shutdown must run on the WPF UI thread
         // (tray self-update downloads on a background thread).
         ShutdownCurrentApplication();
+    }
+
+    /// <summary>
+    /// Copy the running build to UpdateExpress-Maintenance.exe under the install dir when writable.
+    /// Falls back to a Temp staging folder only when the install dir cannot be written
+    /// (e.g. machine scope without elevation to Program Files).
+    /// </summary>
+    private static string StageMaintenanceHelper(string runningExe, bool allUsers)
+    {
+        foreach (string dir in PreferredMaintenanceHelperDirs(allUsers))
+        {
+            try
+            {
+                Directory.CreateDirectory(dir);
+                string helper = Path.Combine(dir, MaintenanceHelperFileName);
+                try
+                {
+                    if (File.Exists(helper))
+                        File.Delete(helper);
+                }
+                catch (IOException)
+                {
+                    // Previous helper still running; try a unique sibling name in the same allowlisted folder.
+                    helper = Path.Combine(dir, "UpdateExpress-Maintenance-" + Guid.NewGuid().ToString("N") + ".exe");
+                }
+                File.Copy(runningExe, helper, overwrite: true);
+                AgentLog.Write("Staged maintenance helper at " + helper);
+                return helper;
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException)
+            {
+                AgentLog.Write($"Could not stage maintenance helper under {dir}: {ex.Message}");
+            }
+        }
+
+        string fallbackDir = Path.Combine(Path.GetTempPath(), "MicroSystems-UpdateExpress-Maintenance", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fallbackDir);
+        string fallbackHelper = Path.Combine(fallbackDir, MaintenanceHelperFileName);
+        File.Copy(runningExe, fallbackHelper, overwrite: true);
+        AgentLog.Write("WARNING: staged maintenance helper under Temp (App Control may block): " + fallbackHelper);
+        return fallbackHelper;
+    }
+
+    private static IEnumerable<string> PreferredMaintenanceHelperDirs(bool allUsers)
+    {
+        // Machine installs: prefer Program Files when writable (elevated UI / already machine copy).
+        if (allUsers)
+            yield return MachineInstallDir;
+        // Always prefer the per-user install root over Temp — same folder admins already allowlist.
+        yield return UserInstallDir;
+    }
+
+    internal static bool IsAppControlBlock(Exception? ex)
+    {
+        for (Exception? cur = ex; cur != null; cur = cur.InnerException)
+        {
+            if (cur is System.ComponentModel.Win32Exception win32 &&
+                (win32.NativeErrorCode == NativeErrorAppControlBlocked ||
+                 win32.NativeErrorCode == NativeErrorAccessDisabledByPolicy))
+                return true;
+
+            string msg = cur.Message ?? "";
+            if (msg.Contains("programkontroll", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("App Control", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("system integrity policy", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("Windows Code Integrity", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    internal static string FormatMaintenanceLaunchFailure(string helperPath, Exception ex)
+    {
+        string tempRoot = Path.GetFullPath(Path.GetTempPath())
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        bool fromTemp = Path.GetFullPath(helperPath).StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase)
+            || helperPath.Contains("MicroSystems-UpdateExpress-Maintenance", StringComparison.OrdinalIgnoreCase);
+
+        if (IsAppControlBlock(ex) || MessageLooksLikeAppControl(ex.Message))
+        {
+            return
+                "Microsoft App Control (programkontroll) blocked starting the Update Express maintenance helper.\n\n" +
+                $"Blocked file:\n{helperPath}\n\n" +
+                "Self-update prefers launching the helper from the install folder (Program Files or LocalAppData), " +
+                "not from %TEMP%. If this still appears, ask your administrator to allow Update Express under App Control " +
+                "(path rule for the install folder, or a publisher rule once the EXE is Authenticode-signed).\n\n" +
+                "Admin guide: docs/app-control-updateexpress.md in the UpdateExpress repository.\n\n" +
+                "Details: " + ex.Message;
+        }
+
+        if (fromTemp)
+        {
+            return
+                "Could not start the Update Express maintenance helper from a temporary folder.\n\n" +
+                $"Helper:\n{helperPath}\n\n" +
+                "On PCs with Microsoft App Control / WDAC, unsigned helpers under %TEMP% are often blocked " +
+                "(Norwegian Windows: «En programkontrollpolicy har blokkert denne filen.»). " +
+                "Retry after an admin allowlists the install folder, or install the all-users (Program Files) copy.\n\n" +
+                "Details: " + ex.Message;
+        }
+
+        return "Kunne ikke starte vedlikeholdsprosessen.\n\n" + ex.Message;
+    }
+
+    private static bool MessageLooksLikeAppControl(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return false;
+        return message.Contains("programkontroll", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("App Control", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("system integrity policy", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ShutdownCurrentApplication()
@@ -211,7 +340,10 @@ internal static class InstallationManager
         catch (Exception ex)
         {
             AgentLog.Write("Maintenance FAILED: " + ex);
-            MessageBox.Show("Vedlikehold mislyktes: " + ex.Message + "\n\nSe agent.log for detaljer.",
+            string detail = IsAppControlBlock(ex)
+                ? FormatMaintenanceLaunchFailure(Environment.ProcessPath ?? MaintenanceHelperFileName, ex)
+                : ex.Message;
+            MessageBox.Show("Vedlikehold mislyktes: " + detail + "\n\nSe agent.log for detaljer.",
                 "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
