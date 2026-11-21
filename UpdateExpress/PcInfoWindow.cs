@@ -252,8 +252,9 @@ internal sealed class PcInfoWindow : Window
             try
             {
                 WpfClipboard.SetDataObject(text, true);
-                btn.ToolTip = _norwegian ? "Kopiert" : "Copied";
-                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+                btn.ToolTip = _norwegian ? "Kopiert!" : "Copied!";
+                CopiedToast.Show(btn, _norwegian);
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
                 timer.Tick += (_, _) =>
                 {
                     timer.Stop();

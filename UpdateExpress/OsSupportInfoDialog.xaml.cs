@@ -46,7 +46,7 @@ public partial class OsSupportInfoDialog : Window
         try
         {
             Clipboard.SetDataObject(ReferenceUrl, true);
-            CopyFeedback.Text = _norwegian ? "Kopiert" : "Copied";
+            CopyFeedback.Text = _norwegian ? "Kopiert!" : "Copied!";
             CopyFeedback.Visibility = Visibility.Visible;
             _copyFeedbackTimer?.Stop();
             _copyFeedbackTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
