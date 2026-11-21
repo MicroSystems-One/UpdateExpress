@@ -8,6 +8,7 @@
 - Explicit note that failed/partial searches with count 0 do not mean the PC is fully up to date.
 - Documents CollectSoftwareUpdates / SafeDefault limit for manual Preview install (handle in Windows Update; Install Selected not extended).
 - Extended searches remain Diagnostics-only (not scan / Silent / Tray / RMM).
+- Cache **all** WUA search rows for set compare / Preview scan; 150-entry limit applies to report display only (Codex P2).
 
 ## Slice B — UI honesty
 

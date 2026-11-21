@@ -339,19 +339,22 @@ public static class WindowsUpdateReader
                     if (resultCode != 2)
                         lines.Add("NOTE: ResultCode is not Succeeded. Do not treat this empty/partial result as proof the machine is fully up to date.");
 
-                    int limit = Math.Min(count, 150);
-                    for (int i = 0; i < limit; i++)
+                    // Cache every COM row for set compare / Preview scan; truncate only the printed report.
+                    const int displayLimit = 150;
+                    for (int i = 0; i < count; i++)
                     {
                         dynamic u = results.Updates.Item(i);
                         var row = CaptureDiagnosticRow(u);
                         rowList.Add(row);
+                        if (i >= displayLimit) continue;
                         lines.Add($"  [{i + 1}] {row.Title} | KB={row.Kb} | UpdateID={row.UpdateId} | Rev={row.Revision} | Installed={row.Installed} | Hidden={row.Hidden} | BrowseOnly={row.BrowseOnly} | AutoSelectOnWebSites={row.AutoSelectOnWebSites} | Mandatory={row.Mandatory} | Assigned={row.Assigned} | DeploymentAction={row.DeploymentAction} | RebootRequired={row.RebootRequired} | Beta={row.Beta} | MSRC={row.Severity} | Categories={row.Categories} | ServiceID={row.ServiceId}");
                         if (query.Name == "Drivers pending / visible")
                         {
                             lines.Add($"    InstallationBehavior: CanRequestUserInput={WuaProperty(() => u.InstallationBehavior.CanRequestUserInput)} | RebootBehavior={WuaProperty(() => u.InstallationBehavior.RebootBehavior)} | Impact={WuaProperty(() => u.InstallationBehavior.Impact)} | IsDownloaded={WuaProperty(() => u.IsDownloaded)} | EulaAccepted={WuaProperty(() => u.EulaAccepted)}");
                         }
                     }
-                    if (count > limit) lines.Add($"  TRUNCATED: {count - limit} additional entries omitted (max 150 per query)");
+                    if (count > displayLimit)
+                        lines.Add($"  REPORT TRUNCATED: {count - displayLimit} additional entries omitted from display (max {displayLimit}); full cache used for set compare / Preview scan ({rowList.Count} rows).");
                     queryOutcomes.Add((query.Name, outcome, count, sw.ElapsedMilliseconds));
                 }
                 catch (Exception ex)
