@@ -421,7 +421,7 @@ internal static class DownloadPromptAutomation
                 {
                     string id = ids[i];
                     var requested = selected[i];
-                    var result = WindowsUpdateReader.MatchInstallResult(results, requested, i)
+                    var result = WindowsUpdateReader.MatchInstallResult(results, requested, i, ids.Count)
                                  ?? results.FirstOrDefault(x =>
                                      !string.IsNullOrWhiteSpace(x.UpdateId) &&
                                      x.UpdateId.Equals(id, StringComparison.OrdinalIgnoreCase));

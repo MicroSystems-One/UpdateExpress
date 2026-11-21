@@ -1550,7 +1550,7 @@ public partial class MainWindow : Window
                     for (int i = 0; i < software.Count; i++)
                     {
                         var requested = software[i];
-                        var result = WindowsUpdateReader.MatchInstallResult(results, requested, i);
+                        var result = WindowsUpdateReader.MatchInstallResult(results, requested, i, software.Count);
                         var state = result == null ? notVerifiedLabel :
                             result.Status is "Installert" or "Already up to date" ? verifyingLabel :
                             result.Status is "Delvis fullført" ? notVerifiedLabel :
@@ -1612,6 +1612,10 @@ public partial class MainWindow : Window
             }
             manager.SetStage(norwegian ? "Oppdaterer Windows Update- og WinGet-resultater…" : "Refreshing Windows Update and WinGet results…");
             bool verifyTimedOut = false;
+            bool stillOfferedAfterSuccess = false;
+            string catalogLagGuidance = norwegian
+                ? "Installasjonen lyktes, men Windows kan fortsatt vise oppdateringen til katalogen er oppdatert eller PC-en er startet på nytt."
+                : "Install succeeded, but Windows may still offer the update until its catalog refreshes or the PC is restarted.";
             try
             {
                 var pendingTask = WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(true, true));
@@ -1639,9 +1643,9 @@ public partial class MainWindow : Window
                     if (queue[item.i].State.StartsWith("Failed", StringComparison.Ordinal)) continue;
                     bool remains = pending.Any(x => x.UpdateId.Equals(item.update.UpdateId, StringComparison.OrdinalIgnoreCase));
                     bool historyOk = HistoryConfirmsInstall(_historySnapshot, item.update);
-                    // Absence from pending alone is not proof. Installer success (Verifying) +
-                    // absence, or a successful history row, is the verification we accept.
                     string next = ResolveVerifiedState(queue[item.i].State, remains, historyOk, completedLabel, notVerifiedLabel);
+                    if (InstallationManagerWindow.IsCompletedState(next) && remains)
+                        stillOfferedAfterSuccess = true;
                     manager.CompleteItem(item.i, next, InstallationManagerWindow.IsUnverifiedState(next));
                     Log("WUA", next, new { item.update.UpdateId, item.update.Title, remains, historyOk });
                 }
@@ -1652,6 +1656,8 @@ public partial class MainWindow : Window
                     bool remains = pending.Any(x => x.UpdateId.Equals(drivers[i].UpdateId, StringComparison.OrdinalIgnoreCase));
                     bool historyOk = HistoryConfirmsInstall(_historySnapshot, drivers[i]);
                     string next = ResolveVerifiedState(queue[driverIndex].State, remains, historyOk, completedLabel, notVerifiedLabel);
+                    if (InstallationManagerWindow.IsCompletedState(next) && remains)
+                        stillOfferedAfterSuccess = true;
                     manager.CompleteItem(driverIndex, next, InstallationManagerWindow.IsUnverifiedState(next));
                     Log("Driver", next, new { drivers[i].UpdateId, drivers[i].Title, remains, historyOk });
                 }
@@ -1662,9 +1668,10 @@ public partial class MainWindow : Window
                 verifyTimedOut = true;
                 Log("WUA", "Rescan timed out", tex.Message);
                 manager.SetStage(tex.Message + " " + retryGuidance);
+                // Installer already reported success (Verifying) — do not demote to timed out.
                 for (int i = 0; i < software.Count + drivers.Count; i++)
                     if (InstallationManagerWindow.IsVerifyingState(queue[i].State))
-                        manager.CompleteItem(i, timedOutLabel, true);
+                        manager.CompleteItem(i, completedLabel, false);
             }
             catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage("Windows Update rescan failed: " + ex.Message); }
             try
@@ -1706,10 +1713,12 @@ public partial class MainWindow : Window
             catch (Exception ex) { Log("WinGet", "Rescan failed", ex.Message); manager.SetStage("WinGet rescan failed: " + ex.Message); }
             SetTab(_activeTab);
             RefreshHealthSummary();
-            Log("InstallationManager", "Finished", new { Total = queue.Count, verifyTimedOut });
-            string? guidance = queue.Any(q => InstallationManagerWindow.IsUnverifiedState(q.State) || InstallationManagerWindow.IsVerifyingState(q.State))
+            Log("InstallationManager", "Finished", new { Total = queue.Count, verifyTimedOut, stillOfferedAfterSuccess });
+            string? guidance = queue.Any(q => InstallationManagerWindow.IsUnverifiedState(q.State))
                 ? retryGuidance
-                : null;
+                : stillOfferedAfterSuccess || verifyTimedOut
+                    ? catalogLagGuidance
+                    : null;
             manager.Finish(norwegian, guidance, verifyTimedOut ? timedOutLabel : notVerifiedLabel);
             StatusText.Text = norwegian
                 ? "Installasjon ferdig. Se resultatene i Installation Manager."
@@ -1951,7 +1960,7 @@ public partial class MainWindow : Window
                         WindowsUpdateReader.InstallSelected(matches, progress.Report, activity.Report));
                     for (int i = 0; i < matches.Count; i++)
                     {
-                        var result = WindowsUpdateReader.MatchInstallResult(results, matches[i], i);
+                        var result = WindowsUpdateReader.MatchInstallResult(results, matches[i], i, matches.Count);
                         string itemState = result == null ? InstallationManagerWindow.StatusNotVerified(norwegian) :
                             result.Status is "Installert" or "Already up to date" ? InstallationManagerWindow.StatusCompleted(norwegian) :
                             result.Status == "Delvis fullført" ? InstallationManagerWindow.StatusNotVerified(norwegian) :
@@ -2085,8 +2094,10 @@ public partial class MainWindow : Window
         if (prior.StartsWith("Failed", StringComparison.Ordinal) ||
             prior.StartsWith("Feilet", StringComparison.Ordinal))
             return prior;
-        // Installer reported success (Verifying) + gone from pending, or history success.
-        if (InstallationManagerWindow.IsVerifyingState(prior) && (!remainsInPending || historyOk))
+        // WUA/installer ResultCode success was mapped to Verifying. Catalog lag or reboot-needed
+        // can leave KB-less packages (e.g. PowerShell LTS) in pending briefly — trust the
+        // installer result instead of demoting to Not verified.
+        if (InstallationManagerWindow.IsVerifyingState(prior))
             return completedLabel;
         // Unmatched installer row: only accept history success when the update is also gone.
         if (historyOk && !remainsInPending)

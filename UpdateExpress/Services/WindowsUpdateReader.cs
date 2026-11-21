@@ -451,8 +451,15 @@ public static class WindowsUpdateReader
     /// InstallSelectedWua must populate UpdateId; KB/title are fallbacks for KB-less
     /// packages (e.g. PowerShell LTS). Positional index is only used when both sides
     /// lack UpdateId — never when identities conflict or results were filtered/reordered.
+    /// A no-UpdateId single-result fallback is only allowed when the caller requested
+    /// exactly one update (requestedCount == 1); results.Count alone is not unambiguous
+    /// because CollectSoftwareUpdates / download filtering can drop earlier selections.
     /// </summary>
-    public static UpdateEntry? MatchInstallResult(IReadOnlyList<UpdateEntry> results, UpdateEntry requested, int index = -1)
+    public static UpdateEntry? MatchInstallResult(
+        IReadOnlyList<UpdateEntry> results,
+        UpdateEntry requested,
+        int index = -1,
+        int requestedCount = -1)
     {
         if (results == null || results.Count == 0 || requested == null) return null;
         if (!string.IsNullOrWhiteSpace(requested.UpdateId))
@@ -475,10 +482,20 @@ public static class WindowsUpdateReader
         }
         if (!string.IsNullOrWhiteSpace(requested.Title))
         {
+            string wantTitle = requested.Title.Trim();
             var byTitle = results.FirstOrDefault(x =>
                 !string.IsNullOrWhiteSpace(x.Title) &&
-                x.Title.Equals(requested.Title, StringComparison.OrdinalIgnoreCase));
+                x.Title.Trim().Equals(wantTitle, StringComparison.OrdinalIgnoreCase));
             if (byTitle != null) return byTitle;
+        }
+        // Only when the caller selected exactly one update and WUA returned one result.
+        // results.Count == 1 alone is not safe: skipped downloads can leave a later
+        // selection as the sole result while index 0 is a different requested update.
+        if (requestedCount == 1 && results.Count == 1)
+        {
+            var only = results[0];
+            if (string.IsNullOrWhiteSpace(only.UpdateId))
+                return only;
         }
         if (index >= 0 && index < results.Count)
         {

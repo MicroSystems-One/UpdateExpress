@@ -249,9 +249,15 @@ public sealed class InstallationManagerWindow : Window
         _running = false;
         _clock.Stop();
         _elapsed.Text = "Elapsed: " + (DateTime.Now - _started).ToString(@"hh\:mm\:ss");
+        // Verifying means the installer already reported success — promote to Completed.
+        // Only unmatched / still-running rows become the unresolved label.
         for (int i = 0; i < _items.Count; i++)
-            if (IsStillRunning(_items[i].State))
-                _items[i].State = unresolvedLabel;
+        {
+            if (!IsStillRunning(_items[i].State)) continue;
+            _items[i].State = IsVerifyingState(_items[i].State)
+                ? StatusCompleted(norwegian)
+                : unresolvedLabel;
+        }
         _bar.IsIndeterminate = false;
         _bar.Value = _items.Count;
         _counter.Text = $"{_items.Count} of {_items.Count} processed";
@@ -264,9 +270,10 @@ public sealed class InstallationManagerWindow : Window
             ? $"Ferdig: {completed} fullført, {failed} feilet, {unverified} ikke verifisert"
             : $"Finished: {completed} completed, {failed} failed, {unverified} unverified";
         if (!string.IsNullOrWhiteSpace(guidance) && unverified > 0)
-            summary += norwegian ? " — " + guidance : " — " + guidance;
+            summary += " — " + guidance;
         _stage.Text = summary;
-        if (!string.IsNullOrWhiteSpace(guidance) && unverified > 0)
+        // Show guidance for unverified rows and for soft notices (catalog lag after success).
+        if (!string.IsNullOrWhiteSpace(guidance))
             _notice.Text = guidance;
         _cancel.Content = norwegian ? "Lukk" : "Close";
         _cancel.IsEnabled = true;
