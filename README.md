@@ -2,7 +2,7 @@
 
 Windows update management application for MicroSystems technicians and MSPs.
 
-**Current version:** 0.7.2.41  
+**Current version:** 0.7.2.42  
 **Platform:** Windows 10/11 x64  
 **Stack:** .NET 10 / WPF / C#  
 **GitHub home:** https://github.com/MicroSystems-One/UpdateExpress

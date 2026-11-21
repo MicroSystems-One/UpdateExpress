@@ -1018,6 +1018,9 @@ public partial class MainWindow : Window
                 else if (InstallationManagerWindow.IsCompletedState(item.State))
                     _installOutcomeSuccessEntries.Add(ToInstallOutcomeEntry(item));
             }
+            // Persist Completed/Failed into Historikk's archive (WinGet never appears in WUA history).
+            try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+            catch (Exception ex) { ActivityLog.TryWrite("InstallationManager", "HistoryRecordFailed", ex.Message); }
         }
         _installOutcomeBlinkOn = true;
         if (!_installOutcomeBlinkTimer.IsEnabled)

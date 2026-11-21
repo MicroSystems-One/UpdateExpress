@@ -548,6 +548,8 @@ internal static class DownloadPromptAutomation
                         : $"{ok}/{results.Count} completed.",
                     NextDue(DateTime.Now, cat, preferred, weekly, minInterval));
                 ActivityLog.TryWrite(displayName + "Automation", "Installed", new { ok, Total = results.Count, rebootHint }, mode: "Automatic", source: "ElevatedHelper");
+                try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+                catch (Exception ex) { AgentLog.Write($"{displayName} install: history record failed: " + ex.Message); }
 
                 manager.Finish();
                 if (rebootHint)
@@ -570,6 +572,8 @@ internal static class DownloadPromptAutomation
                 retry.Save();
                 for (int i = 0; i < queue.Count; i++)
                     manager.CompleteItem(i, "Failed", true);
+                try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+                catch (Exception hx) { AgentLog.Write($"{displayName} install: history record failed: " + hx.Message); }
                 manager.Finish();
                 manager.SetStage("Failed: " + ex.Message);
                 System.Windows.MessageBox.Show(
