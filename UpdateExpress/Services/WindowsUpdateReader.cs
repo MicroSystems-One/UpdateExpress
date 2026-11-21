@@ -362,9 +362,11 @@ public static class WindowsUpdateReader
             var matches = System.Text.RegularExpressions.Regex.Matches(title, @"KB\d{5,9}", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             var kbs = matches.Select(m => m.Value.ToUpperInvariant()).Distinct();
             int hr = (int)item.HResult;
+            string historyUpdateId = "";
+            try { historyUpdateId = Convert.ToString(item.UpdateIdentity.UpdateID) ?? ""; } catch { }
             var entry = new UpdateEntry
             {
-                KB = string.Join(", ", kbs), Title = title,
+                KB = string.Join(", ", kbs), Title = title, UpdateId = historyUpdateId,
                 Status = code switch { 2 => "Vellykket", 3 => "Vellykket med feil", 4 => "Mislykket", 5 => "Avbrutt", _ => "Ukjent" },
                 Date = ((DateTime)item.Date).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 Source = "WUA-historikk", ErrorCode = hr == 0 ? "" : $"0x{unchecked((uint)hr):X8}"
@@ -377,7 +379,9 @@ public static class WindowsUpdateReader
 
     /// <summary>
     /// History for the grid: live WUA events plus events saved before a Windows Update fix.
-    /// Failures with a later success for the same KB are shown as Fixed.
+    /// A failed row is omitted when the same update already succeeded. Other failures
+    /// with a later success for the same KB are shown as Fixed.
+    /// Fully identical rows (same title, KB, version, and status) collapse to the newest Date/Time.
     /// </summary>
     public static List<UpdateEntry> HistoryForDisplay() =>
         HistoryArchive.MergeForDisplay(History());
@@ -431,12 +435,85 @@ public static class WindowsUpdateReader
         bool alreadyCurrent = !changed && requestedMatch.Success && Version.TryParse(requestedMatch.Groups[1].Value, out var offeredVersion) && installedVersion >= offeredVersion;
         string verification = changed ? "Installed" : alreadyCurrent ? "Already up to date" : "Verification unavailable";
         report?.Invoke($"Defender signatures: {before} -> {installed}; {verification}.");
-        return new UpdateEntry { KB = selected.KB, Title = selected.Title, Status = changed ? "Installert" : alreadyCurrent ? "Already up to date" : "Verification unavailable",
+        return new UpdateEntry
+        {
+            KB = selected.KB,
+            Title = selected.Title,
+            UpdateId = selected.UpdateId,
+            Status = changed ? "Installert" : alreadyCurrent ? "Already up to date" : "Verification unavailable",
             Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-            Source = $"Update Express — Defender signatures ({before} -> {installed})" };
+            Source = $"Update Express — Defender signatures ({before} -> {installed})"
+        };
     }
 
-    public static List<UpdateEntry> InstallSelected(List<UpdateEntry> selectedUpdates, Action<string>? report = null)
+    /// <summary>
+    /// Map a requested update to its WUA/Defender install result.
+    /// InstallSelectedWua must populate UpdateId; KB/title are fallbacks for KB-less
+    /// packages (e.g. PowerShell LTS). Positional index is only used when both sides
+    /// lack UpdateId — never when identities conflict or results were filtered/reordered.
+    /// A no-UpdateId single-result fallback is only allowed when the caller requested
+    /// exactly one update (requestedCount == 1); results.Count alone is not unambiguous
+    /// because CollectSoftwareUpdates / download filtering can drop earlier selections.
+    /// </summary>
+    public static UpdateEntry? MatchInstallResult(
+        IReadOnlyList<UpdateEntry> results,
+        UpdateEntry requested,
+        int index = -1,
+        int requestedCount = -1)
+    {
+        if (results == null || results.Count == 0 || requested == null) return null;
+        if (!string.IsNullOrWhiteSpace(requested.UpdateId))
+        {
+            var byId = results.FirstOrDefault(x =>
+                !string.IsNullOrWhiteSpace(x.UpdateId) &&
+                x.UpdateId.Equals(requested.UpdateId, StringComparison.OrdinalIgnoreCase));
+            if (byId != null) return byId;
+        }
+        var requestedKbs = SplitKbs(requested.KB);
+        if (requestedKbs.Count > 0)
+        {
+            var byKb = results.FirstOrDefault(x =>
+            {
+                var resultKbs = SplitKbs(x.KB);
+                return resultKbs.Count > 0 && requestedKbs.Any(kb =>
+                    resultKbs.Any(r => r.Equals(kb, StringComparison.OrdinalIgnoreCase)));
+            });
+            if (byKb != null) return byKb;
+        }
+        if (!string.IsNullOrWhiteSpace(requested.Title))
+        {
+            string wantTitle = requested.Title.Trim();
+            var byTitle = results.FirstOrDefault(x =>
+                !string.IsNullOrWhiteSpace(x.Title) &&
+                x.Title.Trim().Equals(wantTitle, StringComparison.OrdinalIgnoreCase));
+            if (byTitle != null) return byTitle;
+        }
+        // Only when the caller selected exactly one update and WUA returned one result.
+        // results.Count == 1 alone is not safe: skipped downloads can leave a later
+        // selection as the sole result while index 0 is a different requested update.
+        if (requestedCount == 1 && results.Count == 1)
+        {
+            var only = results[0];
+            if (string.IsNullOrWhiteSpace(only.UpdateId))
+                return only;
+        }
+        if (index >= 0 && index < results.Count)
+        {
+            var positional = results[index];
+            // Reject positional matches when either side has an UpdateId (lists can omit
+            // skipped/failed downloads, so index alignment is not guaranteed).
+            if (string.IsNullOrWhiteSpace(requested.UpdateId) && string.IsNullOrWhiteSpace(positional.UpdateId))
+                return positional;
+        }
+        return null;
+    }
+
+    private static List<string> SplitKbs(string? kb) =>
+        string.IsNullOrWhiteSpace(kb)
+            ? new List<string>()
+            : kb.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
+
+    public static List<UpdateEntry> InstallSelected(List<UpdateEntry> selectedUpdates, Action<string>? report = null, Action<WuaActivity>? activity = null)
     {
         if (selectedUpdates.Count == 0) throw new InvalidOperationException("Ingen oppdateringer valgt.");
         var entries = new List<UpdateEntry>();
@@ -444,9 +521,16 @@ public static class WindowsUpdateReader
             .Any(kb => kb.Equals("KB2267602", StringComparison.OrdinalIgnoreCase))).ToList();
         var standard = selectedUpdates.Except(defender).ToList();
         // Process Defender separately, with an explicit, supported signature-update API.
-        foreach (var update in defender) entries.Add(InstallDefenderSignatures(update, report));
+        for (int i = 0; i < defender.Count; i++)
+        {
+            var update = defender[i];
+            string kb = string.IsNullOrWhiteSpace(update.KB) ? "KB2267602" : update.KB.Split(',')[0].Trim();
+            activity?.Invoke(new WuaActivity("install", kb, i + 1, defender.Count, -1));
+            report?.Invoke(WuaProgressText.Stage(WuaProgressText.Norwegian, "install", kb, i + 1, defender.Count, -1));
+            entries.Add(InstallDefenderSignatures(update, report));
+        }
         if (standard.Count == 0) return entries;
-        entries.AddRange(InstallSelectedWua(standard.Select(x => x.UpdateId).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), report));
+        entries.AddRange(InstallSelectedWua(standard.Select(x => x.UpdateId).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), report, activity));
         return entries;
     }
 
@@ -459,11 +543,8 @@ public static class WindowsUpdateReader
         var collection = CollectSoftwareUpdates(updateIds, report, out _);
         if ((int)collection.Count == 0)
             throw new InvalidOperationException("No selected updates could be prepared for download.");
-        report?.Invoke($"Downloading 0/{collection.Count} updates — waiting for Windows Update Agent…");
         dynamic session = Session();
-        dynamic downloader = session.CreateUpdateDownloader();
-        downloader.Updates = collection;
-        dynamic download = downloader.Download();
+        dynamic download = WuaJobs.Download(session, collection, report, null);
         int downloadCode = (int)download.ResultCode;
         int downloadedCount = 0;
         for (int i = 0; i < (int)collection.Count; i++)
@@ -482,9 +563,65 @@ public static class WindowsUpdateReader
         return downloadedCount;
     }
 
+    /// <summary>
+    /// Drivers automation: download selected Type='Driver' updates without installing.
+    /// Does not substitute another driver when an ID is missing.
+    /// </summary>
+    public static int DownloadSelectedDrivers(List<string> updateIds, Action<string>? report = null)
+    {
+        if (updateIds.Count == 0) throw new InvalidOperationException("No driver updates selected.");
+        report?.Invoke("Searching for selected driver updates…");
+        dynamic session = Session();
+        dynamic searcher = session.CreateUpdateSearcher();
+        dynamic search = searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Driver'");
+        int total = (int)search.Updates.Count;
+        report?.Invoke($"WUA driver search returned {total} update(s).");
+        dynamic collection = Activator.CreateInstance(Type.GetTypeFromProgID("Microsoft.Update.UpdateColl")!)!;
+        var selectedIds = new HashSet<string>(updateIds, StringComparer.OrdinalIgnoreCase);
+        var foundIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < total; i++)
+        {
+            dynamic update = search.Updates.Item(i);
+            string id = Convert.ToString(update.Identity.UpdateID) ?? "";
+            if (!selectedIds.Contains(id)) continue;
+            foundIds.Add(id);
+            try
+            {
+                if (!(bool)update.EulaAccepted) update.AcceptEula();
+                collection.Add(update);
+                report?.Invoke($"Matched selected driver: {id}");
+            }
+            catch (Exception ex)
+            {
+                report?.Invoke($"Skipped driver {id}: {ex.Message}");
+            }
+        }
+        foreach (string missing in selectedIds.Except(foundIds, StringComparer.OrdinalIgnoreCase))
+            report?.Invoke($"Selected driver not found in fresh search: {missing}");
+        if ((int)collection.Count == 0)
+            throw new InvalidOperationException("No selected drivers could be prepared for download.");
+        dynamic download = WuaJobs.Download(session, collection, report, null);
+        int downloadCode = (int)download.ResultCode;
+        int downloadedCount = 0;
+        for (int i = 0; i < (int)collection.Count; i++)
+        {
+            try
+            {
+                if ((bool)collection.Item(i).IsDownloaded) downloadedCount++;
+            }
+            catch { }
+        }
+        report?.Invoke($"Driver download phase completed: {downloadedCount}/{collection.Count} (result={downloadCode}).");
+        if (downloadCode != 2 && downloadCode != 3)
+            throw new InvalidOperationException($"Driver download failed: result code {downloadCode}.");
+        if (downloadedCount == 0)
+            throw new InvalidOperationException("No drivers were downloaded.");
+        return downloadedCount;
+    }
+
     // Install one explicitly selected driver or firmware update, with a fresh WUA identity
     // and hardware-ID check. Never automatically install or reboot.
-    public static List<UpdateEntry> InstallSelectedDriver(UpdateEntry selected, Action<string>? report = null, bool allowInteractive = false)
+    public static List<UpdateEntry> InstallSelectedDriver(UpdateEntry selected, Action<string>? report = null, bool allowInteractive = false, Action<WuaActivity>? activity = null)
     {
         if (selected.Category != "Driver / firmware")
             throw new InvalidOperationException("Only driver and firmware updates can be installed in driver mode.");
@@ -567,9 +704,7 @@ public static class WindowsUpdateReader
             collection.Add(update);
             stageName = "Download";
             Audit(stageName, "Starting WUA download");
-            dynamic downloader = session.CreateUpdateDownloader();
-            downloader.Updates = collection;
-            dynamic download = downloader.Download();
+            dynamic download = WuaJobs.Download(session, collection, report, activity);
             int downloadCode = (int)download.ResultCode;
             dynamic downloadItem = download.GetUpdateResult(0);
             int downloadHr = (int)downloadItem.HResult;
@@ -579,11 +714,7 @@ public static class WindowsUpdateReader
                 throw new InvalidOperationException($"WUA driver download failed: result={downloadCode}, HRESULT={HResultHex(downloadHr)}, IsDownloaded={downloaded}");
             stageName = "Install";
             Audit(stageName, "Starting WUA installation");
-            dynamic installer = session.CreateUpdateInstaller();
-            installer.Updates = collection;
-            installer.AllowSourcePrompts = requiresInput && allowInteractive;
-            installer.ForceQuiet = !(requiresInput && allowInteractive);
-            dynamic result = installer.Install();
+            dynamic result = WuaJobs.Install(session, collection, report, activity, requiresInput && allowInteractive);
             dynamic item = result.GetUpdateResult(0);
             int code = (int)item.ResultCode;
             int hr = (int)item.HResult;
@@ -664,14 +795,11 @@ public static class WindowsUpdateReader
         return collection;
     }
 
-    private static List<UpdateEntry> InstallSelectedWua(List<string> updateIds, Action<string>? report = null)
+    private static List<UpdateEntry> InstallSelectedWua(List<string> updateIds, Action<string>? report = null, Action<WuaActivity>? activity = null)
     {
         dynamic collection = CollectSoftwareUpdates(updateIds, report, out _);
         dynamic session = Session();
-        report?.Invoke($"Downloading 0/{collection.Count} updates — waiting for Windows Update Agent…");
-        dynamic downloader = session.CreateUpdateDownloader();
-        downloader.Updates = collection;
-        dynamic download = downloader.Download();
+        dynamic download = WuaJobs.Download(session, collection, report, activity);
         int downloadCode = (int)download.ResultCode;
         int downloadHr = 0;
         try { downloadHr = (int)download.HResult; } catch { }
@@ -684,7 +812,11 @@ public static class WindowsUpdateReader
                 dynamic itemResult = download.GetUpdateResult(i);
                 int itemCode = (int)itemResult.ResultCode;
                 int itemHr = (int)itemResult.HResult;
-                if ((bool)collection.Item(i).IsDownloaded) downloadedCount++;
+                if ((bool)collection.Item(i).IsDownloaded)
+                {
+                    downloadedCount++;
+                    activity?.Invoke(new WuaActivity("downloaded", WuaJobs.Label(collection, i), i + 1, (int)collection.Count, 100));
+                }
                 report?.Invoke($"Downloaded {downloadedCount}/{collection.Count} updates — checked {i + 1}/{collection.Count}: {KBs(collection.Item(i))} (result={itemCode}, HRESULT=0x{unchecked((uint)itemHr):X8})");
             }
             catch (Exception ex) { report?.Invoke($"WUA item diagnostic unavailable: {ex.Message}"); }
@@ -700,11 +832,7 @@ public static class WindowsUpdateReader
         }
         if ((int)ready.Count == 0) throw new InvalidOperationException("Ingen oppdateringer ble lastet ned.");
         report?.Invoke($"Installing {ready.Count} downloaded update(s)…");
-        dynamic installer = session.CreateUpdateInstaller();
-        installer.Updates = ready;
-        installer.AllowSourcePrompts = false;
-        installer.ForceQuiet = true;
-        dynamic result = installer.Install();
+        dynamic result = WuaJobs.Install(session, ready, report, activity, false);
         bool restartRequired = false;
         try { restartRequired = (bool)result.RebootRequired; } catch { }
         report?.Invoke(restartRequired ? "Installation completed — restart required." : "Installation completed — checking results…");
@@ -715,7 +843,18 @@ public static class WindowsUpdateReader
             dynamic r = result.GetUpdateResult(i);
             int code = (int)r.ResultCode;
             int hr = (int)r.HResult;
-            entries.Add(new UpdateEntry { KB = KBs(u), Title = Convert.ToString(u.Title) ?? "", Status = code == 2 ? "Installert" : code == 3 ? "Delvis fullført" : "Feilet / avbrutt", Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), Source = restartRequired ?  $"Update Express v{ProductVersion.Display} — Restart required" : $"Update Express v{ProductVersion.Display}", ErrorCode = hr == 0 ? "" : $"0x{unchecked((uint)hr):X8}" });
+            string updateId = "";
+            try { updateId = Convert.ToString(u.Identity.UpdateID) ?? ""; } catch { }
+            entries.Add(new UpdateEntry
+            {
+                KB = KBs(u),
+                Title = Convert.ToString(u.Title) ?? "",
+                UpdateId = updateId,
+                Status = code == 2 ? "Installert" : code == 3 ? "Delvis fullført" : "Feilet / avbrutt",
+                Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                Source = restartRequired ? $"Update Express v{ProductVersion.Display} — Restart required" : $"Update Express v{ProductVersion.Display}",
+                ErrorCode = hr == 0 ? "" : $"0x{unchecked((uint)hr):X8}"
+            });
         }
         return entries;
     }

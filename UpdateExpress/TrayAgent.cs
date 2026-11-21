@@ -24,9 +24,10 @@ internal sealed class TrayAgent : IDisposable
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
     private readonly string _baselinePath = Path.Combine(InstallationManager.InstallDir, "monitor-initialized.flag");
     private readonly string _statePath = Path.Combine(InstallationManager.InstallDir, "monitor-state.txt");
-    private readonly TimeSpan _interval = TimeSpan.FromHours(6);
     private readonly string _statusPath = Path.Combine(InstallationManager.InstallDir, "monitor-status.json");
     private DateTime _nextScheduled = DateTime.Now.AddMinutes(5);
+    private DateTime? _lastSharedNoticeBalloonAt;
+    private string? _lastSharedNoticeKey;
     private bool _disposed;
     private int _scanRunning;
 
@@ -59,20 +60,74 @@ internal sealed class TrayAgent : IDisposable
             if (e.Button == MouseButtons.Left) Open();
         };
         // Avoid an expensive WUA scan during Windows sign-in. Scan after 5 minutes,
-        // then at most every six hours. Manual scans use the same overlap guard.
-        _timer = new System.Threading.Timer(_ => { _nextScheduled = DateTime.Now.Add(_interval); StartScan(); }, null, TimeSpan.FromMinutes(5), _interval);
-        // Categories 1–3: poll often; each job decides whether it is due.
-        CriticalAutomation.SetBalloon((title, text) => ShowAppBalloon(title, text, ToolTipIcon.Info));
+        // then on the policy interval (default 6h). Manual scans use the same overlap guard.
+        TimeSpan monitorInterval = ResolveMonitorInterval();
+        _timer = new System.Threading.Timer(_ =>
+        {
+            TimeSpan next = ResolveMonitorInterval();
+            _nextScheduled = DateTime.Now.Add(next);
+            StartScan();
+            try { _timer?.Change(next, next); } catch { /* disposed */ }
+        }, null, TimeSpan.FromMinutes(5), monitorInterval);
+        // Categories 1–3 plus optional drivers/apps: poll often; each job decides whether it is due.
+        Action<string, string> balloon = (title, text) => ShowAppBalloon(title, text, ToolTipIcon.Info);
+        CriticalAutomation.SetBalloon(balloon);
+        DriverAutomation.SetBalloon(balloon);
+        ApplicationAutomation.SetBalloon(balloon);
         _defenderTimer = new System.Threading.Timer(_ =>
         {
             _ = DefenderAutomation.RunDueJobAsync();
             _ = CriticalAutomation.RunDueJobAsync(_dispatcher);
             _ = GeneralAutomation.RunDueJobAsync(_dispatcher);
-            try { _dispatcher.BeginInvoke(new Action(RebootCoordinator.RunDueJob)); }
+            _ = DriverAutomation.RunDueJobAsync(_dispatcher);
+            try { ApplicationAutomation.TryResumeAfterReboot(); }
+            catch (Exception ex) { AgentLog.Write("Applications resume poll failed: " + ex.Message); }
+            _ = ApplicationAutomation.RunDueJobAsync(_dispatcher);
+            try { _dispatcher.BeginInvoke(new Action(() => RebootCoordinator.RunDueJob(allowUiPrompt: true))); }
             catch (Exception ex) { AgentLog.Write("Deferred reboot poll failed: " + ex.Message); }
+            try { UpdateUntilCurrent.TryLaunchResume(); }
+            catch (Exception ex) { AgentLog.Write("Update-until-current resume poll failed: " + ex.Message); }
+            try { _ = UnattendedUntilClear.TryContinueClearingAsync(_dispatcher); }
+            catch (Exception ex) { AgentLog.Write("Unattended until-clear continue failed: " + ex.Message); }
+            try { UnattendedUntilClear.TryShowPendingResult(_dispatcher); }
+            catch (Exception ex) { AgentLog.Write("Unattended until-clear result poll failed: " + ex.Message); }
+            try { MaybeBalloonSharedSchedule(); }
+            catch (Exception ex) { AgentLog.Write("Shared schedule notice poll failed: " + ex.Message); }
+            try { RmmStatusExport.WriteBestEffort("tray-poll"); }
+            catch (Exception ex) { AgentLog.Write("RMM status export failed: " + ex.Message); }
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
         WriteMonitorStatus("waiting", 0, 0, null, null);
-        AgentLog.Write("Tray agent started; WUA monitor every 6h; Defender+Critical+General+reboot poll every 5m.");
+        try { RmmStatusExport.WriteBestEffort("tray-start", force: true); } catch { /* ignore */ }
+        AgentLog.Write($"Tray agent started; WUA monitor every {monitorInterval.TotalHours:0.##}h; Defender+Critical+General+Drivers+Apps+reboot poll every 5m.");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(45));
+                if (_disposed) return;
+                _ = _dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (_disposed) return;
+                        if (ApplicationAutomation.TryResumeAfterReboot())
+                            ShowAppBalloon(
+                                "Application updates",
+                                "Remaining app installs continue after the restart. Approve the administrator prompt.",
+                                ToolTipIcon.Info);
+                        if (UpdateUntilCurrent.TryLaunchResume())
+                            ShowAppBalloon(
+                                "Update until current",
+                                "The cycle continues after the restart. Approve the administrator prompt.",
+                                ToolTipIcon.Info);
+                        _ = UnattendedUntilClear.TryContinueClearingAsync(_dispatcher);
+                        UnattendedUntilClear.TryShowPendingResult(_dispatcher);
+                    }
+                    catch (Exception ex) { AgentLog.Write("Post-reboot resume failed: " + ex.Message); }
+                }));
+            }
+            catch (Exception ex) { AgentLog.Write("Post-reboot resume failed: " + ex.Message); }
+        });
         // After sign-in / agent start: quiet Update Express self-update check (prompt only if newer).
         _ = Task.Run(async () =>
         {
@@ -83,6 +138,21 @@ internal sealed class TrayAgent : IDisposable
             }
             catch (Exception ex) { AgentLog.Write("Automatic app update check schedule failed: " + ex.Message); }
         });
+    }
+
+    private static TimeSpan ResolveMonitorInterval()
+    {
+        try
+        {
+            var policy = UpdatePolicy.Load();
+            policy.Normalize();
+            int minutes = Math.Max(60, policy.WindowsMonitorIntervalMinutes);
+            return TimeSpan.FromMinutes(minutes);
+        }
+        catch
+        {
+            return TimeSpan.FromHours(6);
+        }
     }
 
     private void StartScan()
@@ -146,7 +216,8 @@ internal sealed class TrayAgent : IDisposable
     private void StartAppUpdateInstall(AppUpdateCheckResult offer)
     {
         SetAppUpdateMenuEnabled(false);
-        ShowAppBalloon("Update Express", "Downloading update…", ToolTipIcon.Info);
+        // Stages are logged only. A balloon per stage is queued by Windows and keeps
+        // appearing after the replacement has already started the new version.
         _ = Task.Run(async () =>
         {
             try
@@ -154,8 +225,6 @@ internal sealed class TrayAgent : IDisposable
                 await AppUpdateInstaller.PrepareAndLaunchAsync(offer, stage =>
                 {
                     AgentLog.Write("App update: " + stage);
-                    try { _dispatcher.BeginInvoke(new Action(() => ShowAppBalloon("Update Express", stage, ToolTipIcon.Info))); }
-                    catch { }
                 }).ConfigureAwait(false);
                 // LaunchSelfUpdate shuts down this process on success.
             }
@@ -190,8 +259,8 @@ internal sealed class TrayAgent : IDisposable
         // Prefer the embedded U icon so toast/tray notifications do not reuse a cached M icon.
         try
         {
-            using var stream = typeof(TrayAgent).Assembly.GetManifestResourceStream("UpdateExpress.Assets.UpdateExpress.ico");
-            if (stream is not null) return new Icon(stream);
+            var embedded = AppIcon.TryLoadDrawingIcon();
+            if (embedded is not null) return embedded;
         }
         catch (Exception ex) { AgentLog.Write("Embedded tray icon load failed: " + ex.Message); }
         try
@@ -213,6 +282,34 @@ internal sealed class TrayAgent : IDisposable
             _tray.ShowBalloonTip(8000);
         }
         catch (Exception ex) { AgentLog.Write("Cannot show app-update balloon: " + ex.Message); }
+    }
+
+    /// <summary>
+    /// Any interactive user session can see Install-at / unattended schedule notices
+    /// published to ProgramData (not only the user who confirmed).
+    /// </summary>
+    private void MaybeBalloonSharedSchedule()
+    {
+        var notice = AutomationStatePaths.LoadSharedScheduleNotice();
+        if (notice is null) return;
+        // Only toast when approaching or overdue (within 2h before → 6h after).
+        if (notice.ScheduledAt > DateTime.Now.AddHours(2)) return;
+        if (notice.ScheduledAt < DateTime.Now.AddHours(-6)) return;
+
+        string key = $"{notice.Category}|{notice.ScheduledAt:O}|{notice.PublishedBy}";
+        if (string.Equals(_lastSharedNoticeKey, key, StringComparison.Ordinal) &&
+            _lastSharedNoticeBalloonAt is DateTime last &&
+            DateTime.Now - last < TimeSpan.FromHours(2))
+            return;
+
+        bool norwegian = AppLanguage.IsNorwegian;
+        string title = norwegian ? "Update Express – Planlagt installasjon" : "Update Express – Scheduled install";
+        string text = norwegian
+            ? $"{notice.Category}: installasjon kl. {notice.ScheduledAt:dd.MM HH:mm}. {(string.IsNullOrWhiteSpace(notice.Detail) ? "Lagre arbeidet før du går." : notice.Detail)}"
+            : $"{notice.Category}: install at {notice.ScheduledAt:dd.MM HH:mm}. {(string.IsNullOrWhiteSpace(notice.Detail) ? "Save your work before you leave." : notice.Detail)}";
+        ShowAppBalloon(title, text, ToolTipIcon.Info);
+        _lastSharedNoticeKey = key;
+        _lastSharedNoticeBalloonAt = DateTime.Now;
     }
 
     private void SetAppUpdateMenuEnabled(bool enabled)

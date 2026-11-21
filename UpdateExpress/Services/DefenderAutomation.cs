@@ -60,6 +60,17 @@ internal static class DefenderAutomation
                     DateTime.Now.AddMinutes(Math.Max(15, defender.IntervalMinutes)));
                 ActivityLog.TryWrite("DefenderAutomation", result.Status, new { result.Source, result.ErrorCode }, mode: "Automatic", source: "TrayAgent");
                 AgentLog.Write("Defender automation completed: " + summary);
+                // Clear Results «Vis» Defender lines once signatures are current.
+                try
+                {
+                    var state = await DefenderStatusReader.ReadAsync().ConfigureAwait(false);
+                    if (Version.TryParse(NormalizeVersion(state.SignatureVersion), out var installed))
+                        MonitorStatus.PruneInstalledDefender(installed);
+                }
+                catch (Exception pruneEx)
+                {
+                    AgentLog.Write("Defender monitor prune failed: " + pruneEx.Message);
+                }
             }
             catch (Exception ex)
             {
@@ -73,5 +84,12 @@ internal static class DefenderAutomation
             }
         }
         finally { Interlocked.Exchange(ref _running, 0); }
+    }
+
+    private static string NormalizeVersion(string? text)
+    {
+        text = (text ?? "").Trim();
+        if (text.Count(c => c == '.') == 2) text += ".0";
+        return text;
     }
 }

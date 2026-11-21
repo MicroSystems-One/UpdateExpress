@@ -25,6 +25,7 @@ public partial class WindowsUpdateFixDialog : Window
         bool allDrivers = false)
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         _fixTarget = fixTarget;
         _includeOptional = includeOptional;
         _allDrivers = allDrivers;
@@ -67,7 +68,7 @@ public partial class WindowsUpdateFixDialog : Window
 
         if (!ElevationHelper.IsElevated)
         {
-            var choice = MessageBox.Show(this,
+            var choice = AppDialog.Show(this,
                 "Windows Update fix requires administrator privileges.\n\n" +
                 "Restart Update Express as administrator?\n\n" +
                 "After restart, open Windows Update fix again and run the selected level.",
@@ -81,12 +82,12 @@ public partial class WindowsUpdateFixDialog : Window
             }
             catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
             {
-                MessageBox.Show(this, "Administrator approval cancelled.", "Update Express",
+                AppDialog.Show(this, "Administrator approval cancelled.", "Update Express",
                     MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Unable to restart as administrator: " + ex.Message,
+                AppDialog.Show(this, "Unable to restart as administrator: " + ex.Message,
                     "Update Express", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             return;
@@ -104,7 +105,7 @@ public partial class WindowsUpdateFixDialog : Window
             _ =>
                 "Quick fix will check free space on the Windows drive and run SFC /scannow before it changes Windows Update.\n\nIt then stops Windows Update services and renames SoftwareDistribution + catroot2 (backup names).\n\nThis can take 15–45 minutes.\n\n" + historyNote + "\n\nContinue?"
         };
-        if (MessageBox.Show(this, warn, "Confirm Windows Update fix", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+        if (AppDialog.Show(this, warn, "Confirm Windows Update fix", MessageBoxButton.YesNo, MessageBoxImage.Warning)
             != MessageBoxResult.Yes) return;
 
         _running = true;

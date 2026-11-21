@@ -73,6 +73,110 @@ internal static class HistoryArchive
         }
     }
 
+    /// <summary>
+    /// Persist Installation Manager Completed/Failed rows into the same archive Historikk reads.
+    /// WinGet (and driver/WUA installs that are not yet in live WUA history) otherwise never appear.
+    /// </summary>
+    internal static int RecordInstallOutcomes(IReadOnlyList<UpdateEntry> outcomes)
+    {
+        if (outcomes == null || outcomes.Count == 0) return 0;
+        lock (Gate)
+        {
+            var state = LoadUnlocked();
+            int recorded = 0;
+            foreach (var entry in outcomes)
+            {
+                if (entry == null) continue;
+                if (!entry.IsHistorySuccessful && !entry.IsHistoryFailed) continue;
+                var copy = entry.Clone();
+                if (string.IsNullOrWhiteSpace(copy.Date))
+                    copy.Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                OperationalPriority.Apply(copy);
+                string key = EventKey(copy);
+                int index = state.Entries.FindIndex(existing => EventKey(existing) == key);
+                if (index < 0) state.Entries.Add(copy);
+                else state.Entries[index] = copy;
+                recorded++;
+            }
+            if (recorded == 0) return 0;
+            Trim(state);
+            SaveUnlocked(state);
+            return recorded;
+        }
+    }
+
+    /// <summary>
+    /// Build a Historikk row from an Installation Manager queue item.
+    /// Returns null for non-terminal states (Pending / Verifying / Not verified).
+    /// </summary>
+    internal static UpdateEntry? FromInstallationQueueItem(InstallationQueueItem item, DateTime? at = null)
+    {
+        if (item == null) return null;
+        bool failed = item.State.StartsWith("Failed", StringComparison.OrdinalIgnoreCase)
+            || item.State.StartsWith("Feilet", StringComparison.OrdinalIgnoreCase);
+        bool completed = InstallationManagerWindow.IsCompletedState(item.State);
+        if (!failed && !completed) return null;
+
+        string blob = item.State + " " + (item.Tip ?? "");
+        var hr = Regex.Match(blob, @"0x[0-9A-Fa-f]{8}");
+        string error = hr.Success ? hr.Value : "";
+        if (string.IsNullOrWhiteSpace(error) &&
+            (item.State.Contains("tech mismatch", StringComparison.OrdinalIgnoreCase)
+             || item.State.Contains("teknologi-mismatch", StringComparison.OrdinalIgnoreCase)
+             || (item.Tip?.Contains("0x8A15008E", StringComparison.OrdinalIgnoreCase) ?? false)
+             || (item.Tip?.Contains("-1978335090", StringComparison.OrdinalIgnoreCase) ?? false)))
+            error = "0x8A15008E";
+
+        string category = item.Source.Contains("WinGet", StringComparison.OrdinalIgnoreCase) ? "Application"
+            : item.Source.Contains("Driver", StringComparison.OrdinalIgnoreCase) ? "Driver / firmware"
+            : "Windows Update";
+
+        // Match WindowsUpdateReader.History(): KB column from title so DisplayIdentityKey
+        // can collapse this synthetic row with the live WUA event once it appears.
+        string title = item.Name ?? "";
+        var kbs = new List<string>();
+        foreach (Match match in KbPattern.Matches(title))
+        {
+            string kb = match.Value.ToUpperInvariant();
+            if (!kbs.Contains(kb, StringComparer.OrdinalIgnoreCase))
+                kbs.Add(kb);
+        }
+
+        return new UpdateEntry
+        {
+            Title = title,
+            KB = string.Join(", ", kbs),
+            Category = category,
+            Source = string.IsNullOrWhiteSpace(item.Source) ? "Installation Manager" : item.Source,
+            Status = failed ? "Mislykket" : "Vellykket",
+            ErrorCode = error,
+            StatusNote = string.IsNullOrWhiteSpace(item.Tip) ? "" : item.Tip,
+            Date = (at ?? DateTime.Now).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            UpdateId = "",
+            SafeDefault = false
+        };
+    }
+
+    /// <summary>
+    /// Record Completed and Failed Installation Manager rows for Historikk.
+    /// </summary>
+    internal static int RecordInstallationManagerQueue(IEnumerable<InstallationQueueItem> queue, DateTime? at = null)
+    {
+        if (queue == null) return 0;
+        var when = at ?? DateTime.Now;
+        // Stagger identical titles by one second when needed so EventKey stays unique within a run.
+        int offsetSeconds = 0;
+        var entries = new List<UpdateEntry>();
+        foreach (var item in queue)
+        {
+            var entry = FromInstallationQueueItem(item, when.AddSeconds(offsetSeconds));
+            if (entry == null) continue;
+            entries.Add(entry);
+            offsetSeconds++;
+        }
+        return RecordInstallOutcomes(entries);
+    }
+
     internal static void RecordScan(IReadOnlyList<UpdateEntry> pending, bool success, string? error)
     {
         lock (Gate)
@@ -118,15 +222,186 @@ internal static class HistoryArchive
 
         foreach (var pair in combined)
         {
-            if (!liveKeys.Contains(pair.Key))
+            if (!liveKeys.Contains(pair.Key) && ShouldMarkPreservedSource(pair.Value))
                 MarkPreservedSource(pair.Value);
         }
 
         var rows = combined.Values.ToList();
+        // A failed row for an update that already succeeded is the same event twice
+        // (often a blocked retry such as 0x80240016). Keep a failure that is a new
+        // attempt more than a day after the latest success.
+        rows.RemoveAll(entry => CoveredBySuccess(entry, rows));
         ApplyFixed(rows, state);
+        var hidden = new HashSet<string>(state.HiddenEventKeys, StringComparer.OrdinalIgnoreCase);
+        if (hidden.Count > 0 || state.HiddenDisplayIdentities.Count > 0)
+            rows.RemoveAll(entry => IsHidden(entry, hidden, state.HiddenDisplayIdentities));
+        // Collapse fully identical History rows (same title, KB, version, status,
+        // and error code). Empty KB/Version count as equal. Keep the newest Date/Time.
+        // Distinct versions (e.g. Defender KB2267602) and success vs failure stay separate.
+        rows = CollapseIdenticalRows(rows);
         foreach (var entry in rows)
             OperationalPriority.Apply(entry);
         return rows.OrderByDescending(entry => ParseDate(entry.Date) ?? DateTime.MinValue).ToList();
+    }
+
+    /// <summary>
+    /// One visible History row per display identity. Prefer the newest Date/Time.
+    /// </summary>
+    private static List<UpdateEntry> CollapseIdenticalRows(IReadOnlyList<UpdateEntry> rows)
+    {
+        var best = new Dictionary<string, UpdateEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in rows)
+        {
+            string key = DisplayIdentityKey(entry);
+            if (!best.TryGetValue(key, out var existing))
+            {
+                best[key] = entry;
+                continue;
+            }
+            var entryDate = ParseDate(entry.Date) ?? DateTime.MinValue;
+            var existingDate = ParseDate(existing.Date) ?? DateTime.MinValue;
+            if (entryDate >= existingDate)
+                best[key] = entry;
+        }
+        return best.Values.ToList();
+    }
+
+    /// <summary>
+    /// Stable History display key: Update title + KB + Version + Status (+ ErrorCode).
+    /// Empty fields match each other. Status differs keep success and failure both visible.
+    /// </summary>
+    internal static string DisplayIdentityKey(UpdateEntry entry)
+    {
+        static string Norm(string? value) =>
+            Regex.Replace(value ?? "", @"\s+", " ").Trim();
+
+        return string.Join("|",
+            Norm(entry.DisplayTitle).ToUpperInvariant(),
+            Norm(entry.KB).ToUpperInvariant(),
+            Norm(entry.UnifiedVersion),
+            Norm(entry.Status).ToUpperInvariant(),
+            Norm(entry.ErrorCode).ToUpperInvariant());
+    }
+
+    /// <summary>
+    /// Remember a history row the user chose to hide. Windows Update history itself is left unchanged.
+    /// Hides every existing event that shares the collapsed display identity up through the
+    /// newest Date/Time on that row; a later genuine new attempt stays visible.
+    /// </summary>
+    internal static void HideFromDisplay(UpdateEntry entry)
+    {
+        lock (Gate)
+        {
+            var state = LoadUnlocked();
+            string identity = DisplayIdentityKey(entry);
+            var maxDate = ParseDate(entry.Date) ?? DateTime.MinValue;
+
+            void HideEvent(UpdateEntry candidate)
+            {
+                string key = EventKey(candidate);
+                if (!state.HiddenEventKeys.Contains(key, StringComparer.OrdinalIgnoreCase))
+                    state.HiddenEventKeys.Add(key);
+                var when = ParseDate(candidate.Date);
+                if (when is DateTime dated && dated > maxDate)
+                    maxDate = dated;
+            }
+
+            HideEvent(entry);
+            foreach (var existing in state.Entries)
+            {
+                if (string.Equals(DisplayIdentityKey(existing), identity, StringComparison.OrdinalIgnoreCase))
+                    HideEvent(existing);
+            }
+
+            string maxDateText = maxDate == DateTime.MinValue
+                ? (entry.Date ?? "").Trim()
+                : maxDate.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            int index = state.HiddenDisplayIdentities.FindIndex(rule =>
+                string.Equals(rule.Identity, identity, StringComparison.OrdinalIgnoreCase));
+            var rule = new HiddenDisplayIdentity { Identity = identity, MaxDate = maxDateText };
+            if (index < 0)
+                state.HiddenDisplayIdentities.Add(rule);
+            else
+            {
+                var existingMax = ParseDate(state.HiddenDisplayIdentities[index].MaxDate) ?? DateTime.MinValue;
+                if (maxDate >= existingMax)
+                    state.HiddenDisplayIdentities[index] = rule;
+            }
+            SaveUnlocked(state);
+        }
+    }
+
+    private static bool IsHidden(
+        UpdateEntry entry,
+        HashSet<string> hiddenEventKeys,
+        IReadOnlyList<HiddenDisplayIdentity> hiddenIdentities)
+    {
+        if (hiddenEventKeys.Contains(EventKey(entry))) return true;
+        if (hiddenIdentities.Count == 0) return false;
+        string identity = DisplayIdentityKey(entry);
+        var when = ParseDate(entry.Date) ?? DateTime.MinValue;
+        foreach (var rule in hiddenIdentities)
+        {
+            if (!string.Equals(rule.Identity, identity, StringComparison.OrdinalIgnoreCase)) continue;
+            // No recorded cutoff: treat as hide-all for this identity (legacy-safe).
+            if (string.IsNullOrWhiteSpace(rule.MaxDate)) return true;
+            var max = ParseDate(rule.MaxDate) ?? DateTime.MaxValue;
+            if (when <= max) return true;
+        }
+        return false;
+    }
+
+    internal static bool IsStillOffered(UpdateEntry history, IReadOnlyList<UpdateEntry> pending) =>
+        pending.Any(item => SameIdentity(history, item));
+
+    internal static UpdateEntry? FindOffered(UpdateEntry history, IReadOnlyList<UpdateEntry> pending) =>
+        pending.FirstOrDefault(item => SameIdentity(history, item));
+
+    private static bool CoveredBySuccess(UpdateEntry failure, IReadOnlyList<UpdateEntry> rows)
+    {
+        if (!failure.IsHistoryFailed) return false;
+        var failureDate = ParseDate(failure.Date);
+        DateTime? latestSuccess = null;
+        bool any = false;
+        foreach (var row in rows)
+        {
+            if (!row.IsHistorySuccessful || !SameIdentity(failure, row)) continue;
+            any = true;
+            var successDate = ParseDate(row.Date);
+            if (failureDate is null || successDate is null) return true;
+            if (successDate >= failureDate) return true;
+            if (latestSuccess is null || successDate > latestSuccess) latestSuccess = successDate;
+        }
+        return any && latestSuccess is not null && failureDate is not null
+            && failureDate.Value - latestSuccess.Value <= TimeSpan.FromHours(24);
+    }
+
+    internal static bool SameIdentity(UpdateEntry left, UpdateEntry right)
+    {
+        bool defender = OperationalPriority.IsDefenderKb(left.KB) || OperationalPriority.IsDefenderKb(right.KB);
+        var leftKbs = KbsOf(left);
+        var rightKbs = KbsOf(right);
+        if (defender)
+        {
+            if (!leftKbs.Contains("KB2267602") || !rightKbs.Contains("KB2267602")) return false;
+            var leftVersion = ReadSignatureVersion(left.Title);
+            var rightVersion = ReadSignatureVersion(right.Title);
+            if (leftVersion is null || rightVersion is null) return TitlesEqual(left.Title, right.Title);
+            return leftVersion == rightVersion;
+        }
+        if (leftKbs.Count > 0 && rightKbs.Count > 0)
+            return leftKbs.Any(kb => rightKbs.Contains(kb, StringComparer.OrdinalIgnoreCase));
+        if (leftKbs.Count == 0 && rightKbs.Count == 0)
+            return TitlesEqual(left.Title, right.Title);
+        return false;
+    }
+
+    private static bool TitlesEqual(string? left, string? right)
+    {
+        static string Norm(string? value) => Regex.Replace(value ?? "", @"\s+", " ").Trim();
+        var a = Norm(left);
+        var b = Norm(right);
+        return a.Length > 0 && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ApplyFixed(List<UpdateEntry> rows, HistoryArchiveState state)
@@ -177,6 +452,22 @@ internal static class HistoryArchive
         return false;
     }
 
+    /// <summary>
+    /// Only WUA-backed archive rows should get the "saved before Windows Update fix" label.
+    /// Installation Manager outcomes (WinGet / Driver / Windows Update) are not WUA history copies.
+    /// </summary>
+    private static bool ShouldMarkPreservedSource(UpdateEntry entry)
+    {
+        string source = entry.Source ?? "";
+        if (string.IsNullOrWhiteSpace(source)) return true;
+        if (source.Contains("WinGet", StringComparison.OrdinalIgnoreCase)) return false;
+        if (source.Contains("Installation Manager", StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.Equals(source, "Driver", StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.Equals(source, "Windows Update", StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.Equals(source, "Application", StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
+    }
+
     private static void MarkPreservedSource(UpdateEntry entry)
     {
         const string marker = "saved before Windows Update fix";
@@ -220,13 +511,7 @@ internal static class HistoryArchive
         return Version.TryParse(text, out var version) ? version : null;
     }
 
-    private static DateTime? ParseDate(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return null;
-        if (DateTime.TryParseExact(value.Trim(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
-            return exact;
-        return DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out var parsed) ? parsed : null;
-    }
+    private static DateTime? ParseDate(string? value) => ReminderSchedule.TryParseDate(value);
 
     private static void Trim(HistoryArchiveState state)
     {
@@ -267,5 +552,18 @@ internal static class HistoryArchive
         public List<string> PendingKbs { get; set; } = new();
         public List<UpdateEntry> PendingEntries { get; set; } = new();
         public string? LastScanError { get; set; }
+        public List<string> HiddenEventKeys { get; set; } = new();
+        /// <summary>
+        /// Collapsed History identities the user hid, with a Date/Time cutoff so older
+        /// duplicates stay hidden while a later new attempt can reappear.
+        /// </summary>
+        public List<HiddenDisplayIdentity> HiddenDisplayIdentities { get; set; } = new();
+    }
+
+    private sealed class HiddenDisplayIdentity
+    {
+        public string Identity { get; set; } = "";
+        /// <summary>Inclusive newest Date/Time (yyyy-MM-dd HH:mm:ss) covered by the hide.</summary>
+        public string MaxDate { get; set; } = "";
     }
 }

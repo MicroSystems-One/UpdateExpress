@@ -56,13 +56,34 @@ public sealed class UpdateEntry
             return match.Success ? match.Groups["version"].Value : "";
         }
     }
-    public string UnifiedVersion => Category == "Driver / firmware" ? DriverVersion : SoftwareVersion;
-    public string DisplayTitle => Category == "Driver / firmware"
-        ? System.Text.RegularExpressions.Regex.Replace(
-            TrailingVersion.Replace(Title, ""),
-            @"\s+-\s+\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M\s*$", "",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim()
-        : (string.IsNullOrEmpty(SoftwareVersion) ? Title : SoftwareVersionLabel.Replace(Title, "").Trim());
+    /// <summary>Optional Version column override (e.g. WinGet installed → available).</summary>
+    public string VersionDisplay { get; set; } = "";
+    public string UnifiedVersion =>
+        !string.IsNullOrWhiteSpace(VersionDisplay) ? VersionDisplay
+        : Category == "Driver / firmware" ? DriverVersion
+        : SoftwareVersion;
+    public string DisplayTitle
+    {
+        get
+        {
+            if (Category == "Application") return Title;
+            if (Category != "Driver / firmware")
+                return string.IsNullOrEmpty(SoftwareVersion) ? Title : SoftwareVersionLabel.Replace(Title, "").Trim();
+
+            // Strip trailing WUA date noise, keep a clean base name, then append version so
+            // near-identical driver titles stay distinguishable in the Update column.
+            string baseTitle = System.Text.RegularExpressions.Regex.Replace(
+                TrailingVersion.Replace(Title, ""),
+                @"\s+-\s+\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M\s*$", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+            string version = UnifiedVersion;
+            if (string.IsNullOrWhiteSpace(version) || version == "—")
+                return baseTitle;
+            if (baseTitle.Contains(version, StringComparison.OrdinalIgnoreCase))
+                return baseTitle;
+            return $"{baseTitle}  ·  {version}";
+        }
+    }
     public bool IsHistoryFailed => Status is "Mislykket" or "Avbrutt" or "Failed" or "Cancelled" or "Feilet / avbrutt";
     public bool IsHistorySuccessful => Status is "Vellykket" or "Successful" or "Installert";
     public bool IsHistoryPartial => Status is "Vellykket med feil" or "Delvis fullført" or "Partial";
@@ -78,7 +99,10 @@ public sealed class UpdateEntry
         ? "Fixed"
         : HasFixableErrorCode
         ? ErrorCode
-        : Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(DriverStatus) && string.IsNullOrWhiteSpace(Date)
+        // Pending driver rows (WUA + OEM catalog) prefer DriverStatus. History rows have a
+        // Date and use Status. OEM release times live in DateDisplay only so they stay pending.
+        : Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(DriverStatus) &&
+          (string.IsNullOrWhiteSpace(Date) || OpensExternalUrl)
             ? DriverStatus : Status;
     public string StatusDetails
     {
@@ -89,11 +113,19 @@ public sealed class UpdateEntry
         }
     }
     public string Status { get; set; } = "";
+    /// <summary>Canonical timestamp (yyyy-MM-dd HH:mm:ss) for sort, EventKey, archive, and reconcile.</summary>
     public string Date { get; set; } = "";
+    /// <summary>Settings-formatted Date/Time for History (and similar) grids. Empty falls back to <see cref="Date"/>.</summary>
+    public string DateDisplay { get; set; } = "";
+    /// <summary>Value shown in Date/Time cells; prefers Settings formatting when set.</summary>
+    public string DateShown => string.IsNullOrWhiteSpace(DateDisplay) ? Date : DateDisplay;
     public string Source { get; set; } = "";
     public string ErrorCode { get; set; } = "";
     /// <summary>Settings feature update. The row opens Windows Update instead of installing through WUA.</summary>
     public bool OpensWindowsUpdate { get; set; }
+    /// <summary>OEM / external catalog link (download or readme). Double-click opens the browser.</summary>
+    public string ExternalUrl { get; set; } = "";
+    public bool OpensExternalUrl => !string.IsNullOrWhiteSpace(ExternalUrl);
 
     internal UpdateEntry Clone() => new()
     {
@@ -118,8 +150,11 @@ public sealed class UpdateEntry
         Status = Status,
         StatusNote = StatusNote,
         Date = Date,
+        DateDisplay = DateDisplay,
+        VersionDisplay = VersionDisplay,
         Source = Source,
         ErrorCode = ErrorCode,
-        OpensWindowsUpdate = OpensWindowsUpdate
+        OpensWindowsUpdate = OpensWindowsUpdate,
+        ExternalUrl = ExternalUrl
     };
 }
