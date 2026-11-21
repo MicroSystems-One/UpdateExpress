@@ -364,6 +364,13 @@
     </StackPanel>
    </StackPanel>
    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
+    <!-- OEM support (Lenovo/Dell/HP/…) — left of Denne PCen; hidden when manufacturer is unknown/generic. -->
+    <Button x:Name="ManufacturerSupportButton" Click="ManufacturerSupport_Click"
+            Visibility="Collapsed" Margin="0,0,10,0" Height="32" MinHeight="32" MaxHeight="32"
+            Padding="12,0" FontSize="13" FontWeight="SemiBold" Cursor="Hand" Focusable="True"
+            Background="White" Foreground="#0067C0" BorderBrush="#0067C0" BorderThickness="1"
+            Content="Manufacturer support" ToolTip="Open manufacturer support"
+            AutomationProperties.Name="Manufacturer support"/>
     <Button x:Name="ThisPcButton" Click="ThisPc_Click"
             Margin="0,0,10,0" Width="28" Height="28" MinWidth="28" MinHeight="28" MaxHeight="28" Padding="0"
             Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"

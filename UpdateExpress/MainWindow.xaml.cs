@@ -1553,6 +1553,7 @@ public partial class MainWindow : Window
             FitIdentityBox(box);
         }
         RefreshUptime();
+        RefreshManufacturerSupportButton();
     }
     private static void FitIdentityBox(System.Windows.Controls.TextBox box)
     {
@@ -1978,6 +1979,7 @@ public partial class MainWindow : Window
         RefreshMonitorPanel(); // also refreshes Results heading times
         RefreshResultsHeading();
         RefreshThisPcButton();
+        RefreshManufacturerSupportButton();
         RefreshMaintenanceSummary();
         BuildInstallDayChips();
         RefreshAutomationStatusTexts();
@@ -3789,6 +3791,69 @@ public partial class MainWindow : Window
         ThisPcButton.ToolTip = no ? "Denne pcen" : "This PC";
         ThisPcButton.Tag = "This PC";
         System.Windows.Automation.AutomationProperties.SetName(ThisPcButton, no ? "Denne pcen" : "This PC");
+    }
+
+    private ManufacturerSupportLinks.SupportLink? _manufacturerSupport;
+
+    private void RefreshManufacturerSupportButton()
+    {
+        if (ManufacturerSupportButton is null) return;
+        bool norwegian = _schedule.Language == "no";
+        if (!ManufacturerSupportLinks.TryResolve(
+                _machineIdentity.Manufacturer,
+                _machineIdentity.Product,
+                _machineIdentity.Model,
+                _machineIdentity.Serial,
+                out var link) || link is null)
+        {
+            _manufacturerSupport = null;
+            ManufacturerSupportButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        _manufacturerSupport = link;
+        // Brand + "support" kept in both languages (matches SVHA wording / OEM site language).
+        string label = $"{link.Brand} support";
+        ManufacturerSupportButton.Content = label;
+        ManufacturerSupportButton.Tag = label;
+        ManufacturerSupportButton.ToolTip = norwegian
+            ? $"Åpne {link.Brand}-støtte i nettleseren"
+            : $"Open {link.Brand} support in your browser";
+        System.Windows.Automation.AutomationProperties.SetName(ManufacturerSupportButton, label);
+        ManufacturerSupportButton.Visibility = Visibility.Visible;
+    }
+
+    private void ManufacturerSupport_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var link = _manufacturerSupport;
+        if (link is null &&
+            !ManufacturerSupportLinks.TryResolve(
+                _machineIdentity.Manufacturer,
+                _machineIdentity.Product,
+                _machineIdentity.Model,
+                _machineIdentity.Serial,
+                out link))
+            return;
+        if (link is null || string.IsNullOrWhiteSpace(link.Url)) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = link.Url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            bool norwegian = _schedule.Language == "no";
+            MessageBox.Show(
+                this,
+                ex.Message,
+                norwegian ? "Åpne støtte" : "Open support",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     private void BrandSiteLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
