@@ -1781,9 +1781,9 @@ public partial class MainWindow : Window
     }
     private void OsSupportInfo_Click(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show(this, _osSupportDetails +
-            "\n\nReference: https://learn.microsoft.com/windows/release-health/supported-versions-windows-client",
-            "Windows Security Support", MessageBoxButton.OK, MessageBoxImage.Information);
+        bool norwegian = _schedule.Language == "no";
+        var dlg = new OsSupportDialog(_osSupportDetails, norwegian) { Owner = this };
+        dlg.ShowDialog();
     }
 
     private void ProductOverviewInfo_Click(object sender, RoutedEventArgs e)
