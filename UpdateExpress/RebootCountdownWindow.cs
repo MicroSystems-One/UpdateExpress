@@ -4,6 +4,10 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using UpdateExpress.Services;
+using WpfFontFamily = System.Windows.Media.FontFamily;
+using WpfOrientation = System.Windows.Controls.Orientation;
+using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
+using WpfVerticalAlignment = System.Windows.VerticalAlignment;
 
 namespace UpdateExpress;
 
@@ -43,7 +47,7 @@ internal sealed class RebootCountdownWindow : Window
         ShowInTaskbar = true;
         Topmost = true;
         Background = new SolidColorBrush(Color.FromRgb(0xF3, 0xF3, 0xF3));
-        FontFamily = new FontFamily("Segoe UI");
+        FontFamily = new WpfFontFamily("Segoe UI");
 
         var heading = new TextBlock
         {
@@ -85,9 +89,9 @@ internal sealed class RebootCountdownWindow : Window
         // Left → right: Avbryt | Omstart nå | Utsett — identical height/baseline.
         var row = new StackPanel
         {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
+            Orientation = WpfOrientation.Horizontal,
+            HorizontalAlignment = WpfHorizontalAlignment.Center,
+            VerticalAlignment = WpfVerticalAlignment.Center
         };
         row.Children.Add(cancel);
         row.Children.Add(now);
