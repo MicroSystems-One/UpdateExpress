@@ -11,6 +11,7 @@ public partial class ErrorReportDialog : Window
     public ErrorReportDialog()
     {
         InitializeComponent();
+        AppIcon.Apply(this);
         Loaded += (_, _) => LoadReport();
     }
 
