@@ -147,9 +147,8 @@ internal static class UpdateUntilCurrent
             || string.Equals(state.Phase, "scanning", StringComparison.OrdinalIgnoreCase)
             || string.Equals(state.Phase, "searching", StringComparison.OrdinalIgnoreCase);
         if (!shouldResume) return false;
-        // Live installer still holds the cycle mutex — do not spawn another UAC / Main window.
-        if (string.Equals(state.Phase, "installing", StringComparison.OrdinalIgnoreCase)
-            && IsCycleMutexHeld())
+        // Live runner still holds the cycle mutex (installing or scanning) — do not spawn another UAC / Main window.
+        if (IsCycleMutexHeld())
             return false;
         if (state.LastResumeLaunch is DateTime last && DateTime.Now - last < TimeSpan.FromMinutes(5))
             return false;

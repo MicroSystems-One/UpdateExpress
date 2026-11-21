@@ -10,7 +10,7 @@
 
 - **P1** `AutomationStatePaths.TryMigrateFrom`: after successful copy (or when shared already wins), delete the user-dir source so `ClearPending` on ProgramData cannot be resurrected by a later elevate+migrate.
 - **P2** `UpdateUntilCurrent.TryLaunchResume`: treat persisted phase `"scanning"` (what `RunUpdateUntilCurrentAsync` writes); keep `"searching"` for older state files.
-- **P2** `UpdateUntilCurrent.TryLaunchResume`: before elevating resume on `"installing"`, probe the live cross-process cycle mutex so a running installer does not spawn repeated UAC / Main windows.
+- **P2** `UpdateUntilCurrent.TryLaunchResume`: before elevating resume, probe the live cross-process cycle mutex so a running installer/scan does not spawn repeated UAC / Main windows (mutex covers installing **and** scanning; follow-up from dump PR #112 Codex).
 
 ## Also in this dump (retained)
 
