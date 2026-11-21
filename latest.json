@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.51",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.51/UpdateExpress_v0.7.2.51.exe",
-  "sha256": "3a6b39e5aa33d25065b4092335efea3795c62cbc2a13b83d06f7e0a2d252d311",
-  "publishedAt": "2026-11-21T17:56:20Z",
-  "releaseNotes": "Tray Påminnelse when Main closed (#109 tip cbd39fe incl. Codex P2 mutex/schedule sync; dump f77a78c). Retains #106 EXE/TXT, #102 OEM catalogs, #99 interval, #95 App Control."
+  "version": "0.7.2.52",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.52/UpdateExpress_v0.7.2.52.exe",
+  "sha256": "8a617bb578e4e933df2772d6d5cbd4c69dcc9f526122ace1261b5541d7e45b73",
+  "publishedAt": "2026-11-21T19:32:40Z",
+  "releaseNotes": "UPD-168 Codex from #111 (migrate delete source; resume scanning; cycle mutex before elevate). Tip 52fd59a. Retains #109/#106/#102/#99/#95."
 }
