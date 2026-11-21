@@ -275,19 +275,34 @@ public partial class MainWindow : Window
     private static bool IsMissingIdentity(string value) =>
         string.IsNullOrWhiteSpace(value) || value is "—" or "…" or "-" or "N/A" or "n/a";
 
-    private void OpenOemDriverEntry(UpdateEntry entry)
+    private void OpenOemDriverEntry(UpdateEntry entry) =>
+        OpenOemExternalLink(
+            entry,
+            entry.ExternalUrl,
+            package: true);
+
+    private void OpenOemReadmeEntry(UpdateEntry entry) =>
+        OpenOemExternalLink(
+            entry,
+            entry.ReadmeUrl,
+            package: false);
+
+    private void OpenOemExternalLink(UpdateEntry entry, string url, bool package)
     {
         bool norwegian = _schedule.Language == "no";
-        string url = entry.ExternalUrl;
         if (string.IsNullOrWhiteSpace(url))
         {
             MessageBox.Show(this,
-                norwegian ? "Ingen nedlastingslenke for denne OEM-oppføringen." : "No download link for this OEM entry.",
+                package
+                    ? (norwegian ? "Ingen pakke-/nedlastingslenke for denne OEM-oppføringen." : "No package download link for this OEM entry.")
+                    : (norwegian ? "Ingen TXT/readme-lenke for denne OEM-oppføringen." : "No TXT/readme link for this OEM entry."),
                 norwegian ? "OEM-driver" : "OEM driver",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
+        string kindNo = package ? "pakken (exe/zip/…)" : "TXT/readme-filen";
+        string kindEn = package ? "the package (exe/zip/…)" : "the TXT/readme file";
         string details =
             $"{(norwegian ? "Driver" : "Driver")}: {entry.DisplayTitle}\n" +
             $"{(norwegian ? "Versjon" : "Version")}: {entry.UnifiedVersion}\n" +
@@ -296,8 +311,8 @@ public partial class MainWindow : Window
             $"{(norwegian ? "Status" : "Status")}: {entry.DriverStatus}\n\n" +
             $"{entry.DriverReason}\n\n" +
             (norwegian
-                ? "JA: åpne nedlasting/readme i nettleser.\nNEI: lukk."
-                : "YES: open download/readme in the browser.\nNO: close.");
+                ? $"JA: åpne {kindNo} i nettleser.\nNEI: lukk."
+                : $"YES: open {kindEn} in the browser.\nNO: close.");
         string brand = entry.Source.StartsWith("OEM / ", StringComparison.OrdinalIgnoreCase)
             ? entry.Source["OEM / ".Length..].Trim()
             : "OEM";
@@ -321,6 +336,12 @@ public partial class MainWindow : Window
     {
         if (sender is FrameworkElement { DataContext: UpdateEntry entry })
             OpenOemDriverEntry(entry);
+    }
+
+    private void OpenOemReadme_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: UpdateEntry entry })
+            OpenOemReadmeEntry(entry);
     }
     private async void PmeControl_Click(object sender, RoutedEventArgs e)
     {
@@ -1954,6 +1975,7 @@ public partial class MainWindow : Window
         ["All WUA drivers"] = "Alle WUA-drivere",
         ["OEM drivers"] = "OEM-drivere",
         ["Open OEM download"] = "Åpne OEM-nedlasting",
+        ["TXT file download"] = "Last ned TXT-fil",
         ["Change setup…"] = "Endre oppsett…",
         ["About Update Express vs Windows Update"] = "Om Update Express vs Windows Update",
         ["Maintenance window"] = "Vedlikeholdsvindu",

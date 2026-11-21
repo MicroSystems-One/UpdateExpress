@@ -12,4 +12,6 @@ internal sealed record OemDriverOffer(
     string DownloadUrl,
     string DetailsUrl,
     DateTimeOffset? ReleasedAt,
-    string Reason);
+    string Reason,
+    /// <summary>Optional Lenovo (or similar) TXT / README companion — not the installer.</summary>
+    string ReadmeUrl = "");
