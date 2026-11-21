@@ -31,11 +31,12 @@ internal sealed class PcInfoWindow : Window
         Title = norwegian ? "Denne PCen" : "This PC";
         AppIcon.Apply(this);
         Width = 560;
-        Height = 640;
+        // Tall enough that default content + Lukk fit without a scrollbar (match desired-size screenshot).
+        Height = 720;
         MinWidth = 480;
         MaxWidth = 640;
-        MinHeight = 420;
-        MaxHeight = 720;
+        MinHeight = 520;
+        MaxHeight = 900;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ResizeMode = ResizeMode.CanResizeWithGrip;
         ShowInTaskbar = false;
@@ -71,33 +72,35 @@ internal sealed class PcInfoWindow : Window
 
         // Windows version at top (requested).
         body.Children.Add(SectionLabel(norwegian ? "Windows-versjon" : "Windows version"));
-        body.Children.Add(ValueRow(windowsVersion, copyable: true));
+        body.Children.Add(ValueRow(windowsVersion));
         body.Children.Add(SectionLabel(norwegian ? "Build / nummer" : "Build / number", top: 10));
-        body.Children.Add(ValueRow(windowsBuild, copyable: true));
+        body.Children.Add(ValueRow(windowsBuild));
 
         body.Children.Add(Divider());
 
         body.Children.Add(SectionLabel(norwegian ? "Nettverk" : "Network"));
         body.Children.Add(Field(norwegian ? "Lokal IP" : "Local IP", network.LocalIp, copy: true));
-        body.Children.Add(Field(norwegian ? "Subnettmaske" : "Subnet mask", network.SubnetMask, copy: true));
-        body.Children.Add(Field("Gateway", network.Gateway, copy: true));
-        body.Children.Add(Field(norwegian ? "Primær DNS" : "Primary DNS", network.PrimaryDns, copy: true));
-        body.Children.Add(Field(norwegian ? "Sekundær DNS" : "Secondary DNS", network.SecondaryDns, copy: true));
+        body.Children.Add(Field(norwegian ? "Subnettmaske" : "Subnet mask", network.SubnetMask, copy: false));
+        body.Children.Add(Field("Gateway", network.Gateway, copy: false));
+        body.Children.Add(Field(norwegian ? "Primær DNS" : "Primary DNS", network.PrimaryDns, copy: false));
+        body.Children.Add(Field(norwegian ? "Sekundær DNS" : "Secondary DNS", network.SecondaryDns, copy: false));
 
         body.Children.Add(Divider());
 
         body.Children.Add(SectionLabel(norwegian ? "Enhet" : "Device"));
-        body.Children.Add(Field(norwegian ? "Produsent" : "Manufacturer", identity.Manufacturer, copy: false));
+        string manufacturerModel = CombineManufacturerModel(identity.Manufacturer, identity.Model);
+        body.Children.Add(Field(
+            norwegian ? "Produsent/modell nr." : "Manufacturer/model no.",
+            manufacturerModel,
+            copy: true));
         body.Children.Add(Field(norwegian ? "Produktnr." : "Product no.", identity.Product, copy: true));
-        body.Children.Add(Field(norwegian ? "Modell/nr" : "Model", identity.Model, copy: true));
         body.Children.Add(Field(norwegian ? "Serienr." : "Serial no.", identity.Serial, copy: true));
         body.Children.Add(Field(norwegian ? "Enhetsnavn" : "Device name", identity.DeviceName, copy: true));
         body.Children.Add(Field(
             norwegian ? "Oppetid" : "Uptime",
             uptimeText,
-            copy: true,
-            valueTooltip: uptimeTooltip,
-            copyText: string.IsNullOrWhiteSpace(uptimeTooltip) ? uptimeText : $"{uptimeText} ({uptimeTooltip})"));
+            copy: false,
+            valueTooltip: uptimeTooltip));
 
         var close = AppDialog.CreateChromeButton(norwegian ? "Lukk" : "Close", primary: true, isDefault: true);
         close.HorizontalAlignment = WpfHorizontalAlignment.Right;
@@ -108,6 +111,19 @@ internal sealed class PcInfoWindow : Window
         scroll.Content = body;
         root.Child = scroll;
         Content = root;
+    }
+
+    private static string CombineManufacturerModel(string manufacturer, string model)
+    {
+        bool hasManufacturer = !string.IsNullOrWhiteSpace(manufacturer);
+        bool hasModel = !string.IsNullOrWhiteSpace(model);
+        if (hasManufacturer && hasModel)
+            return $"{manufacturer.Trim()} {model.Trim()}";
+        if (hasManufacturer)
+            return manufacturer.Trim();
+        if (hasModel)
+            return model.Trim();
+        return "";
     }
 
     private Border Field(string label, string value, bool copy, string? valueTooltip = null, string? copyText = null)
@@ -121,7 +137,7 @@ internal sealed class PcInfoWindow : Window
         row.Children.Add(new TextBlock
         {
             Text = label,
-            Width = 130,
+            Width = 150,
             FontSize = 12,
             Foreground = Brush("#5D5D5D"),
             VerticalAlignment = WpfVerticalAlignment.Center
@@ -134,7 +150,7 @@ internal sealed class PcInfoWindow : Window
             Foreground = Brush("#1C1C1C"),
             VerticalAlignment = WpfVerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 280,
+            MaxWidth = 260,
             ToolTip = string.IsNullOrWhiteSpace(valueTooltip) ? value : valueTooltip
         });
         if (copy)
@@ -143,7 +159,7 @@ internal sealed class PcInfoWindow : Window
         return new Border { Child = row };
     }
 
-    private UIElement ValueRow(string value, bool copyable)
+    private UIElement ValueRow(string value)
     {
         var row = new StackPanel
         {
@@ -161,8 +177,6 @@ internal sealed class PcInfoWindow : Window
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 400
         });
-        if (copyable)
-            row.Children.Add(CopyButton(value));
         return row;
     }
 
