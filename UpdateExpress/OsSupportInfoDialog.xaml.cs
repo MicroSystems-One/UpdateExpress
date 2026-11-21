@@ -36,7 +36,7 @@ public partial class OsSupportInfoDialog : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            System.Windows.MessageBox.Show(this, ex.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         e.Handled = true;
     }
@@ -45,7 +45,7 @@ public partial class OsSupportInfoDialog : Window
     {
         try
         {
-            Clipboard.SetDataObject(ReferenceUrl, true);
+            System.Windows.Clipboard.SetDataObject(ReferenceUrl, true);
             CopyFeedback.Text = _norwegian ? "Kopiert!" : "Copied!";
             CopyFeedback.Visibility = Visibility.Visible;
             _copyFeedbackTimer?.Stop();
@@ -59,7 +59,7 @@ public partial class OsSupportInfoDialog : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this,
+            System.Windows.MessageBox.Show(this,
                 (_norwegian ? "Kunne ikke kopiere: " : "Could not copy: ") + ex.Message,
                 Title, MessageBoxButton.OK, MessageBoxImage.Warning);
         }

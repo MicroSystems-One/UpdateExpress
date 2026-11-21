@@ -3,6 +3,8 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
+using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
+using WpfVerticalAlignment = System.Windows.VerticalAlignment;
 
 namespace UpdateExpress;
 
@@ -22,8 +24,8 @@ internal static class CopiedToast
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             Foreground = Brushes.White,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
+            HorizontalAlignment = WpfHorizontalAlignment.Center,
+            VerticalAlignment = WpfVerticalAlignment.Center
         };
 
         var chrome = new Border
