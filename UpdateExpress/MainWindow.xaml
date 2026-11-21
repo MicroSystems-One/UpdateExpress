@@ -365,13 +365,14 @@
    </StackPanel>
    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
     <Button x:Name="ThisPcButton" Click="ThisPc_Click"
-            Margin="0,0,10,0" Width="32" Height="32" MinWidth="32" MinHeight="32" MaxHeight="32" Padding="0"
+            Margin="0,0,10,0" Width="28" Height="28" MinWidth="28" MinHeight="28" MaxHeight="28" Padding="0"
             Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
             ToolTip="Denne pcen" AutomationProperties.Name="This PC">
      <Button.Template>
       <ControlTemplate TargetType="Button">
-       <Border x:Name="Bd" Background="White" BorderBrush="#D0D0D0" BorderThickness="1" CornerRadius="6" Width="32" Height="32">
-        <Viewbox Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+       <!-- Borderless chrome: transparent hit target only; no rounded square frame. -->
+       <Border x:Name="Bd" Background="Transparent" BorderThickness="0" CornerRadius="4" Width="28" Height="28">
+        <Viewbox Width="18" Height="18" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
          <Canvas Width="24" Height="24">
           <!-- Monitor / PC icon -->
           <Path Stroke="#1C1C1C" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"
@@ -382,8 +383,8 @@
         </Viewbox>
        </Border>
        <ControlTemplate.Triggers>
-        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#F3F3F3"/></Trigger>
-        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/></Trigger>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/></Trigger>
+        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Bd" Property="Background" Value="#D4D4D4"/></Trigger>
         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
        </ControlTemplate.Triggers>
       </ControlTemplate>
@@ -402,7 +403,7 @@
          <Button.Template>
           <ControlTemplate TargetType="Button">
            <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Width="28" Height="28">
-            <Viewbox Width="15" Height="15" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Viewbox Width="18" Height="18" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
              <Canvas Width="24" Height="24">
               <Path Stroke="#0067C0" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Fill="Transparent"
                     Data="M20.5,12 A8.5,8.5 0 1 1 18.2,5.4"/>
