@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.48",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.48/UpdateExpress_v0.7.2.48.exe",
-  "sha256": "817735c5dfe6fc791d4298aaa287f558d03d6ef3e52cd94836706b2a01224c67",
-  "publishedAt": "2026-11-21T13:54:04Z",
-  "releaseNotes": "Lenovo Model/Product + MTM URL dump (#96): marketing from CIM Version; support uses MTM. Tip a5597f7 (dump 77ee47e). #95 App Control left out (merge conflict)."
+  "version": "0.7.2.49",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.49/UpdateExpress_v0.7.2.49.exe",
+  "sha256": "e9cacb4e4fc9a019ea5648da79be8d166ff395a0fe4dbe15ab0e802e9278663d",
+  "publishedAt": "2026-11-21T15:47:01Z",
+  "releaseNotes": "OEM Lenovo+Dell+HP catalogs (#102 tip 722ed51; dump b7cac4a). Includes #99 Windows interval label and #95 App Control self-update."
 }
