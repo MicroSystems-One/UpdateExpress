@@ -56,6 +56,9 @@ internal static class MaintenanceReminderHost
     private static void CheckAndPresent()
     {
         if (MaintenanceReminderPromptGate.IsMainUiSessionActive()) return;
+        // Main (or this process) already showing — do not open a second dialog.
+        if (MaintenanceReminderPromptGate.IsReminderPromptHeldElsewhere()) return;
+        if (ReminderDialog.IsShowing) return;
 
         var schedule = ReminderSchedule.Load();
         if (!schedule.Enabled) return;
@@ -284,34 +287,50 @@ internal static class MaintenanceReminderHost
                     return;
                 }
 
-                if (!args.IsTest)
+                // Main (or another tray) may already own the live dialog.
+                if (!MaintenanceReminderPromptGate.TryEnterReminderPrompt())
                 {
-                    schedule.LastPromptedOccurrence = args.Occurrence;
-                    schedule.SnoozedUntil = null;
-                    schedule.Save();
+                    ReminderSchedule.Log(
+                        args.IsTest ? "tray_test_reminder_skipped_owned" : "tray_reminder_skipped_owned",
+                        args.Occurrence.ToString("o"));
+                    return;
                 }
 
-                var dialog = new ReminderDialog(
-                    args.IsTest, args.Occurrence, args.Norwegian, args.ShowMissed,
-                    args.ReasonKey, args.PendingLines)
+                try
                 {
-                    Owner = null,
-                    WindowStartupLocation = WindowStartupLocation.CenterScreen
-                };
-                dialog.ShowDialog();
+                    if (!args.IsTest)
+                    {
+                        schedule.LastPromptedOccurrence = args.Occurrence;
+                        schedule.SnoozedUntil = null;
+                        schedule.Save();
+                    }
 
-                bool decidedIsTest = dialog.IsTest;
-                var decidedOccurrence = dialog.Occurrence;
-                string reasonForLog = "";
-                if (!decidedIsTest && !string.IsNullOrEmpty(args.ReasonKey))
-                    reasonForLog = "|" + args.ReasonKey;
+                    var dialog = new ReminderDialog(
+                        args.IsTest, args.Occurrence, args.Norwegian, args.ShowMissed,
+                        args.ReasonKey, args.PendingLines)
+                    {
+                        Owner = null,
+                        WindowStartupLocation = WindowStartupLocation.CenterScreen
+                    };
+                    dialog.ShowDialog();
 
-                ReminderSchedule.Log(
-                    decidedIsTest ? "tray_test_reminder" : "tray_reminder",
-                    dialog.Decision + reasonForLog);
+                    bool decidedIsTest = dialog.IsTest;
+                    var decidedOccurrence = dialog.Occurrence;
+                    string reasonForLog = "";
+                    if (!decidedIsTest && !string.IsNullOrEmpty(args.ReasonKey))
+                        reasonForLog = "|" + args.ReasonKey;
 
-                if (!decidedIsTest)
-                    ApplyDecision(schedule, dialog, decidedOccurrence);
+                    ReminderSchedule.Log(
+                        decidedIsTest ? "tray_test_reminder" : "tray_reminder",
+                        dialog.Decision + reasonForLog);
+
+                    if (!decidedIsTest)
+                        ApplyDecision(schedule, dialog, decidedOccurrence);
+                }
+                finally
+                {
+                    MaintenanceReminderPromptGate.ReleaseReminderPrompt();
+                }
             }
             catch (Exception ex)
             {

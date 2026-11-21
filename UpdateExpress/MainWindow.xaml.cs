@@ -2168,7 +2168,12 @@ public partial class MainWindow : Window
     }
     private void CheckReminder()
     {
+        // Tray may have snoozed/confirmed/prompted while Main was closed or while a tray
+        // dialog was still open after Main opened — honor schedule.json, not a stale cache.
+        SyncReminderPromptStateFromDisk();
         if (!_schedule.Enabled) return;
+        // Another process (tray) already owns the live Påminnelse — do not stack a second one.
+        if (MaintenanceReminderPromptGate.IsReminderPromptHeldElsewhere()) return;
         var now = DateTime.Now;
         if (_schedule.SnoozedUntil is DateTime snooze && now < snooze) return;
         var todayIndex = ((int)now.DayOfWeek + 6) % 7;
@@ -2204,6 +2209,29 @@ public partial class MainWindow : Window
         if (!TryGetMaintenanceReminderReason(out _))
             return;
         ShowReminder(false, slot.Value);
+    }
+
+    /// <summary>
+    /// Pull prompt-related fields from schedule.json so tray decisions (snooze / confirm /
+    /// LastPrompted) are visible to Main's timer without requiring a display-settings change.
+    /// </summary>
+    private void SyncReminderPromptStateFromDisk()
+    {
+        try
+        {
+            var fresh = ReminderSchedule.Load();
+            _schedule.Enabled = fresh.Enabled;
+            _schedule.Weekday = fresh.Weekday;
+            _schedule.Time = fresh.Time;
+            _schedule.LastPromptedOccurrence = fresh.LastPromptedOccurrence;
+            _schedule.ConfirmedOccurrence = fresh.ConfirmedOccurrence;
+            _schedule.SnoozedUntil = fresh.SnoozedUntil;
+            _schedule.MissedUnconfirmedDate = fresh.MissedUnconfirmedDate;
+        }
+        catch
+        {
+            /* keep in-memory schedule */
+        }
     }
 
     /// <summary>
@@ -2356,65 +2384,81 @@ public partial class MainWindow : Window
                     WindowState = WindowState.Normal;
                 if (IsLoaded) Activate();
 
-                bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
-                var dialog = new ReminderDialog(
-                    args.IsTest, args.Occurrence, args.Norwegian, args.ShowMissed,
-                    args.ReasonKey, args.PendingLines)
+                // Tray may still own an open Påminnelse in another process.
+                if (!MaintenanceReminderPromptGate.TryEnterReminderPrompt())
                 {
-                    Owner = ownerOk ? this : null,
-                    WindowStartupLocation = ownerOk
-                        ? WindowStartupLocation.CenterOwner
-                        : WindowStartupLocation.CenterScreen
-                };
-                dialog.ShowDialog();
-                // Use dialog mode/occurrence after possible ApplyContent refresh (test↔real).
-                bool decidedIsTest = dialog.IsTest;
-                var decidedOccurrence = dialog.Occurrence;
-                string reasonForLog = "";
-                if (!decidedIsTest)
-                {
-                    string key = args.ReasonKey;
-                    if (_pendingReminder is { } latest && !latest.IsTest)
-                        key = latest.ReasonKey;
-                    if (!string.IsNullOrEmpty(key))
-                        reasonForLog = "|" + key;
+                    ReminderSchedule.Log(
+                        args.IsTest ? "test_reminder_skipped_tray_owns" : "reminder_skipped_tray_owns",
+                        args.Occurrence.ToString("o"));
+                    return;
                 }
 
-                ReminderSchedule.Log(
-                    decidedIsTest ? "test_reminder" : "reminder",
-                    dialog.Decision + reasonForLog);
-                if (!decidedIsTest)
+                try
                 {
-                    if (dialog.ShowMissedPreviousDay)
-                        _schedule.MissedUnconfirmedDate = null;
+                    bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
+                    var dialog = new ReminderDialog(
+                        args.IsTest, args.Occurrence, args.Norwegian, args.ShowMissed,
+                        args.ReasonKey, args.PendingLines)
+                    {
+                        Owner = ownerOk ? this : null,
+                        WindowStartupLocation = ownerOk
+                            ? WindowStartupLocation.CenterOwner
+                            : WindowStartupLocation.CenterScreen
+                    };
+                    dialog.ShowDialog();
+                    // Use dialog mode/occurrence after possible ApplyContent refresh (test↔real).
+                    bool decidedIsTest = dialog.IsTest;
+                    var decidedOccurrence = dialog.Occurrence;
+                    string reasonForLog = "";
+                    if (!decidedIsTest)
+                    {
+                        string key = args.ReasonKey;
+                        if (_pendingReminder is { } latest && !latest.IsTest)
+                            key = latest.ReasonKey;
+                        if (!string.IsNullOrEmpty(key))
+                            reasonForLog = "|" + key;
+                    }
 
-                    if (dialog.Decision == "confirmed")
+                    ReminderSchedule.Log(
+                        decidedIsTest ? "test_reminder" : "reminder",
+                        dialog.Decision + reasonForLog);
+                    if (!decidedIsTest)
                     {
-                        _schedule.ConfirmedOccurrence = decidedOccurrence;
-                        _schedule.SnoozedUntil = null;
-                        ScheduleConfirmedReboot(decidedOccurrence);
-                    }
-                    else if (dialog.Decision == "snoozed")
-                    {
-                        _schedule.SnoozedUntil = DateTime.Now.AddMinutes(30);
-                    }
-                    else
-                    {
-                        // Lukk / AFK auto-close (30 min): soft dismiss — roll forward; never confirm restart.
-                        var next = ReminderSchedule.NextHalfHourSlot(DateTime.Now);
-                        if (next is DateTime rolled)
+                        if (dialog.ShowMissedPreviousDay)
+                            _schedule.MissedUnconfirmedDate = null;
+
+                        if (dialog.Decision == "confirmed")
                         {
-                            _schedule.SnoozedUntil = rolled;
-                            ReminderSchedule.Log("reminder_rolled", rolled.ToString("o"));
+                            _schedule.ConfirmedOccurrence = decidedOccurrence;
+                            _schedule.SnoozedUntil = null;
+                            ScheduleConfirmedReboot(decidedOccurrence);
+                        }
+                        else if (dialog.Decision == "snoozed")
+                        {
+                            _schedule.SnoozedUntil = DateTime.Now.AddMinutes(30);
                         }
                         else
                         {
-                            MarkMissedUnconfirmedDay(decidedOccurrence.Date);
+                            // Lukk / AFK auto-close (30 min): soft dismiss — roll forward; never confirm restart.
+                            var next = ReminderSchedule.NextHalfHourSlot(DateTime.Now);
+                            if (next is DateTime rolled)
+                            {
+                                _schedule.SnoozedUntil = rolled;
+                                ReminderSchedule.Log("reminder_rolled", rolled.ToString("o"));
+                            }
+                            else
+                            {
+                                MarkMissedUnconfirmedDay(decidedOccurrence.Date);
+                            }
                         }
+                        _schedule.Save();
                     }
-                    _schedule.Save();
+                    RefreshScheduleStatus();
                 }
-                RefreshScheduleStatus();
+                finally
+                {
+                    MaintenanceReminderPromptGate.ReleaseReminderPrompt();
+                }
             }
             catch (Exception ex)
             {

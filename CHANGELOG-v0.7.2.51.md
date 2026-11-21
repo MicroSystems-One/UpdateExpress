@@ -2,8 +2,8 @@
 
 ## Dump tip (dbpu)
 
-- Tip: `cursor/paminelse-tray-when-main-closed-522d` (PR #109) @ `c174cae`
-- Base: 0.7.2.50 dump (`c82b360`) + cherry-pick of #109
+- Tip: `cursor/paminelse-tray-when-main-closed-522d` (PR #109) @ `cbd39fe` (includes Codex P2 after `c174cae`)
+- Base: 0.7.2.50 dump (`c82b360`) + cherry-pick of #109 (`c174cae` + `cbd39fe`)
 - Stack: #109 (tray Påminnelse) → #106 (EXE vs TXT) → #102 OEM catalogs → …
 - Also retained: #99 Windows interval label, #95 App Control self-update
 
@@ -14,6 +14,7 @@
 - Pending reason from monitor-status / winget cache / automation prompt queues (+ reboot / ≥7d uptime).
 - Confirmed reboot still via `RebootCoordinator`.
 - Preserved: single-instance Påminnelse + 30-minute AFK soft-dismiss.
+- **Codex P2 (`cbd39fe`):** cross-process `ReminderPrompt` mutex while dialog open (Main does not stack a second); Main `CheckReminder` syncs snooze/confirm/`LastPrompted` from `schedule.json` on each tick.
 
 ## Also in this dump (retained)
 
@@ -24,6 +25,6 @@
 
 ## Build notes
 
-- Built from full Windows feature tip (#109 on 0.7.2.50 dump tree), not logo-only `main`.
+- Built from full Windows feature tip (#109 @ `cbd39fe` on 0.7.2.50 dump tree), not logo-only `main`.
 - Authenticode dry-run (no `UE_SIGN_MODE`).
 - Critical: `latest.json` sha256 must match the published EXE asset byte-for-byte.
