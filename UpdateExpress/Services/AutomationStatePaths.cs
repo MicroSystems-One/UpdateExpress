@@ -308,11 +308,16 @@ internal static class AutomationStatePaths
                 if (!File.Exists(src)) continue;
                 if (File.Exists(dst))
                 {
-                    // Prefer newer.
+                    // Prefer newer shared copy; still retire source so ClearPending
+                    // cannot be undone by a later elevate+migrate.
                     if (File.GetLastWriteTimeUtc(src) <= File.GetLastWriteTimeUtc(dst))
+                    {
+                        try { File.Delete(src); } catch { /* best effort */ }
                         continue;
+                    }
                 }
                 File.Copy(src, dst, overwrite: true);
+                try { File.Delete(src); } catch { /* best effort */ }
             }
             catch { /* best effort */ }
         }

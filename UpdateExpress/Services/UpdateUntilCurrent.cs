@@ -89,7 +89,7 @@ internal static class UpdateUntilCurrent
         if (Interlocked.CompareExchange(ref _entered, 1, 0) != 0)
             return false;
 
-        var mutex = new Mutex(false, @"Local\MicroSystems.UpdateExpress.UpdateUntilCurrent");
+        var mutex = new Mutex(false, CycleMutexName);
         try
         {
             if (!mutex.WaitOne(0))
@@ -139,12 +139,18 @@ internal static class UpdateUntilCurrent
     {
         var state = Load();
         if (!state.Active) return false;
-        // Prefer explicit reboot flag; also recover interrupted installing/searching after unexpected power loss.
+        // Prefer explicit reboot flag; also recover interrupted installing/scanning after unexpected power loss.
+        // "scanning" is what RunUpdateUntilCurrentAsync persists; keep "searching" for older state files.
         bool shouldResume = state.ResumeAfterReboot
             || string.Equals(state.Phase, "reboot", StringComparison.OrdinalIgnoreCase)
             || string.Equals(state.Phase, "installing", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state.Phase, "scanning", StringComparison.OrdinalIgnoreCase)
             || string.Equals(state.Phase, "searching", StringComparison.OrdinalIgnoreCase);
         if (!shouldResume) return false;
+        // Live installer still holds the cycle mutex — do not spawn another UAC / Main window.
+        if (string.Equals(state.Phase, "installing", StringComparison.OrdinalIgnoreCase)
+            && IsCycleMutexHeld())
+            return false;
         if (state.LastResumeLaunch is DateTime last && DateTime.Now - last < TimeSpan.FromMinutes(5))
             return false;
         state.ResumeAfterReboot = true;
@@ -154,6 +160,35 @@ internal static class UpdateUntilCurrent
         AgentLog.Write("Update until current: launching elevated app to continue after restart/interrupt.");
         ElevationHelper.RestartElevated("--installed --update-until-current");
         return true;
+    }
+
+    private const string CycleMutexName = @"Local\MicroSystems.UpdateExpress.UpdateUntilCurrent";
+
+    /// <summary>True when another process (or this one) currently owns the cycle runner mutex.</summary>
+    private static bool IsCycleMutexHeld()
+    {
+        Mutex? mutex = null;
+        try
+        {
+            mutex = new Mutex(false, CycleMutexName);
+            if (!mutex.WaitOne(0))
+                return true;
+            mutex.ReleaseMutex();
+            return false;
+        }
+        catch (AbandonedMutexException)
+        {
+            try { mutex?.ReleaseMutex(); } catch { /* ignore */ }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            try { mutex?.Dispose(); } catch { /* ignore */ }
+        }
     }
 }
 
