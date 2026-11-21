@@ -20,3 +20,4 @@ Output: `Publisert\UpdateExpress_v0.7.2.6.60.exe`
 
 - Do not commit published EXE binaries or `bin/` / `obj/` folders.
 - See versioned `CHANGELOG-v*.md` files for release history.
+- Microsoft App Control / WDAC and self-update: see [`docs/app-control-updateexpress.md`](docs/app-control-updateexpress.md).
