@@ -417,8 +417,20 @@ public partial class MainWindow : Window
         OpenWindowsUpdateButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void IncludeOptionalUpdates_Changed(object sender, RoutedEventArgs e) => RefreshOptionalParityHint();
+
+    private void RefreshOptionalParityHint()
+    {
+        bool optionalOn = IncludeOptionalUpdates?.IsChecked == true;
+        if (OptionalParityInfo is not null)
+            OptionalParityInfo.Visibility = optionalOn ? Visibility.Visible : Visibility.Collapsed;
+        if (OptionalOpenWindowsUpdateButton is not null)
+            OptionalOpenWindowsUpdateButton.Visibility = optionalOn ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void OpenWindowsUpdate_Click(object sender, RoutedEventArgs e)
     {
+        // Opens Settings only (ms-settings:windowsupdate). No scan/download/install.
         try { FeatureUpdateOfferReader.OpenWindowsUpdate(); }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
@@ -762,6 +774,7 @@ public partial class MainWindow : Window
         DayChoice.SelectedIndex = _schedule.Weekday == 7 ? 0 : Math.Clamp(_schedule.Weekday, 0, 6) + 1;
         TimeChoice.Text = _schedule.Time;
         ApplyLanguage();
+        RefreshOptionalParityHint();
         RemindersEnabled.IsChecked = _schedule.Enabled;
         LoadAutomationPolicyIntoUi();
         RefreshScheduleStatus();
@@ -874,6 +887,11 @@ public partial class MainWindow : Window
     private static readonly Dictionary<string, string> Norwegian = new(StringComparer.Ordinal)
     {
         ["Windows Update Control"] = "Windows Update-kontroll", ["Check for Updates"] = "Søk etter oppdateringer", ["Open Windows Update"] = "Åpne Windows Update", ["Open Windows Update to install"] = "Åpne Windows Update for å installere",
+        ["Include optional"] = "Inkluder valgfrie", ["All WUA drivers"] = "Alle WUA-drivere",
+        ["Some optional and preview updates may be available directly in Windows Update without appearing in UpdateExpress."] =
+            "Enkelte valgfrie oppdateringer og forhåndsvisningsoppdateringer (Preview) kan være tilgjengelige direkte i Windows Update uten å vises i UpdateExpress.",
+        ["Opens Windows Update in Settings (ms-settings:windowsupdate). Does not scan, download, or install."] =
+            "Åpner Windows Update i Innstillinger (ms-settings:windowsupdate). Starter ikke skanning, nedlasting eller installasjon.",
         ["Manufacturer"] = "Produsent", ["Model"] = "Modell/nr", ["Product no."] = "Produktnr.", ["Serial no."] = "Serienr.", ["Device name"] = "Enhetsnavn",
         ["Copy"] = "Kopier", ["Copy all"] = "Kopier alt",
         ["Install Selected Updates"] = "Installer valgte oppdateringer", ["Installation History"] = "Installasjonshistorikk",
@@ -957,8 +975,16 @@ public partial class MainWindow : Window
         MachineSerialCopy.ToolTip = copyTip;
         MachineDeviceCopy.ToolTip = copyTip;
         MachineIdentityCopyAll.ToolTip = norwegian ? "Kopier alle verdiene" : "Copy all values";
+        const string optionalParityEn = "Some optional and preview updates may be available directly in Windows Update without appearing in UpdateExpress.";
+        string optionalParityTip = norwegian && Norwegian.TryGetValue(optionalParityEn, out var optionalNo) ? optionalNo : optionalParityEn;
+        if (IncludeOptionalUpdates is not null) IncludeOptionalUpdates.ToolTip = optionalParityTip;
+        if (OptionalParityInfo is not null) OptionalParityInfo.ToolTip = optionalParityTip;
+        const string openWuEn = "Opens Windows Update in Settings (ms-settings:windowsupdate). Does not scan, download, or install.";
+        if (OptionalOpenWindowsUpdateButton is not null)
+            OptionalOpenWindowsUpdateButton.ToolTip = norwegian && Norwegian.TryGetValue(openWuEn, out var openWuNo) ? openWuNo : openWuEn;
         if (RebootNeededBanner is not null) RebootNeededBanner.Text = RebootBannerText();
         ListHeading.Text = norwegian ? (_activeTab == "apps" ? "Programoppdateringer (WinGet)" : "Resultater") : (_activeTab == "apps" ? "Application Updates (WinGet)" : "Results");
+        RefreshOptionalParityHint();
         RefreshScheduleStatus();
     }
     private void RefreshScheduleStatus()

@@ -43,6 +43,9 @@ internal static class FeatureUpdateOfferReader
         return lines;
     }
 
+    /// <summary>
+    /// Opens Windows Update in Settings only (ms-settings:windowsupdate). Does not scan, download, or install.
+    /// </summary>
     internal static void OpenWindowsUpdate()
     {
         Process.Start(new ProcessStartInfo("ms-settings:windowsupdate") { UseShellExecute = true });
