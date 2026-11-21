@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.53",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.53/UpdateExpress_v0.7.2.53.exe",
-  "sha256": "f999178b456c41ffffb1125376ebd14e490a871c95e849f518007e79b78c0397",
-  "publishedAt": "2026-11-21T21:02:43Z",
-  "releaseNotes": "UPD-173 Slice A+B optional/Preview honesty (#115). Diagnostics + UI tip; Slice C blocked. Tip e099c5a. Retains #112/#109/#106/#102/#99/#95."
+  "version": "0.7.2.54",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.54/UpdateExpress_v0.7.2.54.exe",
+  "sha256": "3cd170998b3a3fc2e80c069df09737c014384fafe8d6b54cee9a1841086baaea",
+  "publishedAt": "2026-11-21T22:02:18Z",
+  "releaseNotes": "Diagnostics follow-up (#118 be5dfe1). OS build/summary/timing + neutral Settings wording. Slice C blocked. Tip b250c8c. Retains #116/#112/#109/#106/#102/#99/#95."
 }
