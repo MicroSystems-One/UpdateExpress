@@ -208,18 +208,52 @@ public static class WindowsUpdateReader
             .ToList();
     }
     private static string ValueOrUnknown(string value) => string.IsNullOrWhiteSpace(value) ? "Unknown" : value;
+
+    /// <summary>
+    /// Explicit Diagnostics only. Extended WUA searches are not used by normal scan,
+    /// Silent, Tray, or RMM paths. Read-only: no download, install, EULA, or source changes.
+    /// </summary>
     public static string Diagnostics()
     {
-        var lines = new List<string> { "UPDATE EXPRESS v" + ProductVersion.Display + " – DIAGNOSTICS", "Tid: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-            "Maskin: " + Environment.MachineName, "OS: " + Environment.OSVersion, "" };
+        var totalSw = Stopwatch.StartNew();
+        var lines = new List<string>
+        {
+            "UPDATE EXPRESS v" + ProductVersion.Display + " – DIAGNOSTICS",
+            "Tid: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+            "Maskin: " + Environment.MachineName,
+            "OS: " + Environment.OSVersion,
+            ""
+        };
+
+        string serverSelectionRaw = "?";
+        string onlineRaw = "?";
+        string canUpgradeRaw = "?";
+        string serviceIdRaw = "";
         try
         {
-            dynamic session = Session(); dynamic searcher = session.CreateUpdateSearcher();
-            lines.Add("WUA ServerSelection: " + Convert.ToString(searcher.ServerSelection));
-            lines.Add("WUA Online: " + Convert.ToString(searcher.Online));
-            lines.Add("WUA CanAutomaticallyUpgradeService: " + Convert.ToString(searcher.CanAutomaticallyUpgradeService));
+            dynamic session = Session();
+            dynamic searcher = session.CreateUpdateSearcher();
+            try { searcher.Online = true; } catch { /* keep configured Online if assignment fails */ }
+            serverSelectionRaw = Convert.ToString(searcher.ServerSelection) ?? "?";
+            onlineRaw = Convert.ToString(searcher.Online) ?? "?";
+            canUpgradeRaw = Convert.ToString(searcher.CanAutomaticallyUpgradeService) ?? "?";
+            try { serviceIdRaw = Convert.ToString(searcher.ServiceID) ?? ""; } catch { serviceIdRaw = ""; }
         }
         catch (Exception ex) { lines.Add("WUA metadata: " + ex.Message); }
+
+        lines.Add("=== DISCOVERY / POLICY SNAPSHOT ===");
+        lines.Add("Discovery Method: WUA COM");
+        lines.Add("Optional Included: Diagnostics always probes BrowseOnly (Diagnostics button only; not scan/Silent/Tray/RMM)");
+        lines.Add("Server Selection: " + FormatServerSelection(serverSelectionRaw));
+        lines.Add("Service ID: " + FormatServiceId(serviceIdRaw));
+        lines.Add("WUA Online: " + onlineRaw);
+        lines.Add("WUA CanAutomaticallyUpgradeService: " + canUpgradeRaw);
+        lines.Add("Preview Auto-Install Policy: Blocked by application design");
+        lines.Add("Insider Auto-Install Policy: Not supported by application");
+        lines.Add("Settings Offer Parity: Not guaranteed");
+        lines.Add("Note: Application policy above is Update Express design, not a verified machine Insider/WU audit.");
+        lines.Add("");
+
         try
         {
             var pme = PmeServiceControl.ReadState("PME.Agent.PmeService");
@@ -249,59 +283,128 @@ public static class WindowsUpdateReader
             try { using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(path); lines.Add("  " + path + " = " + (key is null ? "Nei" : "Ja")); }
             catch (Exception ex) { lines.Add("  " + path + " = ukjent: " + ex.Message); }
         }
-        // Read-only WUA inventory: do not download, install, accept EULAs or modify settings.
+
         lines.Add("\n=== WUA RAW SEARCH DIAGNOSTICS (READ ONLY) ===");
-        lines.Add("Search results are independent snapshots; entries can occur in multiple queries.");
+        lines.Add("Each query logs ISearchResult.ResultCode / Warnings / raw count / elapsed ms before app filtering.");
+        lines.Add("A search that throws no exception is not automatically Succeeded — use ResultCode.");
+        lines.Add("Failed or SucceededWithErrors with RAW COUNT 0 does not mean the PC is fully up to date.");
+        lines.Add("Search results are independent snapshots; the same UpdateID:Revision can appear in multiple queries.");
+
+        // Keyed snapshots reused for set compare + Preview/KB title scan (no repeated Search calls).
+        var snapshots = new Dictionary<string, List<DiagnosticUpdateRow>>(StringComparer.OrdinalIgnoreCase);
+        var queryOutcomes = new List<(string Name, string Outcome, int Count, long Ms)>();
+
         try
         {
             dynamic diagnosticSession = Session();
             dynamic diagnosticSearcher = diagnosticSession.CreateUpdateSearcher();
+            try { diagnosticSearcher.Online = true; } catch { }
+            lines.Add("Searcher Online for diagnostic queries: " + WuaProperty(() => diagnosticSearcher.Online));
+            lines.Add("Searcher ServerSelection: " + FormatServerSelection(Convert.ToString(diagnosticSearcher.ServerSelection) ?? "?"));
+            try { lines.Add("Searcher ServiceID: " + FormatServiceId(Convert.ToString(diagnosticSearcher.ServiceID) ?? "")); }
+            catch { lines.Add("Searcher ServiceID: default / not explicitly set"); }
+
             var queries = new (string Name, string Criteria)[]
             {
-                ("Software pending / visible", "IsInstalled=0 and IsHidden=0 and Type='Software'"),
-                ("Software pending / browse only", "IsInstalled=0 and IsHidden=0 and Type='Software' and BrowseOnly=1"),
-                ("Software pending / not browse only", "IsInstalled=0 and IsHidden=0 and Type='Software' and BrowseOnly=0"),
+                ("A pending / visible (no Type)", "IsInstalled=0 and IsHidden=0"),
+                ("B software pending / visible", "IsInstalled=0 and IsHidden=0 and Type='Software'"),
+                ("C software pending / browse only", "IsInstalled=0 and IsHidden=0 and Type='Software' and BrowseOnly=1"),
+                ("D software pending / not browse only", "IsInstalled=0 and IsHidden=0 and Type='Software' and BrowseOnly=0"),
                 ("Software pending / including hidden", "IsInstalled=0 and Type='Software'"),
                 ("Drivers pending / visible", "IsInstalled=0 and IsHidden=0 and Type='Driver'"),
                 ("Drivers pending / assigned", "IsInstalled=0 and IsHidden=0 and Type='Driver' and IsAssigned=1")
             };
+
             foreach (var query in queries)
             {
                 lines.Add("\nQUERY: " + query.Name);
                 lines.Add("CRITERIA: " + query.Criteria);
+                var rowList = new List<DiagnosticUpdateRow>();
+                snapshots[query.Name] = rowList;
+                var sw = Stopwatch.StartNew();
                 try
                 {
                     dynamic results = diagnosticSearcher.Search(query.Criteria);
-                    int count = (int)results.Updates.Count;
-                    lines.Add("RAW COUNT: " + count);
+                    sw.Stop();
+                    int resultCode = -1;
+                    try { resultCode = (int)results.ResultCode; } catch { }
+                    string outcome = FormatOperationResultCode(resultCode);
+                    string warnings = FormatSearchWarnings(results);
+                    int count = 0;
+                    try { count = (int)results.Updates.Count; } catch { }
+                    lines.Add("RESULT CODE: " + outcome + " (raw=" + resultCode + ")");
+                    lines.Add("WARNINGS: " + warnings);
+                    lines.Add("RAW COUNT (pre-app-filter): " + count);
+                    lines.Add("ELAPSED MS: " + sw.ElapsedMilliseconds);
+                    if (resultCode != 2)
+                        lines.Add("NOTE: ResultCode is not Succeeded. Do not treat this empty/partial result as proof the machine is fully up to date.");
+
                     int limit = Math.Min(count, 150);
                     for (int i = 0; i < limit; i++)
                     {
                         dynamic u = results.Updates.Item(i);
-                        string title = Convert.ToString(u.Title) ?? "";
-                        string id = ""; string revision = "";
-                        try { id = Convert.ToString(u.Identity.UpdateID) ?? ""; revision = Convert.ToString(u.Identity.RevisionNumber) ?? ""; } catch { }
-                        string browse = "?", hidden = "?", mandatory = "?", beta = "?", installed = "?", severity = "";
-                        try { browse = Convert.ToString(u.BrowseOnly) ?? "?"; } catch { }
-                        try { hidden = Convert.ToString(u.IsHidden) ?? "?"; } catch { }
-                        try { mandatory = Convert.ToString(u.IsMandatory) ?? "?"; } catch { }
-                        try { beta = Convert.ToString(u.IsBeta) ?? "?"; } catch { }
-                        try { installed = Convert.ToString(u.IsInstalled) ?? "?"; } catch { }
-                        try { severity = Convert.ToString(u.MsrcSeverity) ?? ""; } catch { }
-                        string categories = "";
-                        try { var names = new List<string>(); foreach (var c in u.Categories) names.Add(Convert.ToString(c.Name) ?? ""); categories = string.Join("; ", names); } catch { }
-                        lines.Add($"  [{i+1}] {title} | KB={KBs(u)} | UpdateID={id} | Rev={revision} | Installed={installed} | Hidden={hidden} | BrowseOnly={browse} | Mandatory={mandatory} | Beta={beta} | MSRC={severity} | Categories={categories}");
+                        var row = CaptureDiagnosticRow(u);
+                        rowList.Add(row);
+                        lines.Add($"  [{i + 1}] {row.Title} | KB={row.Kb} | UpdateID={row.UpdateId} | Rev={row.Revision} | Installed={row.Installed} | Hidden={row.Hidden} | BrowseOnly={row.BrowseOnly} | AutoSelectOnWebSites={row.AutoSelectOnWebSites} | Mandatory={row.Mandatory} | Assigned={row.Assigned} | DeploymentAction={row.DeploymentAction} | RebootRequired={row.RebootRequired} | Beta={row.Beta} | MSRC={row.Severity} | Categories={row.Categories} | ServiceID={row.ServiceId}");
                         if (query.Name == "Drivers pending / visible")
                         {
                             lines.Add($"    InstallationBehavior: CanRequestUserInput={WuaProperty(() => u.InstallationBehavior.CanRequestUserInput)} | RebootBehavior={WuaProperty(() => u.InstallationBehavior.RebootBehavior)} | Impact={WuaProperty(() => u.InstallationBehavior.Impact)} | IsDownloaded={WuaProperty(() => u.IsDownloaded)} | EulaAccepted={WuaProperty(() => u.EulaAccepted)}");
                         }
                     }
-                    if (count > limit) lines.Add($"  TRUNCATED: {count-limit} additional entries omitted (max 150 per query)");
+                    if (count > limit) lines.Add($"  TRUNCATED: {count - limit} additional entries omitted (max 150 per query)");
+                    queryOutcomes.Add((query.Name, outcome, count, sw.ElapsedMilliseconds));
                 }
-                catch (Exception ex) { lines.Add("QUERY ERROR: " + ex); }
+                catch (Exception ex)
+                {
+                    sw.Stop();
+                    string hr = FormatHResult(ex);
+                    lines.Add("QUERY ERROR: " + ex);
+                    lines.Add("HRESULT: " + hr);
+                    lines.Add("RESULT CODE: Failed (exception; search did not complete)");
+                    lines.Add("ELAPSED MS: " + sw.ElapsedMilliseconds);
+                    lines.Add("NOTE: Search failed. RAW COUNT 0 after failure does not mean the PC is fully up to date.");
+                    queryOutcomes.Add((query.Name, "Failed (exception)", 0, sw.ElapsedMilliseconds));
+                }
             }
         }
         catch (Exception ex) { lines.Add("WUA diagnostic initialization error: " + ex); }
+
+        lines.Add("\n=== SET COMPARISON (cached UpdateID:RevisionNumber; no extra Search) ===");
+        var setA = ToIdSet(snapshots, "A pending / visible (no Type)");
+        var setB = ToIdSet(snapshots, "B software pending / visible");
+        var setC = ToIdSet(snapshots, "C software pending / browse only");
+        var setD = ToIdSet(snapshots, "D software pending / not browse only");
+        lines.Add($"A count={setA.Count}  B count={setB.Count}  C count={setC.Count}  D(BrowseOnly=0) count={setD.Count}");
+        lines.Add($"Only in A (not B): {CountOnlyIn(setA, setB)}");
+        lines.Add($"Only in B (not A): {CountOnlyIn(setB, setA)}");
+        lines.Add($"Only in C (not B): {CountOnlyIn(setC, setB)}  ← BrowseOnly adds IDs beyond default Software when >0");
+        lines.Add($"Only in B (not C): {CountOnlyIn(setB, setC)}  ← BrowseOnly=1 narrows vs full Software when >0");
+        lines.Add($"Intersection B∩C: {setB.Count - CountOnlyIn(setB, setC)}");
+
+        lines.Add("\n=== PREVIEW / OPTIONAL TITLE SCAN (cached rows; no extra Search) ===");
+        bool previewHit = false;
+        foreach (var kv in snapshots)
+        {
+            foreach (var row in kv.Value)
+            {
+                if (LooksLikePreviewOrOptionalOffer(row))
+                {
+                    previewHit = true;
+                    lines.Add($"HIT in {kv.Key}: {row.Title} | {row.Kb} | BrowseOnly={row.BrowseOnly} | UpdateID={row.UpdateId}");
+                }
+            }
+        }
+        if (!previewHit)
+        {
+            lines.Add("No Preview/optional-looking titles in cached WUA COM diagnostic rows.");
+            lines.Add("If Windows Settings still shows an optional/Preview banner, treat as Observed WUA COM / Windows Settings offer discrepancy.");
+            lines.Add("Update Express application filtering is not indicated when COM raw counts are already empty.");
+        }
+
+        lines.Add("\n=== QUERY TIMING SUMMARY ===");
+        foreach (var q in queryOutcomes)
+            lines.Add($"  {q.Name}: {q.Outcome}; count={q.Count}; {q.Ms} ms");
+
         lines.Add("\n=== DRIVER CLASSIFICATION (READ ONLY) ===");
         try
         {
@@ -316,9 +419,156 @@ public static class WindowsUpdateReader
         catch (Exception ex) { lines.Add("Driver classification diagnostic error: " + ex.Message); }
         lines.Add("\n=== FEATURE UPDATES ===");
         lines.AddRange(FeatureUpdateOfferReader.DiagnosticLines());
-        lines.Add("\nInterpretation: WUA search results can differ from cached Windows Settings offers and may depend on policy/service. No installation performed.");
-        lines.Add("\nMerk: WUA-søk følger PC-ens konfigurerte kilde og policy. Ikke alle valgfrie oppdateringer er nødvendigvis tilgjengelige via COM API.");
+        lines.Add("\n=== MANUAL PREVIEW / OPTIONAL INSTALL LIMIT ===");
+        lines.Add("CollectSoftwareUpdates re-searches default Software only (no BrowseOnly). SafeDefault gates Install Selected and automation.");
+        lines.Add("Preview / optional updates that are not SafeDefault must be installed from Windows Update when COM install is unavailable.");
+        lines.Add("Install Selected is not extended for Preview/optional in this release (separate future approval).");
+        totalSw.Stop();
+        lines.Add("\nTOTAL DIAGNOSTICS ELAPSED MS: " + totalSw.ElapsedMilliseconds);
+        lines.Add("\nInterpretation: Observed WUA COM / Windows Settings offer discrepancy is possible; Settings may show offers not returned by these WUA searches. No installation performed.");
+        lines.Add("Merk: WUA-søk følger PC-ens konfigurerte kilde og policy. Ikke alle valgfrie oppdateringer er nødvendigvis tilgjengelige via COM API.");
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private sealed class DiagnosticUpdateRow
+    {
+        public string Title = "";
+        public string Kb = "";
+        public string UpdateId = "";
+        public string Revision = "";
+        public string Installed = "?";
+        public string Hidden = "?";
+        public string BrowseOnly = "?";
+        public string AutoSelectOnWebSites = "?";
+        public string Mandatory = "?";
+        public string Assigned = "?";
+        public string DeploymentAction = "?";
+        public string RebootRequired = "?";
+        public string Beta = "?";
+        public string Severity = "";
+        public string Categories = "";
+        public string ServiceId = "?";
+        public string IdentityKey => UpdateId + ":" + Revision;
+    }
+
+    private static DiagnosticUpdateRow CaptureDiagnosticRow(dynamic u)
+    {
+        var row = new DiagnosticUpdateRow
+        {
+            Title = Convert.ToString(u.Title) ?? "",
+            Kb = KBs(u)
+        };
+        try { row.UpdateId = Convert.ToString(u.Identity.UpdateID) ?? ""; row.Revision = Convert.ToString(u.Identity.RevisionNumber) ?? ""; } catch { }
+        try { row.BrowseOnly = Convert.ToString(u.BrowseOnly) ?? "?"; } catch { }
+        try { row.Hidden = Convert.ToString(u.IsHidden) ?? "?"; } catch { }
+        try { row.Mandatory = Convert.ToString(u.IsMandatory) ?? "?"; } catch { }
+        try { row.Beta = Convert.ToString(u.IsBeta) ?? "?"; } catch { }
+        try { row.Installed = Convert.ToString(u.IsInstalled) ?? "?"; } catch { }
+        try { row.Severity = Convert.ToString(u.MsrcSeverity) ?? ""; } catch { }
+        try { row.AutoSelectOnWebSites = Convert.ToString(u.AutoSelectOnWebSites) ?? "?"; } catch { }
+        try { row.Assigned = Convert.ToString(u.IsAssigned) ?? "?"; } catch { }
+        try { row.DeploymentAction = Convert.ToString(u.DeploymentAction) ?? "?"; } catch { }
+        try { row.RebootRequired = Convert.ToString(u.RebootRequired) ?? "?"; } catch { }
+        try { row.ServiceId = Convert.ToString(u.ServiceID) ?? "?"; } catch { row.ServiceId = "n/a on IUpdate"; }
+        try
+        {
+            var names = new List<string>();
+            foreach (var c in u.Categories) names.Add(Convert.ToString(c.Name) ?? "");
+            row.Categories = string.Join("; ", names);
+        }
+        catch { }
+        return row;
+    }
+
+    private static string FormatServerSelection(string raw)
+    {
+        if (string.Equals(raw, "0", StringComparison.Ordinal) ||
+            string.Equals(raw, "ssDefault", StringComparison.OrdinalIgnoreCase))
+            return "0 (Default – configured Windows Update source)";
+        if (string.Equals(raw, "1", StringComparison.Ordinal)) return "1 (Managed server)";
+        if (string.Equals(raw, "2", StringComparison.Ordinal)) return "2 (Windows Update)";
+        if (string.Equals(raw, "3", StringComparison.Ordinal)) return "3 (Others)";
+        return ValueOrUnknown(raw) + " (see IUpdateSearcher.ServerSelection)";
+    }
+
+    private static string FormatServiceId(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) ||
+            raw.Equals("00000000-0000-0000-0000-000000000000", StringComparison.OrdinalIgnoreCase) ||
+            raw.Equals("{}", StringComparison.OrdinalIgnoreCase))
+            return "default / not explicitly set";
+        return raw;
+    }
+
+    // WUA OperationResultCode: 0 NotStarted, 1 InProgress, 2 Succeeded, 3 SucceededWithErrors, 4 Failed, 5 Aborted.
+    private static string FormatOperationResultCode(int code) => code switch
+    {
+        0 => "NotStarted",
+        1 => "InProgress",
+        2 => "Succeeded",
+        3 => "SucceededWithErrors",
+        4 => "Failed",
+        5 => "Aborted",
+        -1 => "Unavailable",
+        _ => "Other (" + code + ")"
+    };
+
+    private static string FormatSearchWarnings(dynamic results)
+    {
+        try
+        {
+            dynamic warnings = results.Warnings;
+            int count = (int)warnings.Count;
+            if (count == 0) return "(none)";
+            var parts = new List<string>();
+            int limit = Math.Min(count, 20);
+            for (int i = 0; i < limit; i++)
+            {
+                dynamic w = warnings.Item(i);
+                string msg = "";
+                string hr = "";
+                try { msg = Convert.ToString(w.Message) ?? ""; } catch { }
+                try { hr = $"0x{unchecked((uint)(int)w.HResult):X8}"; } catch { hr = "?"; }
+                parts.Add($"[{i + 1}] HR={hr} {msg}".Trim());
+            }
+            if (count > limit) parts.Add($"… +{count - limit} more");
+            return string.Join(" | ", parts);
+        }
+        catch (Exception ex) { return "Unavailable (" + ex.GetType().Name + ")"; }
+    }
+
+    private static string FormatHResult(Exception ex)
+    {
+        if (ex is COMException com) return $"0x{unchecked((uint)com.ErrorCode):X8}";
+        return $"0x{unchecked((uint)ex.HResult):X8}";
+    }
+
+    private static HashSet<string> ToIdSet(Dictionary<string, List<DiagnosticUpdateRow>> snapshots, string name)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!snapshots.TryGetValue(name, out var rows)) return set;
+        foreach (var row in rows)
+            if (!string.IsNullOrWhiteSpace(row.UpdateId))
+                set.Add(row.IdentityKey);
+        return set;
+    }
+
+    private static int CountOnlyIn(HashSet<string> left, HashSet<string> right)
+    {
+        int n = 0;
+        foreach (var id in left)
+            if (!right.Contains(id)) n++;
+        return n;
+    }
+
+    private static bool LooksLikePreviewOrOptionalOffer(DiagnosticUpdateRow row)
+    {
+        string title = row.Title ?? "";
+        string kb = row.Kb ?? "";
+        if (kb.Contains("5132057", StringComparison.OrdinalIgnoreCase)) return true;
+        return title.Contains("Preview", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Forhåndsvisning", StringComparison.OrdinalIgnoreCase)
+            || title.Contains("Vorschau", StringComparison.OrdinalIgnoreCase);
     }
     private static string FeatureRelease(string title)
     {
