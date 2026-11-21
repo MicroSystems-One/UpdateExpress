@@ -21,6 +21,7 @@ internal sealed class TrayAgent : IDisposable
     private SettingsWindow? _settings;
     private readonly System.Threading.Timer _timer;
     private readonly System.Threading.Timer _defenderTimer;
+    private readonly System.Threading.Timer _reminderTimer;
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
     private readonly string _baselinePath = Path.Combine(InstallationManager.InstallDir, "monitor-initialized.flag");
     private readonly string _statePath = Path.Combine(InstallationManager.InstallDir, "monitor-state.txt");
@@ -96,9 +97,19 @@ internal sealed class TrayAgent : IDisposable
             try { RmmStatusExport.WriteBestEffort("tray-poll"); }
             catch (Exception ex) { AgentLog.Write("RMM status export failed: " + ex.Message); }
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
+        // Påminnelse while Main UI is closed (Main owns the timer when open).
+        _reminderTimer = new System.Threading.Timer(
+            _ =>
+            {
+                try { MaintenanceReminderHost.CheckFromTray(_dispatcher); }
+                catch (Exception ex) { AgentLog.Write("Tray reminder poll failed: " + ex.Message); }
+            },
+            null,
+            TimeSpan.FromSeconds(20),
+            TimeSpan.FromSeconds(30));
         WriteMonitorStatus("waiting", 0, 0, null, null);
         try { RmmStatusExport.WriteBestEffort("tray-start", force: true); } catch { /* ignore */ }
-        AgentLog.Write($"Tray agent started; WUA monitor every {monitorInterval.TotalHours:0.##}h; Defender+Critical+General+Drivers+Apps+reboot poll every 5m.");
+        AgentLog.Write($"Tray agent started; WUA monitor every {monitorInterval.TotalHours:0.##}h; Defender+Critical+General+Drivers+Apps+reboot poll every 5m; Påminnelse poll every 30s when Main UI closed.");
         _ = Task.Run(async () =>
         {
             try
@@ -441,6 +452,7 @@ internal sealed class TrayAgent : IDisposable
         _disposed = true;
         _timer.Dispose();
         _defenderTimer.Dispose();
+        _reminderTimer.Dispose();
         AgentLog.Write("Agent stopped.");
         _tray.Visible = false;
         _tray.Dispose();
