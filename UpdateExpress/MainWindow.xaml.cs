@@ -60,10 +60,17 @@ public partial class MainWindow : Window
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
         !string.IsNullOrWhiteSpace(e.DriverHardwareId);
 
+    private static bool IsOemDownloadable(UpdateEntry e) =>
+        e.Category == "Driver / firmware" && e.OpensExternalUrl;
+
     private bool IsEligiblePending(UpdateEntry e) =>
         !_showingHistory &&
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
         (e.Category == "Driver / firmware" ? IsManuallyInstallableDriver(e) : e.SafeDefault);
+
+    /// <summary>WUA-installable rows plus OEM catalog rows (selection for bulk download).</summary>
+    private bool IsSelectablePending(UpdateEntry e) =>
+        IsEligiblePending(e) || (!_showingHistory && IsOemDownloadable(e));
 
     private const string WinGetSource = "WinGet";
 
@@ -101,7 +108,7 @@ public partial class MainWindow : Window
         SyncWingetSelectionFromAllEntries();
         var visible = Entries.Where(e => VisibleInTab(e)).ToList();
         // On All, WinGet rows share the grid but selection is counted via _appEntries (avoid double-count).
-        var eligibleWindows = visible.Where(e => !IsWinGetRow(e) && IsEligiblePending(e)).ToList();
+        var eligibleWindows = visible.Where(e => !IsWinGetRow(e) && IsSelectablePending(e)).ToList();
         var selected = eligibleWindows.Count(e => e.IsSelected);
         int appCount = _appEntries.Count(a => a.IsSelected);
         bool includeApps = _activeTab is "apps" or "all";
@@ -115,8 +122,25 @@ public partial class MainWindow : Window
         SelectedCountText.Text = _schedule.Language == "no" ? $"{totalSelected} valgt" : $"{totalSelected} selected";
         InstallButton.IsEnabled = !_busy && !_showingHistory &&
             (_pendingSnapshot.Any(e => e.IsSelected && !string.IsNullOrWhiteSpace(e.UpdateId)) || appCount > 0);
+        UpdateOemBulkDownloadButton();
         UpdateInstallSelectionBlink();
     }
+
+    private void UpdateOemBulkDownloadButton()
+    {
+        if (OemBulkDownloadButton is null) return;
+        int oemSelected = _showingHistory
+            ? 0
+            : Entries.Count(e => VisibleInTab(e) && IsOemDownloadable(e) && e.IsSelected);
+        OemBulkDownloadButton.Visibility = oemSelected > 1 && !_busy
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        OemBulkDownloadButton.IsEnabled = oemSelected > 1 && !_busy;
+        OemBulkDownloadButton.ToolTip = _schedule.Language == "no"
+            ? $"Last ned {oemSelected} valgte OEM-pakker"
+            : $"Download {oemSelected} selected OEM packages";
+    }
+
     private void UpdateCheckbox_Click(object sender, RoutedEventArgs e)
     {
         SyncWingetSelectionFromAllEntries();
@@ -128,7 +152,7 @@ public partial class MainWindow : Window
         if (_activeTab is "apps" or "all")
             foreach (var app in _appEntries) app.IsSelected = value;
         if (_activeTab is not "apps")
-            foreach (var item in Entries.Where(e => VisibleInTab(e) && IsEligiblePending(e))) item.IsSelected = value;
+            foreach (var item in Entries.Where(e => VisibleInTab(e) && IsSelectablePending(e))) item.IsSelected = value;
         if (_activeTab == "all")
             SyncWingetSelectionFromAllEntries();
         UpdatesGrid.Items.Refresh(); AppsGrid.Items.Refresh();
@@ -276,60 +300,302 @@ public partial class MainWindow : Window
         string.IsNullOrWhiteSpace(value) || value is "—" or "…" or "-" or "N/A" or "n/a";
 
     private void OpenOemDriverEntry(UpdateEntry entry) =>
-        OpenOemExternalLink(
-            entry,
-            entry.ExternalUrl,
-            package: true);
+        _ = DownloadOemEntryAsync(entry, package: true, quiet: false);
 
     private void OpenOemReadmeEntry(UpdateEntry entry) =>
-        OpenOemExternalLink(
-            entry,
-            entry.ReadmeUrl,
-            package: false);
+        _ = DownloadOemEntryAsync(entry, package: false, quiet: false);
 
-    private void OpenOemExternalLink(UpdateEntry entry, string url, bool package)
+    private async void OemBulkDownload_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = Entries
+            .Where(x => VisibleInTab(x) && IsOemDownloadable(x) && x.IsSelected)
+            .ToList();
+        if (selected.Count <= 1) return;
+        bool norwegian = _schedule.Language == "no";
+        var answer = MessageBox.Show(this,
+            norwegian
+                ? $"Laste ned {selected.Count} valgte OEM-pakker etter hverandre til Nedlastinger\\UpdateExpress-OEM?\n\nJA: start nedlasting.\nNEI: avbryt."
+                : $"Download {selected.Count} selected OEM packages one after another to Downloads\\UpdateExpress-OEM?\n\nYES: start download.\nNO: cancel.",
+            norwegian ? "OEM masse-nedlasting" : "OEM bulk download",
+            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+        if (answer != MessageBoxResult.Yes) return;
+
+        if (_busy) return;
+        _busy = true;
+        UpdateSelectionControls();
+        int ok = 0, failed = 0;
+        try
+        {
+            for (int i = 0; i < selected.Count; i++)
+            {
+                var entry = selected[i];
+                StatusText.Text = norwegian
+                    ? $"OEM-nedlasting {i + 1}/{selected.Count}: {entry.DisplayTitle}"
+                    : $"OEM download {i + 1}/{selected.Count}: {entry.DisplayTitle}";
+                bool success = await DownloadOemEntryAsync(entry, package: true, quiet: true).ConfigureAwait(true);
+                if (success) ok++;
+                else failed++;
+            }
+            StatusText.Text = norwegian
+                ? $"OEM masse-nedlasting ferdig: {ok} OK, {failed} feilet."
+                : $"OEM bulk download finished: {ok} OK, {failed} failed.";
+            if (ok > 0)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = OemPackageDownload.DownloadsRoot,
+                        UseShellExecute = true
+                    });
+                }
+                catch { /* folder open is best-effort */ }
+            }
+        }
+        finally
+        {
+            _busy = false;
+            UpdateSelectionControls();
+            RefreshHealthSummary();
+        }
+    }
+
+    private async Task<bool> DownloadOemEntryAsync(UpdateEntry entry, bool package, bool quiet)
     {
         bool norwegian = _schedule.Language == "no";
+        string url = package ? entry.ExternalUrl : entry.ReadmeUrl;
         if (string.IsNullOrWhiteSpace(url))
         {
-            MessageBox.Show(this,
-                package
-                    ? (norwegian ? "Ingen pakke-/nedlastingslenke for denne OEM-oppføringen." : "No package download link for this OEM entry.")
-                    : (norwegian ? "Ingen TXT/readme-lenke for denne OEM-oppføringen." : "No TXT/readme link for this OEM entry."),
-                norwegian ? "OEM-driver" : "OEM driver",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
+            if (!quiet)
+            {
+                MessageBox.Show(this,
+                    package
+                        ? (norwegian ? "Ingen pakke-/nedlastingslenke for denne OEM-oppføringen." : "No package download link for this OEM entry.")
+                        : (norwegian ? "Ingen TXT/readme-lenke for denne OEM-oppføringen." : "No TXT/readme link for this OEM entry."),
+                    norwegian ? "OEM-driver" : "OEM driver",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            return false;
         }
 
-        string kindNo = package ? "pakken (exe/zip/…)" : "TXT/readme-filen";
-        string kindEn = package ? "the package (exe/zip/…)" : "the TXT/readme file";
-        string details =
-            $"{(norwegian ? "Driver" : "Driver")}: {entry.DisplayTitle}\n" +
-            $"{(norwegian ? "Versjon" : "Version")}: {entry.UnifiedVersion}\n" +
-            $"{(norwegian ? "Kategori" : "Category")}: {entry.DriverClass}\n" +
-            $"{(norwegian ? "Kilde" : "Source")}: {entry.Source}\n" +
-            $"{(norwegian ? "Status" : "Status")}: {entry.DriverStatus}\n\n" +
-            $"{entry.DriverReason}\n\n" +
-            (norwegian
-                ? $"JA: åpne {kindNo} i nettleser.\nNEI: lukk."
-                : $"YES: open {kindEn} in the browser.\nNO: close.");
         string brand = entry.Source.StartsWith("OEM / ", StringComparison.OrdinalIgnoreCase)
             ? entry.Source["OEM / ".Length..].Trim()
             : "OEM";
-        var answer = MessageBox.Show(this, details,
-            norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
-            MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes);
-        if (answer != MessageBoxResult.Yes) return;
+        if (!quiet)
+        {
+            string kindNo = package ? "pakken (exe/zip/…)" : "TXT/readme-filen";
+            string kindEn = package ? "the package (exe/zip/…)" : "the TXT/readme file";
+            string details =
+                $"{(norwegian ? "Driver" : "Driver")}: {entry.DisplayTitle}\n" +
+                $"{(norwegian ? "Versjon" : "Version")}: {entry.UnifiedVersion}\n" +
+                $"{(norwegian ? "Kategori" : "Category")}: {entry.DriverClass}\n" +
+                $"{(norwegian ? "Kilde" : "Source")}: {entry.Source}\n" +
+                $"{(norwegian ? "Status" : "Status")}: {entry.DriverStatus}\n\n" +
+                $"{entry.DriverReason}\n\n" +
+                (norwegian
+                    ? $"JA: last ned {kindNo} i Update Express (uten nettleser).\nNEI: lukk."
+                    : $"YES: download {kindEn} in Update Express (no browser).\nNO: close.");
+            var answer = MessageBox.Show(this, details,
+                norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
+                MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes);
+            if (answer != MessageBoxResult.Yes) return false;
+        }
+
+        string? path = null;
         try
         {
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            if (!quiet && StatusText is not null)
+                StatusText.Text = norwegian ? "Laster ned OEM-pakke…" : "Downloading OEM package…";
+            path = await OemPackageDownload.DownloadAsync(
+                url,
+                preferredFileName: null,
+                progress: msg => Dispatcher.Invoke(() =>
+                {
+                    if (StatusText is not null) StatusText.Text = msg;
+                })).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            ActivityLog.TryWrite("OemDownload", "Failed", new
+            {
+                Package = package,
+                Title = entry.DisplayTitle,
+                Url = url,
+                Exception = ex.ToString()
+            });
+            if (!quiet)
+            {
+                var fallback = MessageBox.Show(this,
+                    norwegian
+                        ? $"Nedlasting i appen feilet:\n{ex.Message}\n\nÅpne lenken i nettleseren i stedet?"
+                        : $"In-app download failed:\n{ex.Message}\n\nOpen the link in the browser instead?",
+                    norwegian ? "OEM-nedlasting" : "OEM download",
+                    MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+                if (fallback == MessageBoxResult.Yes)
+                {
+                    try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+                    catch (Exception openEx)
+                    {
+                        MessageBox.Show(this, openEx.Message,
+                            norwegian ? "Kunne ikke åpne lenke" : "Could not open link",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                }
+            }
+            return false;
+        }
+
+        ActivityLog.TryWrite("OemDownload", "Saved", new
+        {
+            Package = package,
+            Title = entry.DisplayTitle,
+            Path = path,
+            OemPackageId = entry.OemPackageId
+        });
+
+        string note = package
+            ? (norwegian
+                ? $"OEM-pakke lastet ned til {path}"
+                : $"OEM package downloaded to {path}")
+            : (norwegian
+                ? $"OEM TXT/readme lastet ned til {path}"
+                : $"OEM TXT/readme downloaded to {path}");
+
+        if (package)
+        {
+            RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Vellykket", note));
+            OemHandledStore.Remember(entry, "Downloaded", path);
+            RemoveOemPending(entry);
+
+            if (!quiet)
+            {
+                bool looksExe = path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                                path.EndsWith(".msi", StringComparison.OrdinalIgnoreCase);
+                if (looksExe)
+                {
+                    var run = MessageBox.Show(this,
+                        norwegian
+                            ? $"Lagret:\n{path}\n\nJA: kjør installasjonsprogrammet nå.\nNEI: bare behold filen (raden skjules til versjonen endres)."
+                            : $"Saved:\n{path}\n\nYES: run the installer now.\nNO: keep the file only (row stays hidden until the catalog version changes).",
+                        norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
+                        MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+                    if (run == MessageBoxResult.Yes)
+                        await TryRunOemInstallerAsync(entry, path, norwegian).ConfigureAwait(true);
+                }
+                else
+                {
+                    MessageBox.Show(this,
+                        norwegian
+                            ? $"Lagret:\n{path}\n\nOppføringen skjules til katalogversjonen endres."
+                            : $"Saved:\n{path}\n\nThis entry stays hidden until the catalog version changes.",
+                        norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+        }
+        else if (!quiet)
+        {
+            MessageBox.Show(this,
+                norwegian ? $"Lagret:\n{path}" : $"Saved:\n{path}",
+                norwegian ? "OEM TXT/readme" : "OEM TXT/readme",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        if (!quiet)
+            RefreshHealthSummary();
+        return true;
+    }
+
+    private async Task TryRunOemInstallerAsync(UpdateEntry entry, string path, bool norwegian)
+    {
+        try
+        {
+            var start = new ProcessStartInfo(path) { UseShellExecute = true };
+            using var process = Process.Start(start);
+            if (process is null)
+            {
+                MessageBox.Show(this,
+                    norwegian ? "Kunne ikke starte installasjonsprogrammet." : "Could not start the installer.",
+                    norwegian ? "OEM-installasjon" : "OEM install",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            StatusText.Text = norwegian
+                ? "Venter på OEM-installasjonsprogram…"
+                : "Waiting for OEM installer…";
+            await process.WaitForExitAsync().ConfigureAwait(true);
+            // 0 = success; 3010 = success, reboot required (common for drivers/BIOS helpers).
+            if (process.ExitCode is 0 or 3010)
+            {
+                string note = norwegian
+                    ? $"OEM-installasjon fullført (exit {process.ExitCode}). Fil: {path}"
+                    : $"OEM install finished (exit {process.ExitCode}). File: {path}";
+                RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Vellykket", note));
+                OemHandledStore.Remember(entry, "Installed", path);
+                ActivityLog.TryWrite("OemInstall", "Installert", new
+                {
+                    Title = entry.DisplayTitle,
+                    ExitCode = process.ExitCode,
+                    Path = path,
+                    OemPackageId = entry.OemPackageId
+                });
+            }
+            else
+            {
+                string note = norwegian
+                    ? $"OEM-installasjon avsluttet med kode {process.ExitCode}. Fil: {path}"
+                    : $"OEM installer exited with code {process.ExitCode}. File: {path}";
+                RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Mislykket", note));
+                ActivityLog.TryWrite("OemInstall", "Failed", new
+                {
+                    Title = entry.DisplayTitle,
+                    ExitCode = process.ExitCode,
+                    Path = path
+                });
+            }
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message,
-                norwegian ? "Kunne ikke åpne lenke" : "Could not open link",
+                norwegian ? "OEM-installasjon" : "OEM install",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    private void RememberOemHistory(UpdateEntry? historyRow)
+    {
+        if (historyRow is null) return;
+        historyRow.DateDisplay = _schedule.FormatDateValue(historyRow.Date);
+        _historySnapshot.Insert(0, historyRow);
+        if (_showingHistory)
+        {
+            Entries.Insert(0, historyRow);
+            _entriesView.Refresh();
+        }
+        RefreshHealthSummary();
+    }
+
+    private void RemoveOemPending(UpdateEntry entry)
+    {
+        var remove = _pendingSnapshot
+            .Where(e => IsOemDownloadable(e) &&
+                        ((!string.IsNullOrWhiteSpace(entry.OemPackageId) &&
+                          string.Equals(e.OemPackageId, entry.OemPackageId, StringComparison.OrdinalIgnoreCase) &&
+                          string.Equals(e.UnifiedVersion, entry.UnifiedVersion, StringComparison.OrdinalIgnoreCase))
+                         || string.Equals(e.ExternalUrl, entry.ExternalUrl, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (remove.Count == 0) return;
+        foreach (var item in remove) _pendingSnapshot.Remove(item);
+        if (_showingHistory) return;
+        Entries.Clear();
+        foreach (var item in _pendingSnapshot) Entries.Add(item);
+        if (_activeTab == "all")
+        {
+            foreach (var app in _appEntries)
+                Entries.Add(ToAllListAppEntry(app));
+        }
+        _entriesView.Refresh();
+        UpdateSelectionControls();
     }
 
     private void OpenOemDriver_Click(object sender, RoutedEventArgs e)
@@ -1999,6 +2265,13 @@ public partial class MainWindow : Window
         ["OEM drivers"] = "OEM-drivere",
         ["Open OEM download"] = "Åpne OEM-nedlasting",
         ["TXT file download"] = "Last ned TXT-fil",
+        ["DOC ↓"] = "DOC ↓",
+        ["OEM ↓"] = "OEM ↓",
+        ["Download the OEM TXT/README companion when available."] =
+            "Last ned OEM TXT/README-filen når den finnes.",
+        ["Download the OEM package (exe/zip/…) in Update Express. Not installed through WUA."] =
+            "Last ned OEM-pakken (exe/zip/…) i Update Express. Installeres ikke via WUA.",
+        ["Download all selected OEM packages"] = "Last ned alle valgte OEM-pakker",
         ["Change setup…"] = "Endre oppsett…",
         ["About Update Express vs Windows Update"] = "Om Update Express vs Windows Update",
         ["Maintenance window"] = "Vedlikeholdsvindu",
@@ -2647,6 +2920,7 @@ public partial class MainWindow : Window
                     oemCount = oem.Count;
                     if (oemCount > 0)
                     {
+                        // Keep WUA rows first, then OEM with Critical already grouped at the top of that block.
                         var merged = new List<UpdateEntry>(windows.Count + oem.Count);
                         merged.AddRange(windows);
                         merged.AddRange(oem);

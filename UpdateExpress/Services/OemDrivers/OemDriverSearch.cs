@@ -35,7 +35,13 @@ internal static class OemDriverSearch
         }
 
         var offers = await catalog.SearchAsync(identity, report, cancellationToken).ConfigureAwait(false);
-        return offers.Select(ToEntry).ToList();
+        var entries = offers.Select(ToEntry).ToList();
+        entries = OemHandledStore.FilterUnhandled(entries).ToList();
+        entries.Sort(CompareOemPriorityThenTitle);
+        report?.Invoke(entries.Count == offers.Count
+            ? $"OEM drivers: {entries.Count} offer(s) after Critical-first sort."
+            : $"OEM drivers: {entries.Count} offer(s) ({offers.Count - entries.Count} already handled).");
+        return entries;
     }
 
     internal static UpdateEntry ToEntry(OemDriverOffer offer)
@@ -65,11 +71,29 @@ internal static class OemDriverSearch
             IsSelected = false,
             ExternalUrl = openUrl,
             ReadmeUrl = offer.ReadmeUrl?.Trim() ?? "",
+            OemPackageId = offer.Id?.Trim() ?? "",
             // Leave Date empty so DisplayStatus keeps DriverStatus (Recommended/Firmware).
             // Catalog release time goes in DateDisplay for the Date/Time column only.
             Date = "",
             DateDisplay = offer.ReleasedAt?.ToLocalTime().ToString("g") ?? ""
         };
+    }
+
+    /// <summary>Critical first, then Important, then other OEM priorities; stable title within a band.</summary>
+    internal static int CompareOemPriorityThenTitle(UpdateEntry a, UpdateEntry b)
+    {
+        int byPri = PriorityRank(a).CompareTo(PriorityRank(b));
+        if (byPri != 0) return byPri;
+        return string.Compare(a.DisplayTitle, b.DisplayTitle, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int PriorityRank(UpdateEntry entry)
+    {
+        string raw = entry.Priority ?? "";
+        if (raw.Equals("Critical", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (raw.Equals("Important", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (raw.Equals("Optional", StringComparison.OrdinalIgnoreCase)) return 3;
+        return 2;
     }
 
     private static string MapPriority(string priority)

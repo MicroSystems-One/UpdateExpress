@@ -158,6 +158,46 @@ internal static class HistoryArchive
     }
 
     /// <summary>
+    /// Record an OEM package download or install that never goes through WUA.
+    /// Returns the Historikk row when recorded; otherwise null.
+    /// </summary>
+    internal static UpdateEntry? RecordOemOutcome(
+        UpdateEntry source,
+        string status,
+        string? statusNote = null,
+        DateTime? at = null)
+    {
+        if (source == null) return null;
+        bool ok = status is "Vellykket" or "Successful" or "Installert";
+        bool failed = status is "Mislykket" or "Failed" or "Avbrutt" or "Cancelled" or "Feilet / avbrutt";
+        if (!ok && !failed) return null;
+
+        var entry = new UpdateEntry
+        {
+            Title = string.IsNullOrWhiteSpace(source.Title) ? source.DisplayTitle : source.Title,
+            KB = string.IsNullOrWhiteSpace(source.KB) ? "OEM" : source.KB,
+            Category = "Driver / firmware",
+            Source = string.IsNullOrWhiteSpace(source.Source) ? "OEM" : source.Source,
+            Status = ok ? "Vellykket" : "Mislykket",
+            StatusNote = statusNote ?? "",
+            Priority = source.Priority,
+            PriorityExplanation = source.PriorityExplanation,
+            DriverClassification = "OEM",
+            DriverStatus = "",
+            DriverVersionFromWua = source.DriverVersionFromWua,
+            DriverManufacturer = source.DriverManufacturer,
+            DriverClass = source.DriverClass,
+            OemPackageId = source.OemPackageId,
+            ExternalUrl = source.ExternalUrl,
+            ReadmeUrl = source.ReadmeUrl,
+            Date = (at ?? DateTime.Now).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            UpdateId = "",
+            SafeDefault = false
+        };
+        return RecordInstallOutcomes(new[] { entry }) > 0 ? entry : null;
+    }
+
+    /// <summary>
     /// Record Completed and Failed Installation Manager rows for Historikk.
     /// </summary>
     internal static int RecordInstallationManagerQueue(IEnumerable<InstallationQueueItem> queue, DateTime? at = null)

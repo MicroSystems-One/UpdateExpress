@@ -239,7 +239,7 @@ internal sealed class LenovoOemDriverCatalog : IOemDriverCatalog
             DownloadUrl: downloadUrl,
             DetailsUrl: detailsUrl,
             ReleasedAt: released,
-            Reason: $"Lenovo PC Support catalog (MT {machineType}). Open OEM download for the installer; TXT file download for the readme when available. Not installed through WUA.",
+            Reason: $"Lenovo PC Support catalog (MT {machineType}). OEM ↓ downloads the installer in Update Express; DOC ↓ downloads the readme when available. Not installed through WUA.",
             ReadmeUrl: readmeUrl);
     }
 

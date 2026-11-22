@@ -129,6 +129,8 @@ public sealed class UpdateEntry
     /// <summary>Optional OEM TXT / README companion (Lenovo). Separate from the installer package.</summary>
     public string ReadmeUrl { get; set; } = "";
     public bool OpensExternalReadme => !string.IsNullOrWhiteSpace(ReadmeUrl);
+    /// <summary>Stable OEM catalog package id (e.g. lenovo:…). Not a WUA UpdateID.</summary>
+    public string OemPackageId { get; set; } = "";
 
     internal UpdateEntry Clone() => new()
     {
@@ -159,6 +161,7 @@ public sealed class UpdateEntry
         ErrorCode = ErrorCode,
         OpensWindowsUpdate = OpensWindowsUpdate,
         ExternalUrl = ExternalUrl,
-        ReadmeUrl = ReadmeUrl
+        ReadmeUrl = ReadmeUrl,
+        OemPackageId = OemPackageId
     };
 }
