@@ -409,6 +409,7 @@ public partial class MainWindow : Window
             path = await OemPackageDownload.DownloadAsync(
                 url,
                 preferredFileName: null,
+                allowTextReadme: !package,
                 progress: msg => Dispatcher.Invoke(() =>
                 {
                     if (StatusText is not null) StatusText.Text = msg;
@@ -463,7 +464,8 @@ public partial class MainWindow : Window
 
         if (package)
         {
-            RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Vellykket", note));
+            // Downloaded ≠ install success — keeps CoveredBySuccess from hiding a later install failure.
+            RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Downloaded", note));
             OemHandledStore.Remember(entry, "Downloaded", path);
             RemoveOemPending(entry);
 
@@ -546,6 +548,8 @@ public partial class MainWindow : Window
                     ? $"OEM-installasjon avsluttet med kode {process.ExitCode}. Fil: {path}"
                     : $"OEM installer exited with code {process.ExitCode}. File: {path}";
                 RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Mislykket", note));
+                // Allow the catalog row to reappear so the user can retry.
+                OemHandledStore.Forget(entry);
                 ActivityLog.TryWrite("OemInstall", "Failed", new
                 {
                     Title = entry.DisplayTitle,
@@ -2272,6 +2276,7 @@ public partial class MainWindow : Window
         ["Download the OEM package (exe/zip/…) in Update Express. Not installed through WUA."] =
             "Last ned OEM-pakken (exe/zip/…) i Update Express. Installeres ikke via WUA.",
         ["Download all selected OEM packages"] = "Last ned alle valgte OEM-pakker",
+        ["Downloaded"] = "Lastet ned",
         ["Change setup…"] = "Endre oppsett…",
         ["About Update Express vs Windows Update"] = "Om Update Express vs Windows Update",
         ["Maintenance window"] = "Vedlikeholdsvindu",

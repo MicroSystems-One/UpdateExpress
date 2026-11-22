@@ -175,8 +175,11 @@ internal sealed class DellOemDriverCatalog : IOemDriverCatalog
             if (item.TryGetProperty("FileFrmtInfo", out var file) && file.ValueKind == JsonValueKind.Object)
                 download = Text(file, "HttpFileLocation");
             string details = $"https://www.dell.com/support/home/en-us/drivers/driversdetails?driverId={Uri.EscapeDataString(id)}";
-            if (string.IsNullOrWhiteSpace(download))
-                download = details;
+            // Require a real package URL. Never treat the HTML driversdetails page as DownloadUrl
+            // (in-app download would save HTML and wrongly mark the row handled).
+            if (string.IsNullOrWhiteSpace(download) ||
+                OemPackageDownload.LooksLikeSupportPage(download))
+                continue;
 
             DateTimeOffset? released = null;
             if (DateTimeOffset.TryParse(Text(item, "ReleaseDate"), out var dto))

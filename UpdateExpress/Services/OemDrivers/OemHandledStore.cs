@@ -68,6 +68,23 @@ internal static class OemHandledStore
         }
     }
 
+    /// <summary>Forget a handled package so a failed install can reappear on the next search.</summary>
+    internal static void Forget(UpdateEntry entry)
+    {
+        string id = entry.OemPackageId?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(id))
+            id = "url:" + (entry.ExternalUrl ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(id) || id == "url:") return;
+        string key = Key(id, entry.UnifiedVersion);
+        lock (Gate)
+        {
+            var state = LoadUnlocked();
+            int removed = state.Items.RemoveAll(i =>
+                string.Equals(Key(i.Id, i.Version), key, StringComparison.OrdinalIgnoreCase));
+            if (removed > 0) SaveUnlocked(state);
+        }
+    }
+
     internal static IReadOnlyList<UpdateEntry> FilterUnhandled(IEnumerable<UpdateEntry> entries)
     {
         lock (Gate)

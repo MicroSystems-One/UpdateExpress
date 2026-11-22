@@ -35,7 +35,7 @@ internal static class OemDriverSearch
         }
 
         var offers = await catalog.SearchAsync(identity, report, cancellationToken).ConfigureAwait(false);
-        var entries = offers.Select(ToEntry).ToList();
+        var entries = offers.Select(ToEntry).Where(e => e.OpensExternalUrl).ToList();
         entries = OemHandledStore.FilterUnhandled(entries).ToList();
         entries.Sort(CompareOemPriorityThenTitle);
         report?.Invoke(entries.Count == offers.Count
@@ -48,8 +48,10 @@ internal static class OemDriverSearch
     {
         bool firmware = offer.Status.Equals("Firmware", StringComparison.OrdinalIgnoreCase) ||
                         offer.Category.Contains("BIOS", StringComparison.OrdinalIgnoreCase);
-        // Prefer the real package (exe/zip/…) over a details/readme companion URL.
-        string openUrl = First(offer.DownloadUrl, offer.DetailsUrl);
+        // Package URL only — never fall back to an HTML details/support page.
+        string openUrl = (offer.DownloadUrl ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(openUrl) || OemPackageDownload.LooksLikeSupportPage(openUrl))
+            openUrl = "";
         return new UpdateEntry
         {
             UpdateId = "", // never install through WUA
@@ -107,10 +109,4 @@ internal static class OemDriverSearch
     private static bool IsMissing(string value) =>
         string.IsNullOrWhiteSpace(value) || value is "—" or "…" or "-" or "N/A" or "n/a";
 
-    private static string First(params string[] values)
-    {
-        foreach (var value in values)
-            if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
-        return "";
-    }
 }
