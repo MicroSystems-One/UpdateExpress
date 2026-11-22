@@ -160,6 +160,8 @@ internal static class HistoryArchive
     /// <summary>
     /// Record an OEM package download or install that never goes through WUA.
     /// Returns the Historikk row when recorded; otherwise null.
+    /// Downloads use Status <c>Downloaded</c> (not Vellykket) so they cannot suppress
+    /// a later install failure via <see cref="CoveredBySuccess"/>.
     /// </summary>
     internal static UpdateEntry? RecordOemOutcome(
         UpdateEntry source,
@@ -170,15 +172,22 @@ internal static class HistoryArchive
         if (source == null) return null;
         bool ok = status is "Vellykket" or "Successful" or "Installert";
         bool failed = status is "Mislykket" or "Failed" or "Avbrutt" or "Cancelled" or "Feilet / avbrutt";
-        if (!ok && !failed) return null;
+        bool downloaded = status is "Downloaded" or "Lastet ned";
+        if (!ok && !failed && !downloaded) return null;
+
+        // Keep download identity distinct from install success/failure (title + status).
+        string title = string.IsNullOrWhiteSpace(source.Title) ? source.DisplayTitle : source.Title;
+        if (downloaded && !title.Contains("(downloaded)", StringComparison.OrdinalIgnoreCase) &&
+            !title.Contains("(lastet ned)", StringComparison.OrdinalIgnoreCase))
+            title = title.TrimEnd() + " (downloaded)";
 
         var entry = new UpdateEntry
         {
-            Title = string.IsNullOrWhiteSpace(source.Title) ? source.DisplayTitle : source.Title,
+            Title = title,
             KB = string.IsNullOrWhiteSpace(source.KB) ? "OEM" : source.KB,
             Category = "Driver / firmware",
             Source = string.IsNullOrWhiteSpace(source.Source) ? "OEM" : source.Source,
-            Status = ok ? "Vellykket" : "Mislykket",
+            Status = ok ? "Vellykket" : failed ? "Mislykket" : "Downloaded",
             StatusNote = statusNote ?? "",
             Priority = source.Priority,
             PriorityExplanation = source.PriorityExplanation,
@@ -194,6 +203,22 @@ internal static class HistoryArchive
             UpdateId = "",
             SafeDefault = false
         };
+        // RecordInstallOutcomes only keeps success/failure; persist downloads directly.
+        if (downloaded)
+        {
+            lock (Gate)
+            {
+                var state = LoadUnlocked();
+                OperationalPriority.Apply(entry);
+                string key = EventKey(entry);
+                int index = state.Entries.FindIndex(existing => EventKey(existing) == key);
+                if (index < 0) state.Entries.Add(entry.Clone());
+                else state.Entries[index] = entry.Clone();
+                Trim(state);
+                SaveUnlocked(state);
+            }
+            return entry;
+        }
         return RecordInstallOutcomes(new[] { entry }) > 0 ? entry : null;
     }
 
