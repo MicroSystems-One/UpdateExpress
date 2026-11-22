@@ -6,8 +6,9 @@ using UpdateExpress.Models;
 namespace UpdateExpress.Services.OemDrivers;
 
 /// <summary>
-/// Persists OEM packages the user already downloaded/installed through Update Express
+/// Persists OEM packages the user confirmed installed through Update Express
 /// so the next catalog search does not keep offering the same Id+Version.
+/// Download-only must never hide a row — only Outcome=Installed counts.
 /// </summary>
 internal static class OemHandledStore
 {
@@ -29,15 +30,15 @@ internal static class OemHandledStore
         if (string.IsNullOrWhiteSpace(key)) return false;
         lock (Gate)
         {
-            return LoadUnlocked().Items.Any(i =>
+            var state = LoadAndPruneUnlocked();
+            return state.Items.Any(i =>
+                IsInstalledOutcome(i.Outcome) &&
                 string.Equals(Key(i.Id, i.Version), key, StringComparison.OrdinalIgnoreCase));
         }
     }
 
-    internal static void Remember(
-        UpdateEntry entry,
-        string outcome,
-        string? localPath = null)
+    /// <summary>Record a confirmed install only. Do not call for download-only.</summary>
+    internal static void RememberInstalled(UpdateEntry entry, string? localPath = null)
     {
         string id = entry.OemPackageId?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(id))
@@ -46,7 +47,7 @@ internal static class OemHandledStore
 
         lock (Gate)
         {
-            var state = LoadUnlocked();
+            var state = LoadAndPruneUnlocked();
             string key = Key(id, entry.UnifiedVersion);
             int index = state.Items.FindIndex(i =>
                 string.Equals(Key(i.Id, i.Version), key, StringComparison.OrdinalIgnoreCase));
@@ -56,19 +57,23 @@ internal static class OemHandledStore
                 Version = NormalizeVersion(entry.UnifiedVersion),
                 Title = entry.Title,
                 Source = entry.Source,
-                Outcome = outcome,
+                Outcome = "Installed",
                 LocalPath = localPath ?? "",
                 At = DateTimeOffset.Now
             };
             if (index < 0) state.Items.Add(item);
             else state.Items[index] = item;
             if (state.Items.Count > 500)
-                state.Items = state.Items.OrderByDescending(i => i.At).Take(500).ToList();
+                state.Items = state.Items
+                    .Where(i => IsInstalledOutcome(i.Outcome))
+                    .OrderByDescending(i => i.At)
+                    .Take(500)
+                    .ToList();
             SaveUnlocked(state);
         }
     }
 
-    /// <summary>Forget a handled package so a failed install can reappear on the next search.</summary>
+    /// <summary>Forget a handled package so a failed/cancelled install can reappear.</summary>
     internal static void Forget(UpdateEntry entry)
     {
         string id = entry.OemPackageId?.Trim() ?? "";
@@ -78,7 +83,7 @@ internal static class OemHandledStore
         string key = Key(id, entry.UnifiedVersion);
         lock (Gate)
         {
-            var state = LoadUnlocked();
+            var state = LoadAndPruneUnlocked();
             int removed = state.Items.RemoveAll(i =>
                 string.Equals(Key(i.Id, i.Version), key, StringComparison.OrdinalIgnoreCase));
             if (removed > 0) SaveUnlocked(state);
@@ -89,8 +94,11 @@ internal static class OemHandledStore
     {
         lock (Gate)
         {
+            var state = LoadAndPruneUnlocked();
             var handled = new HashSet<string>(
-                LoadUnlocked().Items.Select(i => Key(i.Id, i.Version)),
+                state.Items
+                    .Where(i => IsInstalledOutcome(i.Outcome))
+                    .Select(i => Key(i.Id, i.Version)),
                 StringComparer.OrdinalIgnoreCase);
             return entries.Where(e =>
             {
@@ -98,6 +106,24 @@ internal static class OemHandledStore
                 return string.IsNullOrWhiteSpace(key) || !handled.Contains(key);
             }).ToList();
         }
+    }
+
+    private static bool IsInstalledOutcome(string? outcome) =>
+        string.Equals(outcome, "Installed", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(outcome, "Installert", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Drop legacy download-only rows written by earlier builds so Check for Updates
+    /// offers those packages again until a real install is confirmed.
+    /// </summary>
+    private static OemHandledState LoadAndPruneUnlocked()
+    {
+        var state = LoadUnlocked();
+        int before = state.Items.Count;
+        state.Items.RemoveAll(i => !IsInstalledOutcome(i.Outcome));
+        if (state.Items.Count != before)
+            SaveUnlocked(state);
+        return state;
     }
 
     private static string Key(string? id, string? version)

@@ -464,10 +464,8 @@ public partial class MainWindow : Window
 
         if (package)
         {
-            // Downloaded ≠ install success — keeps CoveredBySuccess from hiding a later install failure.
+            // History may record Downloaded, but the Drivers row stays available until install is confirmed.
             RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Downloaded", note));
-            OemHandledStore.Remember(entry, "Downloaded", path);
-            RemoveOemPending(entry);
 
             if (!quiet)
             {
@@ -477,19 +475,32 @@ public partial class MainWindow : Window
                 {
                     var run = MessageBox.Show(this,
                         norwegian
-                            ? $"Lagret:\n{path}\n\nJA: kjør installasjonsprogrammet nå.\nNEI: bare behold filen (raden skjules til versjonen endres)."
-                            : $"Saved:\n{path}\n\nYES: run the installer now.\nNO: keep the file only (row stays hidden until the catalog version changes).",
+                            ? $"Lagret:\n{path}\n\nJA: kjør installasjonsprogrammet nå.\nNEI: behold filen — oppføringen forblir tilgjengelig til installasjon er bekreftet."
+                            : $"Saved:\n{path}\n\nYES: run the installer now.\nNO: keep the file — the row stays available until install is confirmed.",
                         norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
                         MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
                     if (run == MessageBoxResult.Yes)
+                    {
                         await TryRunOemInstallerAsync(entry, path, norwegian).ConfigureAwait(true);
+                    }
+                    else
+                    {
+                        var mark = MessageBox.Show(this,
+                            norwegian
+                                ? "Har du allerede installert denne OEM-pakken?\n\nJA: skjul den fra Drivers/Firmware og merk som Vellykket.\nNEI: behold den tilgjengelig."
+                                : "Did you already install this OEM package?\n\nYES: hide it from Drivers/Firmware and mark as Successful.\nNO: keep it available.",
+                            norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
+                            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+                        if (mark == MessageBoxResult.Yes)
+                            ConfirmOemInstalled(entry, path, norwegian);
+                    }
                 }
                 else
                 {
                     MessageBox.Show(this,
                         norwegian
-                            ? $"Lagret:\n{path}\n\nOppføringen skjules til katalogversjonen endres."
-                            : $"Saved:\n{path}\n\nThis entry stays hidden until the catalog version changes.",
+                            ? $"Lagret:\n{path}\n\nOppføringen forblir tilgjengelig til du bekrefter installasjon."
+                            : $"Saved:\n{path}\n\nThe entry stays available until you confirm install.",
                         norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
                         MessageBoxButton.OK, MessageBoxImage.Information);
                 }
@@ -532,15 +543,7 @@ public partial class MainWindow : Window
                 string note = norwegian
                     ? $"OEM-installasjon fullført (exit {process.ExitCode}). Fil: {path}"
                     : $"OEM install finished (exit {process.ExitCode}). File: {path}";
-                RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Vellykket", note));
-                OemHandledStore.Remember(entry, "Installed", path);
-                ActivityLog.TryWrite("OemInstall", "Installert", new
-                {
-                    Title = entry.DisplayTitle,
-                    ExitCode = process.ExitCode,
-                    Path = path,
-                    OemPackageId = entry.OemPackageId
-                });
+                ConfirmOemInstalled(entry, path, norwegian, note, process.ExitCode);
             }
             else
             {
@@ -548,7 +551,6 @@ public partial class MainWindow : Window
                     ? $"OEM-installasjon avsluttet med kode {process.ExitCode}. Fil: {path}"
                     : $"OEM installer exited with code {process.ExitCode}. File: {path}";
                 RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Mislykket", note));
-                // Allow the catalog row to reappear so the user can retry.
                 OemHandledStore.Forget(entry);
                 ActivityLog.TryWrite("OemInstall", "Failed", new
                 {
@@ -564,6 +566,28 @@ public partial class MainWindow : Window
                 norwegian ? "OEM-installasjon" : "OEM install",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    private void ConfirmOemInstalled(
+        UpdateEntry entry,
+        string? path,
+        bool norwegian,
+        string? note = null,
+        int? exitCode = null)
+    {
+        note ??= norwegian
+            ? $"OEM-installasjon bekreftet. Fil: {path}"
+            : $"OEM install confirmed. File: {path}";
+        RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Vellykket", note));
+        OemHandledStore.RememberInstalled(entry, path);
+        RemoveOemPending(entry);
+        ActivityLog.TryWrite("OemInstall", "Installert", new
+        {
+            Title = entry.DisplayTitle,
+            ExitCode = exitCode,
+            Path = path,
+            OemPackageId = entry.OemPackageId
+        });
     }
 
     private void RememberOemHistory(UpdateEntry? historyRow)
