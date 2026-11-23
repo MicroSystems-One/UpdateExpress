@@ -1525,6 +1525,51 @@ public partial class MainWindow : Window
         RefreshFeatureUpdateButton();
     }
 
+    /// <summary>
+    /// After install: keep the last search results, minus rows that completed successfully.
+    /// Failed / cancelled / not-verified rows stay listed.
+    /// </summary>
+    private void PruneSuccessfullyInstalledFromPending(
+        IReadOnlyList<UpdateEntry> software,
+        IReadOnlyList<UpdateEntry> drivers,
+        IReadOnlyList<InstallationQueueItem> queue)
+    {
+        if (queue.Count == 0 || (software.Count == 0 && drivers.Count == 0)) return;
+        var removeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var removeTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < software.Count; i++)
+        {
+            if (i >= queue.Count || !InstallationManagerWindow.IsCompletedState(queue[i].State)) continue;
+            if (!string.IsNullOrWhiteSpace(software[i].UpdateId))
+                removeIds.Add(software[i].UpdateId);
+            else if (!string.IsNullOrWhiteSpace(software[i].Title))
+                removeTitles.Add(software[i].Title.Trim());
+        }
+        for (int i = 0; i < drivers.Count; i++)
+        {
+            int qi = software.Count + i;
+            if (qi >= queue.Count || !InstallationManagerWindow.IsCompletedState(queue[qi].State)) continue;
+            if (!string.IsNullOrWhiteSpace(drivers[i].UpdateId))
+                removeIds.Add(drivers[i].UpdateId);
+            else if (!string.IsNullOrWhiteSpace(drivers[i].Title))
+                removeTitles.Add(drivers[i].Title.Trim());
+        }
+        if (removeIds.Count == 0 && removeTitles.Count == 0) return;
+
+        for (int i = _pendingSnapshot.Count - 1; i >= 0; i--)
+        {
+            var entry = _pendingSnapshot[i];
+            bool byId = !string.IsNullOrWhiteSpace(entry.UpdateId) && removeIds.Contains(entry.UpdateId);
+            bool byTitle = !string.IsNullOrWhiteSpace(entry.Title) && removeTitles.Contains(entry.Title.Trim());
+            if (byId || byTitle)
+            {
+                entry.IsSelected = false;
+                _pendingSnapshot.RemoveAt(i);
+            }
+        }
+        RefreshFeatureUpdateButton();
+    }
+
     private void RefreshFeatureUpdateButton()
     {
         if (OpenWindowsUpdateButton is null) return;
@@ -3656,6 +3701,12 @@ public partial class MainWindow : Window
                     acceptUiProgress = false;
                     foreach (var entry in results) Log("Driver", entry.Status, new { entry.Title, entry.UpdateId, entry.ErrorCode });
                     var driverResult = results.FirstOrDefault();
+                    if (driverResult is not null &&
+                        (driverResult.Source ?? "").Contains("Restart required", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Hold this UpdateId until Windows reboot indicators clear (avoids Realtek-style second install).
+                        DriverRebootHoldStore.Remember(d, "Restart required after WUA driver install");
+                    }
                     string driverState = driverResult == null ? notVerifiedLabel :
                         driverResult.Status == "Installert" ? verifyingLabel :
                         driverResult.Status == "Delvis fullført" ? notVerifiedLabel :
@@ -3746,7 +3797,8 @@ public partial class MainWindow : Window
                         timeoutMessage: norwegian ? "Verifisering (WUA-rescan) tidsavbrutt." : "Verification (WUA rescan) timed out.",
                         abandonOnTimeout: true);
                     outstandingWork.Remove(pendingTask);
-                    ReplacePendingSnapshot(pending);
+                    // Keep last search results for display; rescan is only for verification.
+                    // Successfully installed rows are pruned below after queue states are resolved.
                     var historyTask = WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
                     outstandingWork.Add(historyTask);
                     _historySnapshot = await AwaitInstallationTaskAsync(
@@ -3780,7 +3832,8 @@ public partial class MainWindow : Window
                         manager.CompleteItem(driverIndex, next, InstallationManagerWindow.IsUnverifiedState(next));
                         Log("Driver", next, new { drivers[i].UpdateId, drivers[i].Title, remains, historyOk });
                     }
-                    Log("WUA", "Rescan completed", new { Count = pending.Count });
+                    PruneSuccessfullyInstalledFromPending(software, drivers, queue);
+                    Log("WUA", "Rescan completed", new { Count = pending.Count, PendingKept = _pendingSnapshot.Count });
                 }
                 catch (TimeoutException tex)
                 {
@@ -3790,8 +3843,14 @@ public partial class MainWindow : Window
                     for (int i = 0; i < software.Count + drivers.Count; i++)
                         if (InstallationManagerWindow.IsVerifyingState(queue[i].State))
                             manager.CompleteItem(i, completedLabel, false);
+                    PruneSuccessfullyInstalledFromPending(software, drivers, queue);
                 }
-                catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage((norwegian ? "Ny skanning av Windows Update feilet: " : "Windows Update rescan failed: ") + ex.Message); }
+                catch (Exception ex)
+                {
+                    Log("WUA", "Rescan failed", ex.Message);
+                    manager.SetStage((norwegian ? "Ny skanning av Windows Update feilet: " : "Windows Update rescan failed: ") + ex.Message);
+                    PruneSuccessfullyInstalledFromPending(software, drivers, queue);
+                }
             }
 
             if (needWingetVerify)
@@ -3842,6 +3901,8 @@ public partial class MainWindow : Window
                 ScheduleBackgroundWingetRefresh();
             }
 
+            // Always prune completed WUA rows from the last search (even if verify was skipped).
+            PruneSuccessfullyInstalledFromPending(software, drivers, queue);
             SetTab(_activeTab);
             RefreshHealthSummary();
             Log("InstallationManager", "Finished", new { Total = queue.Count, verifyTimedOut, stillOfferedAfterSuccess, needWuaVerify, needWingetVerify, allWingetFailed });

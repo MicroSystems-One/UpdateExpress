@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -196,8 +196,10 @@ public static class WindowsUpdateReader
                 : "Installed driver version not verified for this hardware ID.";
         }
         InstalledDriverReader.Classify(entries);
-        // Product: do not keep WUA Drivers/Firmware that are Older or Same vs local PnP.
+        // Hide clear Older/Same vs local PnP from the available list (fail closed: unmatched stay).
         InstalledDriverReader.RemoveOlderOrSame(entries);
+        // Drivers that already installed with Restart required stay hidden while reboot is pending.
+        entries = DriverRebootHoldStore.FilterAvailable(entries);
         var featureOffer = FeatureUpdateOfferReader.Read();
         if (featureOffer is not null && !entries.Any(entry =>
                 entry.Title.Contains(featureOffer.Title, StringComparison.OrdinalIgnoreCase) ||

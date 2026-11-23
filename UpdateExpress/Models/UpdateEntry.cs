@@ -30,6 +30,7 @@ public sealed class UpdateEntry
     public string DriverReason { get; set; } = "";
     public string DriverStatus { get; set; } = "";
     public string InstalledDriverVersion { get; set; } = "";
+    /// <summary>Trailing driver-style version in titles: "… - 6.0.9159.1" or "(6.0.9159.1)".</summary>
     private static readonly System.Text.RegularExpressions.Regex TrailingVersion = new(
         @"(?:\s+-\s+|\s*\()(?<version>\d+(?:\.\d+){1,7})\)?\s*$",
         System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -58,10 +59,25 @@ public sealed class UpdateEntry
     }
     /// <summary>Optional Version column override (e.g. WinGet installed → available).</summary>
     public string VersionDisplay { get; set; } = "";
-    public string UnifiedVersion =>
-        !string.IsNullOrWhiteSpace(VersionDisplay) ? VersionDisplay
-        : Category == "Driver / firmware" ? DriverVersion
-        : SoftwareVersion;
+    /// <summary>
+    /// Version column value. History rows often lack Category / WUA driver metadata;
+    /// when Version is empty, fill from a clear trailing <c>x.y.z.w</c> in the title.
+    /// </summary>
+    public string UnifiedVersion
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(VersionDisplay)) return VersionDisplay;
+            if (Category == "Driver / firmware")
+            {
+                string driver = DriverVersion;
+                return driver == "—" ? "" : driver;
+            }
+            if (!string.IsNullOrWhiteSpace(SoftwareVersion)) return SoftwareVersion;
+            var trailing = TrailingVersion.Match(Title ?? "");
+            return trailing.Success ? trailing.Groups["version"].Value : "";
+        }
+    }
     public string DisplayTitle
     {
         get
