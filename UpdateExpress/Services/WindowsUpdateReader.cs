@@ -196,6 +196,8 @@ public static class WindowsUpdateReader
                 : "Installed driver version not verified for this hardware ID.";
         }
         InstalledDriverReader.Classify(entries);
+        // Product: do not keep WUA Drivers/Firmware that are Older or Same vs local PnP.
+        InstalledDriverReader.RemoveOlderOrSame(entries);
         var featureOffer = FeatureUpdateOfferReader.Read();
         if (featureOffer is not null && !entries.Any(entry =>
                 entry.Title.Contains(featureOffer.Title, StringComparison.OrdinalIgnoreCase) ||

@@ -57,7 +57,7 @@ internal static class InstalledDriverReader
                 entry.DriverReason = "Installed driver inventory unavailable: " + ex.Message;
             return;
         }
-        foreach (var entry in entries.Where(e => e.Category == "Driver / firmware" && e.DriverStatus != "Firmware"))
+        foreach (var entry in entries.Where(e => e.Category == "Driver / firmware"))
         {
             if (!Version.TryParse(entry.DriverVersion, out var offered)) continue;
             var hardware = Normalize(entry.DriverHardwareId);
@@ -75,10 +75,29 @@ internal static class InstalledDriverReader
             if (!Version.TryParse(match.Version, out var current)) continue;
             entry.InstalledDriverVersion = match.Version;
             var comparison = offered.CompareTo(current);
-            // Preserve explicit WUA recommendation as status; still report version relationship.
             var relation = comparison > 0 ? "higher" : comparison < 0 ? "lower" : "equal";
             entry.DriverReason = $"Installed PnP device: {match.Name} ({match.DeviceId}). Offered version is {relation} than installed {match.Version}. WUA assigned: {entry.DriverAssigned}.";
-            if (!entry.DriverAssigned) entry.DriverStatus = comparison > 0 ? "Newer" : comparison < 0 ? "Older" : "Same version";
+            if (comparison > 0)
+            {
+                // Keep Firmware / Recommended labels for newer offers; only unassigned drivers become "Newer".
+                if (!entry.DriverAssigned && entry.DriverStatus != "Firmware")
+                    entry.DriverStatus = "Newer";
+            }
+            else
+            {
+                // Clearly older or same — label so the available list can drop the row.
+                entry.DriverStatus = comparison < 0 ? "Older" : "Same version";
+            }
         }
     }
+
+    /// <summary>
+    /// Drop WUA driver/firmware rows clearly Older or Same vs local PnP.
+    /// Unmatched / unknown comparisons stay (fail closed).
+    /// </summary>
+    internal static int RemoveOlderOrSame(List<UpdateEntry> entries) =>
+        entries.RemoveAll(e =>
+            e.Category == "Driver / firmware" &&
+            (e.DriverStatus.Equals("Older", StringComparison.OrdinalIgnoreCase) ||
+             e.DriverStatus.Equals("Same version", StringComparison.OrdinalIgnoreCase)));
 }
