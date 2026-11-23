@@ -42,11 +42,20 @@ internal static class OemVersionComparer
         if (leftDot is not null && rightDot is not null)
             return AppUpdateChecker.CompareVersions(leftDot, rightDot);
 
-        // Slash compounds: M28KT44A/20.0.0.44 — compare matching token kinds pairwise.
-        foreach (var leftPart in SplitParts(left))
+        // Slash compounds: M28KT44A/20.0.0.44 — recurse only when split reduces the input.
+        // Atomic tokens (e.g. "A12" vs "A11") must not re-enter TryCompare or we stack-overflow.
+        var leftParts = SplitParts(left).ToArray();
+        var rightParts = SplitParts(right).ToArray();
+        if (!SplitReduced(left, leftParts) && !SplitReduced(right, rightParts))
+            return null;
+
+        foreach (var leftPart in leftParts)
         {
-            foreach (var rightPart in SplitParts(right))
+            foreach (var rightPart in rightParts)
             {
+                if (string.Equals(leftPart, left, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(rightPart, right, StringComparison.OrdinalIgnoreCase))
+                    continue;
                 int? nested = TryCompare(leftPart, rightPart);
                 if (nested is not null and not 0) return nested;
                 if (nested == 0) return 0;
@@ -55,6 +64,11 @@ internal static class OemVersionComparer
 
         return null;
     }
+
+    /// <summary>True when splitting produced a strictly smaller / multi-token form.</summary>
+    private static bool SplitReduced(string original, string[] parts) =>
+        parts.Length > 1 ||
+        (parts.Length == 1 && !string.Equals(parts[0], original, StringComparison.OrdinalIgnoreCase));
 
     internal static bool IsBlank(string? value) =>
         string.IsNullOrWhiteSpace(value) || value is "—" or "…" or "-" or "N/A" or "n/a";
