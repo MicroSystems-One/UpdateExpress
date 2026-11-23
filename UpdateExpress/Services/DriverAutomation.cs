@@ -391,6 +391,10 @@ internal static class DriverAutomation
                     if (state == "Completed") ok++;
                     if (driverResult?.Source?.Contains("Restart", StringComparison.OrdinalIgnoreCase) == true)
                         rebootHint = true;
+                    if (driverResult is not null &&
+                        driverResult.Status == "Installert" &&
+                        (driverResult.Source ?? "").Contains("Restart required", StringComparison.OrdinalIgnoreCase))
+                        DriverRebootHoldStore.Remember(d, "Restart required after WUA driver install");
                     manager.CompleteItem(i, state, state.StartsWith("Failed", StringComparison.Ordinal));
                 }
                 catch (Exception ex)
