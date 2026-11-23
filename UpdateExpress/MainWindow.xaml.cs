@@ -530,6 +530,7 @@ public partial class MainWindow : Window
     private async Task TryRunOemInstallerAsync(UpdateEntry entry, string path, bool norwegian)
     {
         bool holdRecorded = false;
+        List<UpdateEntry> removedPending = new();
         try
         {
             var start = new ProcessStartInfo(path) { UseShellExecute = true };
@@ -548,7 +549,7 @@ public partial class MainWindow : Window
             // and the next Search re-offered (+ re-downloaded) the same Id+Version.
             OemHandledStore.RememberRebootHold(entry, path);
             holdRecorded = true;
-            RemoveOemPending(entry);
+            removedPending = RemoveOemPending(entry);
             ActivityLog.TryWrite("OemInstall", "RebootHold", new
             {
                 Title = entry.DisplayTitle,
@@ -579,6 +580,9 @@ public partial class MainWindow : Window
                 RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Mislykket", note));
                 OemHandledStore.Forget(entry);
                 holdRecorded = false;
+                // Early RemoveOemPending cleared the Drivers row — put it back for retry.
+                RestoreOemPending(removedPending);
+                removedPending = new();
                 ActivityLog.TryWrite("OemInstall", "Failed", new
                 {
                     Title = entry.DisplayTitle,
@@ -655,13 +659,32 @@ public partial class MainWindow : Window
         RefreshHealthSummary();
     }
 
-    private void RemoveOemPending(UpdateEntry entry)
+    /// <returns>Removed pending OEM rows (so a failed installer can restore them).</returns>
+    private List<UpdateEntry> RemoveOemPending(UpdateEntry entry)
     {
         var remove = _pendingSnapshot
             .Where(e => IsOemDownloadable(e) && MatchesOemIdentity(e, entry))
             .ToList();
-        if (remove.Count == 0) return;
+        if (remove.Count == 0) return remove;
         foreach (var item in remove) _pendingSnapshot.Remove(item);
+        RefreshPendingGrid();
+        return remove;
+    }
+
+    private void RestoreOemPending(IReadOnlyList<UpdateEntry> rows)
+    {
+        if (rows.Count == 0) return;
+        foreach (var item in rows)
+        {
+            if (_pendingSnapshot.Any(e => IsOemDownloadable(e) && MatchesOemIdentity(e, item)))
+                continue;
+            _pendingSnapshot.Insert(0, item);
+        }
+        RefreshPendingGrid();
+    }
+
+    private void RefreshPendingGrid()
+    {
         if (_showingHistory) return;
         Entries.Clear();
         foreach (var item in _pendingSnapshot) Entries.Add(item);
