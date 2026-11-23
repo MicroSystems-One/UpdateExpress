@@ -36,11 +36,19 @@ internal static class OemDriverSearch
 
         var offers = await catalog.SearchAsync(identity, report, cancellationToken).ConfigureAwait(false);
         var entries = offers.Select(ToEntry).Where(e => e.OpensExternalUrl).ToList();
+        int afterCatalog = entries.Count;
         entries = OemHandledStore.FilterUnhandled(entries).ToList();
+        int afterHandled = entries.Count;
+        // Before showing results: drop ≤ installed and older siblings for the same component.
+        entries = OemInstalledVersionFilter.Filter(entries, report).ToList();
         entries.Sort(CompareOemPriorityThenTitle);
-        report?.Invoke(entries.Count == offers.Count
-            ? $"OEM drivers: {entries.Count} offer(s) after Critical-first sort."
-            : $"OEM drivers: {entries.Count} offer(s) ({offers.Count - entries.Count} already handled).");
+        int handledDropped = afterCatalog - afterHandled;
+        int versionDropped = afterHandled - entries.Count;
+        report?.Invoke(
+            $"OEM drivers: {entries.Count} offer(s) after version filter" +
+            (handledDropped > 0 ? $" ({handledDropped} handled)" : "") +
+            (versionDropped > 0 ? $" ({versionDropped} older/equal)" : "") +
+            ".");
         return entries;
     }
 
