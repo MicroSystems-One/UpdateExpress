@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.56",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.56/UpdateExpress_v0.7.2.56.exe",
-  "sha256": "ebef9993b3eda02ee1753cf85f0baa50c904669e266ffd193a3d60e70e78c809",
-  "publishedAt": "2026-11-23T12:33:27Z",
-  "releaseNotes": "Hotfix TryCompare recursion (#122 69a3a7c) on 0.7.2.55. Tip fca3884. Keep 0.7.2.55 for rollback."
+  "version": "0.7.2.57",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.57/UpdateExpress_v0.7.2.57.exe",
+  "sha256": "e93e85f27effeb9cb6643d2371a7c3c2c920b09c7ad72ec6b14b033045a29f85",
+  "publishedAt": "2026-11-23T13:20:47Z",
+  "releaseNotes": "Grid Version/align/keep-results + DriverRebootHold (#128 9828455) on 0.7.2.56. Tip bf351fe. Keep 0.7.2.56 for rollback."
 }
