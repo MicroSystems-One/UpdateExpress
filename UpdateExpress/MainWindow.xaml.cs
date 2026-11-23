@@ -3309,7 +3309,9 @@ public partial class MainWindow : Window
                     acceptUiProgress = false;
                     foreach (var entry in results) Log("Driver", entry.Status, new { entry.Title, entry.UpdateId, entry.ErrorCode });
                     var driverResult = results.FirstOrDefault();
+                    // Only hold after a successful install — failed/partial must stay retryable.
                     if (driverResult is not null &&
+                        driverResult.Status == "Installert" &&
                         (driverResult.Source ?? "").Contains("Restart required", StringComparison.OrdinalIgnoreCase))
                     {
                         // Hold this UpdateId until Windows reboot indicators clear (avoids Realtek-style second install).

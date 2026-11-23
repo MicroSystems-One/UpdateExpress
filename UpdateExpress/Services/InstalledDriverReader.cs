@@ -75,28 +75,12 @@ internal static class InstalledDriverReader
             if (!Version.TryParse(match.Version, out var current)) continue;
             entry.InstalledDriverVersion = match.Version;
             var comparison = offered.CompareTo(current);
+            // Preserve explicit WUA recommendation as status; still report version relationship.
+            // Do not hard-hide Older/Same: Extension INF packages share a hardware ID with the
+            // base driver but are versioned independently, so HWID-only compare can false-positive.
             var relation = comparison > 0 ? "higher" : comparison < 0 ? "lower" : "equal";
             entry.DriverReason = $"Installed PnP device: {match.Name} ({match.DeviceId}). Offered version is {relation} than installed {match.Version}. WUA assigned: {entry.DriverAssigned}.";
-            if (comparison > 0)
-            {
-                if (!entry.DriverAssigned && entry.DriverStatus != "Firmware")
-                    entry.DriverStatus = "Newer";
-            }
-            else
-            {
-                // Clearly older or same — available list drops these via RemoveOlderOrSame.
-                entry.DriverStatus = comparison < 0 ? "Older" : "Same version";
-            }
+            if (!entry.DriverAssigned) entry.DriverStatus = comparison > 0 ? "Newer" : comparison < 0 ? "Older" : "Same version";
         }
     }
-
-    /// <summary>
-    /// Drop WUA driver/firmware rows clearly Older or Same vs local PnP.
-    /// Unmatched / unknown comparisons stay (fail closed).
-    /// </summary>
-    internal static int RemoveOlderOrSame(List<UpdateEntry> entries) =>
-        entries.RemoveAll(e =>
-            e.Category == "Driver / firmware" &&
-            (e.DriverStatus.Equals("Older", StringComparison.OrdinalIgnoreCase) ||
-             e.DriverStatus.Equals("Same version", StringComparison.OrdinalIgnoreCase)));
 }
