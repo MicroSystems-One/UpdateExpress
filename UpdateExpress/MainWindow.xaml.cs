@@ -211,6 +211,14 @@ public partial class MainWindow : Window
         SelectAllUpdates.Visibility = Visibility.Visible;
         SelectedCountText.Visibility = Visibility.Visible;
         HistoryPdfButton.Visibility = tab == "history" ? Visibility.Visible : Visibility.Collapsed;
+        // History must not expose OEM DOC/OEM download affordances (even if a row still has URLs).
+        var oemCols = tab == "history" ? Visibility.Collapsed : Visibility.Visible;
+        if (OemDocColumn != null) OemDocColumn.Visibility = oemCols;
+        if (OemPackageColumn != null) OemPackageColumn.Visibility = oemCols;
+        if (OemBulkDownloadButton != null && tab == "history")
+            OemBulkDownloadButton.Visibility = Visibility.Collapsed;
+        else
+            UpdateOemBulkDownloadButton();
         UpdatesGrid.Items.Refresh();
         UpdateSelectionControls();
         if (_languageReady) ApplyLanguage();
@@ -464,8 +472,8 @@ public partial class MainWindow : Window
 
         if (package)
         {
-            // History may record Downloaded, but the Drivers row stays available until install is confirmed.
-            RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Downloaded", note));
+            // Download alone must not write History or mark handled — Drivers row stays until Vellykket.
+            if (StatusText != null) StatusText.Text = note;
 
             if (!quiet)
             {
@@ -606,11 +614,7 @@ public partial class MainWindow : Window
     private void RemoveOemPending(UpdateEntry entry)
     {
         var remove = _pendingSnapshot
-            .Where(e => IsOemDownloadable(e) &&
-                        ((!string.IsNullOrWhiteSpace(entry.OemPackageId) &&
-                          string.Equals(e.OemPackageId, entry.OemPackageId, StringComparison.OrdinalIgnoreCase) &&
-                          string.Equals(e.UnifiedVersion, entry.UnifiedVersion, StringComparison.OrdinalIgnoreCase))
-                         || string.Equals(e.ExternalUrl, entry.ExternalUrl, StringComparison.OrdinalIgnoreCase)))
+            .Where(e => IsOemDownloadable(e) && MatchesOemIdentity(e, entry))
             .ToList();
         if (remove.Count == 0) return;
         foreach (var item in remove) _pendingSnapshot.Remove(item);
@@ -624,6 +628,20 @@ public partial class MainWindow : Window
         }
         _entriesView.Refresh();
         UpdateSelectionControls();
+    }
+
+    private static bool MatchesOemIdentity(UpdateEntry pending, UpdateEntry reference)
+    {
+        if (!string.IsNullOrWhiteSpace(reference.OemPackageId) &&
+            string.Equals(pending.OemPackageId, reference.OemPackageId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(pending.UnifiedVersion, reference.UnifiedVersion, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (!string.IsNullOrWhiteSpace(reference.ExternalUrl) &&
+            string.Equals(pending.ExternalUrl, reference.ExternalUrl, StringComparison.OrdinalIgnoreCase))
+            return true;
+        // History dismiss may have cleared URLs; match title+version for OEM rows.
+        return string.Equals((pending.Title ?? "").Trim(), (reference.Title ?? "").Trim(), StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(pending.UnifiedVersion, reference.UnifiedVersion, StringComparison.OrdinalIgnoreCase);
     }
 
     private void OpenOemDriver_Click(object sender, RoutedEventArgs e)
@@ -1200,10 +1218,14 @@ public partial class MainWindow : Window
         AppendOutcomeLink(fixedLabel, fixedEntries.Count, "fixed", blink: false, highlightRed: false);
         HealthSummary.Inlines.Add(new Run("  |  "));
         AppendOutcomeLink(resolvedLabel, laterSuccess, "resolved", blink: false, highlightRed: false);
-        HealthSummary.Inlines.Add(new Run($"  |  {unresolvedLabel}: {unresolved}"));
+        HealthSummary.Inlines.Add(new Run("  |  "));
+        if (unresolved > 0)
+            AppendOutcomeLink(unresolvedLabel, unresolved, "unresolved", blink: false, highlightRed: true);
+        else
+            HealthSummary.Inlines.Add(new Run($"{unresolvedLabel}: {unresolved}"));
         HealthSummary.ToolTip = norwegian
-            ? "Klikk Feil / Vellykket / Fikset / Løst KB for oversikt. Fikset = senere suksess for samme KB, eller at den feilede oppdateringen ikke lenger tilbys. Matching KB beviser ikke at den opprinnelige feilen er reparert."
-            : "Click Failures / Success / Fixed / Resolved KB for a list. Fixed means a later success for the same KB, or the failed update is no longer offered. Matching KB numbers do not prove the original error was repaired.";
+            ? "Klikk Feil / Vellykket / Fikset / Løst KB / Uløst for oversikt. Uløst: Nullstill telleren eller Skjul inkompatible OEM-pakker. Fikset = senere suksess for samme KB, eller at den feilede oppdateringen ikke lenger tilbys."
+            : "Click Failures / Success / Fixed / Resolved KB / Unresolved for a list. Unresolved: clear the counter or hide incompatible OEM packages. Fixed means a later success for the same KB, or the failed update is no longer offered.";
     }
 
     private void AppendOutcomeLink(string label, int count, string kind, bool blink, bool highlightRed)
@@ -1249,21 +1271,29 @@ public partial class MainWindow : Window
         var fixedEntries = _historySnapshot.Where(x => x.IsHistoryFixed).ToList();
         var pendingKbs = _pendingSnapshot.SelectMany(x => SplitKbs(x.KB)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var resolvedEntries = new List<UpdateEntry>();
+        var unresolvedEntries = new List<UpdateEntry>();
         foreach (var failure in failures.Where(x => !string.Equals(x.StatusNote, "install-outcome", StringComparison.OrdinalIgnoreCase)))
         {
             var keys = SplitKbs(failure.KB).ToArray();
-            if (keys.Length == 0) continue;
+            if (keys.Length == 0)
+            {
+                unresolvedEntries.Add(failure);
+                continue;
+            }
             var failureDate = ReminderSchedule.TryParseDate(failure.Date) ?? DateTime.MinValue;
             if (keys.Any(k => pendingKbs.Contains(k))) continue;
             if (success.Any(x => (ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue) > failureDate &&
                                  SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any()))
                 resolvedEntries.Add(failure);
+            else
+                unresolvedEntries.Add(failure);
         }
 
         string heading;
         string subtitle;
         IReadOnlyList<UpdateEntry> entries;
         bool showFixIt = false;
+        bool showUnresolvedActions = false;
         switch (kind)
         {
             case "failures":
@@ -1295,13 +1325,72 @@ public partial class MainWindow : Window
                     : "Earlier failures where the same KB later installed successfully.";
                 entries = resolvedEntries;
                 break;
+            case "unresolved":
+                heading = norwegian ? "Uløst" : "Unresolved";
+                subtitle = norwegian
+                    ? "Feil uten senere suksess for samme KB (inkl. OEM uten KB). Nullstill Unresolved fjerner telleren (merker Fixed). Skjul fra fremtidige oppdateringer skjuler pakken i Historikk og OEM-katalog (f.eks. Seagate-firmware uten komponent)."
+                    : "Failures without a later success for the same KB (including OEM with no KB). Clear Unresolved resets the counter (marks Fixed). Hide from future updates removes the package from History and the OEM catalog (e.g. Seagate firmware when the PC lacks the component).";
+                entries = unresolvedEntries;
+                showUnresolvedActions = true;
+                break;
             default:
                 return;
         }
 
-        var dlg = new OutcomeOverviewWindow(kind, heading, subtitle, entries, showFixIt, norwegian) { Owner = this };
-        if (dlg.ShowDialog() == true && dlg.FixRequestedEntry is UpdateEntry fixEntry)
+        var dlg = new OutcomeOverviewWindow(kind, heading, subtitle, entries, showFixIt, norwegian, showUnresolvedActions) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        if (dlg.FixRequestedEntry is UpdateEntry fixEntry)
             OpenOutcomeFix(fixEntry, norwegian);
+        else if (dlg.ClearUnresolvedEntry is UpdateEntry clearEntry)
+            ClearUnresolvedEntry(clearEntry, norwegian);
+        else if (dlg.HideFromFutureEntry is UpdateEntry hideEntry)
+            HideUnresolvedFromFuture(hideEntry, norwegian);
+    }
+
+    private void ClearUnresolvedEntry(UpdateEntry entry, bool norwegian)
+    {
+        string note = norwegian
+            ? "Merket Fixed fordi Uløst ble nullstilt av brukeren. Opprinnelig feilkode er uendret."
+            : "Marked Fixed because Unresolved was cleared by the user. The original error code is unchanged.";
+        HistoryArchive.MarkClearedUnresolved(entry, note);
+        entry.Status = "Fixed";
+        entry.StatusNote = note;
+        entry.ExternalUrl = "";
+        entry.ReadmeUrl = "";
+        foreach (var row in _historySnapshot.Where(r =>
+                     string.Equals(HistoryArchive.DisplayIdentityKey(r), HistoryArchive.DisplayIdentityKey(entry), StringComparison.OrdinalIgnoreCase) &&
+                     r.IsHistoryFailed))
+        {
+            row.Status = "Fixed";
+            row.StatusNote = note;
+            row.ExternalUrl = "";
+            row.ReadmeUrl = "";
+        }
+        if (_showingHistory) SetTab("history");
+        RefreshHealthSummary();
+        StatusText.Text = norwegian ? "Uløst nullstilt." : "Unresolved cleared.";
+    }
+
+    private void HideUnresolvedFromFuture(UpdateEntry entry, bool norwegian)
+    {
+        HistoryArchive.HideFromDisplay(entry);
+        OemHandledStore.RememberDismissed(entry);
+        RemoveOemPending(entry);
+        string hiddenIdentity = HistoryArchive.DisplayIdentityKey(entry);
+        _historySnapshot.RemoveAll(row =>
+            string.Equals(HistoryArchive.DisplayIdentityKey(row), hiddenIdentity, StringComparison.OrdinalIgnoreCase));
+        if (_showingHistory) SetTab("history");
+        else if (_activeTab is "drivers" or "all" or "software") SetTab(_activeTab);
+        RefreshHealthSummary();
+        StatusText.Text = norwegian
+            ? "Skjult fra fremtidige oppdateringer."
+            : "Hidden from future updates.";
+        ActivityLog.TryWrite("OemHandled", "Dismissed", new
+        {
+            Title = entry.DisplayTitle,
+            OemPackageId = entry.OemPackageId,
+            Source = entry.Source
+        });
     }
 
     private static List<UpdateEntry> MergeOutcomeEntries(IEnumerable<UpdateEntry> history, IReadOnlyList<UpdateEntry> recent)

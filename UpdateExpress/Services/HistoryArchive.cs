@@ -158,10 +158,8 @@ internal static class HistoryArchive
     }
 
     /// <summary>
-    /// Record an OEM package download or install that never goes through WUA.
-    /// Returns the Historikk row when recorded; otherwise null.
-    /// Downloads use Status <c>Downloaded</c> (not Vellykket) so they cannot suppress
-    /// a later install failure via <see cref="CoveredBySuccess"/>.
+    /// Record an OEM install outcome that never goes through WUA.
+    /// Download-only is not written to History (product: only Vellykket / Mislykket).
     /// </summary>
     internal static UpdateEntry? RecordOemOutcome(
         UpdateEntry source,
@@ -172,14 +170,10 @@ internal static class HistoryArchive
         if (source == null) return null;
         bool ok = status is "Vellykket" or "Successful" or "Installert";
         bool failed = status is "Mislykket" or "Failed" or "Avbrutt" or "Cancelled" or "Feilet / avbrutt";
-        bool downloaded = status is "Downloaded" or "Lastet ned";
-        if (!ok && !failed && !downloaded) return null;
+        if (!ok && !failed) return null;
 
-        // Keep download identity distinct from install success/failure (title + status).
         string title = string.IsNullOrWhiteSpace(source.Title) ? source.DisplayTitle : source.Title;
-        if (downloaded && !title.Contains("(downloaded)", StringComparison.OrdinalIgnoreCase) &&
-            !title.Contains("(lastet ned)", StringComparison.OrdinalIgnoreCase))
-            title = title.TrimEnd() + " (downloaded)";
+        title = StripDownloadedSuffix(title);
 
         var entry = new UpdateEntry
         {
@@ -187,7 +181,7 @@ internal static class HistoryArchive
             KB = string.IsNullOrWhiteSpace(source.KB) ? "OEM" : source.KB,
             Category = "Driver / firmware",
             Source = string.IsNullOrWhiteSpace(source.Source) ? "OEM" : source.Source,
-            Status = ok ? "Vellykket" : failed ? "Mislykket" : "Downloaded",
+            Status = ok ? "Vellykket" : "Mislykket",
             StatusNote = statusNote ?? "",
             Priority = source.Priority,
             PriorityExplanation = source.PriorityExplanation,
@@ -197,29 +191,66 @@ internal static class HistoryArchive
             DriverManufacturer = source.DriverManufacturer,
             DriverClass = source.DriverClass,
             OemPackageId = source.OemPackageId,
-            ExternalUrl = source.ExternalUrl,
-            ReadmeUrl = source.ReadmeUrl,
+            // Never carry package URLs into History — no DOC/OEM download affordance there.
+            ExternalUrl = "",
+            ReadmeUrl = "",
             Date = (at ?? DateTime.Now).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             UpdateId = "",
             SafeDefault = false
         };
-        // RecordInstallOutcomes only keeps success/failure; persist downloads directly.
-        if (downloaded)
-        {
-            lock (Gate)
-            {
-                var state = LoadUnlocked();
-                OperationalPriority.Apply(entry);
-                string key = EventKey(entry);
-                int index = state.Entries.FindIndex(existing => EventKey(existing) == key);
-                if (index < 0) state.Entries.Add(entry.Clone());
-                else state.Entries[index] = entry.Clone();
-                Trim(state);
-                SaveUnlocked(state);
-            }
-            return entry;
-        }
         return RecordInstallOutcomes(new[] { entry }) > 0 ? entry : null;
+    }
+
+    /// <summary>Mark a failed History row Fixed so it no longer counts as Unresolved.</summary>
+    internal static void MarkClearedUnresolved(UpdateEntry entry, string? note = null)
+    {
+        if (entry == null || !entry.IsHistoryFailed) return;
+        lock (Gate)
+        {
+            var state = LoadUnlocked();
+            string key = EventKey(entry);
+            int index = state.Entries.FindIndex(existing => EventKey(existing) == key);
+            var copy = (index >= 0 ? state.Entries[index] : entry).Clone();
+            copy.Status = "Fixed";
+            copy.StatusNote = string.IsNullOrWhiteSpace(note)
+                ? "Marked Fixed because Unresolved was cleared by the user. The original error code is unchanged."
+                : note;
+            copy.ExternalUrl = "";
+            copy.ReadmeUrl = "";
+            if (index < 0) state.Entries.Add(copy);
+            else state.Entries[index] = copy;
+            Trim(state);
+            SaveUnlocked(state);
+        }
+    }
+
+    private static string StripDownloadedSuffix(string title)
+    {
+        title = Regex.Replace(title, @"\s*\(downloaded\)\s*$", "", RegexOptions.IgnoreCase).Trim();
+        title = Regex.Replace(title, @"\s*\(lastet ned\)\s*$", "", RegexOptions.IgnoreCase).Trim();
+        return title;
+    }
+
+    private static bool IsDownloadedHistoryRow(UpdateEntry entry)
+    {
+        if (entry.Status is "Downloaded" or "Lastet ned") return true;
+        string title = entry.Title ?? "";
+        return title.Contains("(downloaded)", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("(lastet ned)", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Drop legacy Downloaded History rows from the archive (and live merge).</summary>
+    internal static int PruneDownloadedHistory()
+    {
+        lock (Gate)
+        {
+            var state = LoadUnlocked();
+            int before = state.Entries.Count;
+            state.Entries.RemoveAll(IsDownloadedHistoryRow);
+            if (state.Entries.Count == before) return 0;
+            SaveUnlocked(state);
+            return before - state.Entries.Count;
+        }
     }
 
     /// <summary>
@@ -276,22 +307,37 @@ internal static class HistoryArchive
     internal static List<UpdateEntry> MergeForDisplay(IReadOnlyList<UpdateEntry> live)
     {
         HistoryArchiveState state;
-        lock (Gate) state = LoadUnlocked();
+        lock (Gate)
+        {
+            state = LoadUnlocked();
+            // Legacy builds wrote Downloaded rows; drop them from the archive permanently.
+            int before = state.Entries.Count;
+            state.Entries.RemoveAll(IsDownloadedHistoryRow);
+            if (state.Entries.Count != before)
+                SaveUnlocked(state);
+        }
 
         var liveKeys = new HashSet<string>(live.Select(EventKey), StringComparer.OrdinalIgnoreCase);
         var combined = new Dictionary<string, UpdateEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in state.Entries)
             combined[EventKey(entry)] = entry.Clone();
         foreach (var entry in live)
+        {
+            if (IsDownloadedHistoryRow(entry)) continue;
             combined[EventKey(entry)] = entry.Clone();
+        }
 
         foreach (var pair in combined)
         {
             if (!liveKeys.Contains(pair.Key) && ShouldMarkPreservedSource(pair.Value))
                 MarkPreservedSource(pair.Value);
+            // History must never expose OEM download buttons.
+            pair.Value.ExternalUrl = "";
+            pair.Value.ReadmeUrl = "";
         }
 
         var rows = combined.Values.ToList();
+        rows.RemoveAll(IsDownloadedHistoryRow);
         // A failed row for an update that already succeeded is the same event twice
         // (often a blocked retry such as 0x80240016). Keep a failure that is a new
         // attempt more than a day after the latest success.
