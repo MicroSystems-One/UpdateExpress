@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.54",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.54/UpdateExpress_v0.7.2.54.exe",
-  "sha256": "3cd170998b3a3fc2e80c069df09737c014384fafe8d6b54cee9a1841086baaea",
-  "publishedAt": "2026-11-21T22:02:18Z",
-  "releaseNotes": "Diagnostics follow-up (#118 be5dfe1). OS build/summary/timing + neutral Settings wording. Slice C blocked. Tip b250c8c. Retains #116/#112/#109/#106/#102/#99/#95."
+  "version": "0.7.2.55",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.55/UpdateExpress_v0.7.2.55.exe",
+  "sha256": "a60bf289ec8e3b2f2891c1c154da950ff8648c08ef4b9eae3ed3e2b06ade7140",
+  "publishedAt": "2026-11-23T12:02:46Z",
+  "releaseNotes": "OEM filters (#122 e7fd364). History/Unresolved, installed-version filter, WUA Older/Same hide. Tip f532aff. Retains #120/#116/#112/#109/#106/#102/#99/#95."
 }
