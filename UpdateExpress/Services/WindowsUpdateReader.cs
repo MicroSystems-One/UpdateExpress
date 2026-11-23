@@ -196,9 +196,8 @@ public static class WindowsUpdateReader
                 : "Installed driver version not verified for this hardware ID.";
         }
         InstalledDriverReader.Classify(entries);
-        // Hide clear Older/Same vs local PnP from the available list (fail closed: unmatched stay).
-        InstalledDriverReader.RemoveOlderOrSame(entries);
         // Drivers that already installed with Restart required stay hidden while reboot is pending.
+        // Do not hard-drop Older/Same vs PnP — Extension INF packages share HWID with base drivers.
         entries = DriverRebootHoldStore.FilterAvailable(entries);
         var featureOffer = FeatureUpdateOfferReader.Read();
         if (featureOffer is not null && !entries.Any(entry =>
