@@ -6,9 +6,9 @@ using UpdateExpress.Models;
 namespace UpdateExpress.Services.OemDrivers;
 
 /// <summary>
-/// Persists OEM packages the user confirmed installed or dismissed through Update Express
-/// so the next catalog search does not keep offering the same Id+Version.
-/// Download-only must never hide a row — only Installed / Dismissed count.
+/// Persists OEM packages the user confirmed installed, reboot-held, or dismissed through
+/// Update Express so the next catalog search does not keep offering the same Id+Version.
+/// Download-only must never hide a row — only Installed / RebootHold / Dismissed count.
 /// </summary>
 internal static class OemHandledStore
 {
@@ -40,6 +40,14 @@ internal static class OemHandledStore
     /// <summary>Record a confirmed install only. Do not call for download-only.</summary>
     internal static void RememberInstalled(UpdateEntry entry, string? localPath = null) =>
         Remember(entry, "Installed", localPath);
+
+    /// <summary>
+    /// Hold an OEM Id+Version after the installer was launched (or exit 3010/1641) so
+    /// Check for Updates cannot re-offer it while reboot is pending / before PnP registers.
+    /// Cleared via <see cref="Forget"/> on a clear failed installer exit.
+    /// </summary>
+    internal static void RememberRebootHold(UpdateEntry entry, string? localPath = null) =>
+        Remember(entry, "RebootHold", localPath);
 
     /// <summary>Persist hide so the catalog will not keep offering an incompatible package.</summary>
     internal static void RememberDismissed(UpdateEntry entry, string? localPath = null) =>
@@ -91,7 +99,9 @@ internal static class OemHandledStore
         string id = entry.OemPackageId?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(id))
             id = "url:" + (entry.ExternalUrl ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(id) || id == "url:") return;
+        if (string.IsNullOrWhiteSpace(id) || id == "url:")
+            id = "title:" + (entry.Title ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(id) || id == "title:") return;
         string key = Key(id, entry.UnifiedVersion);
         lock (Gate)
         {
@@ -132,6 +142,7 @@ internal static class OemHandledStore
     private static bool IsHideOutcome(string? outcome) =>
         string.Equals(outcome, "Installed", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(outcome, "Installert", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(outcome, "RebootHold", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(outcome, "Dismissed", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(outcome, "Skjult", StringComparison.OrdinalIgnoreCase);
 

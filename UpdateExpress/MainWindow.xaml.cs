@@ -529,6 +529,7 @@ public partial class MainWindow : Window
 
     private async Task TryRunOemInstallerAsync(UpdateEntry entry, string path, bool norwegian)
     {
+        bool holdRecorded = false;
         try
         {
             var start = new ProcessStartInfo(path) { UseShellExecute = true };
@@ -541,17 +542,34 @@ public partial class MainWindow : Window
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
+
+            // Persist hold as soon as the installer is running. Chipset/Graphics-style
+            // packages often reboot before WaitForExit returns, so OemInstall never logged
+            // and the next Search re-offered (+ re-downloaded) the same Id+Version.
+            OemHandledStore.RememberRebootHold(entry, path);
+            holdRecorded = true;
+            RemoveOemPending(entry);
+            ActivityLog.TryWrite("OemInstall", "RebootHold", new
+            {
+                Title = entry.DisplayTitle,
+                Path = path,
+                OemPackageId = entry.OemPackageId,
+                Version = entry.UnifiedVersion
+            });
+
             StatusText.Text = norwegian
                 ? "Venter på OEM-installasjonsprogram…"
                 : "Waiting for OEM installer…";
             await process.WaitForExitAsync().ConfigureAwait(true);
-            // 0 = success; 3010 = success, reboot required (common for drivers/BIOS helpers).
-            if (process.ExitCode is 0 or 3010)
+            // 0 = success; 3010 = reboot required; 1641 = reboot initiated.
+            if (process.ExitCode is 0 or 3010 or 1641)
             {
                 string note = norwegian
                     ? $"OEM-installasjon fullført (exit {process.ExitCode}). Fil: {path}"
                     : $"OEM install finished (exit {process.ExitCode}). File: {path}";
                 ConfirmOemInstalled(entry, path, norwegian, note, process.ExitCode);
+                if (process.ExitCode is 3010 or 1641 || RebootPendingReader.IsRebootPending())
+                    RefreshRebootNeededBanner();
             }
             else
             {
@@ -560,16 +578,42 @@ public partial class MainWindow : Window
                     : $"OEM installer exited with code {process.ExitCode}. File: {path}";
                 RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Mislykket", note));
                 OemHandledStore.Forget(entry);
+                holdRecorded = false;
                 ActivityLog.TryWrite("OemInstall", "Failed", new
                 {
                     Title = entry.DisplayTitle,
                     ExitCode = process.ExitCode,
-                    Path = path
+                    Path = path,
+                    OemPackageId = entry.OemPackageId
                 });
             }
         }
         catch (Exception ex)
         {
+            // Keep RebootHold if the process was interrupted (common when reboot starts).
+            if (holdRecorded && RebootPendingReader.IsRebootPending())
+            {
+                RefreshRebootNeededBanner();
+                ActivityLog.TryWrite("OemInstall", "RebootHold", new
+                {
+                    Title = entry.DisplayTitle,
+                    Path = path,
+                    OemPackageId = entry.OemPackageId,
+                    Note = "Installer wait interrupted with reboot pending — hold kept."
+                });
+            }
+            else if (holdRecorded)
+            {
+                // Still keep the hold: Search must not resurrect solely because wait failed.
+                ActivityLog.TryWrite("OemInstall", "RebootHold", new
+                {
+                    Title = entry.DisplayTitle,
+                    Path = path,
+                    OemPackageId = entry.OemPackageId,
+                    Note = "Installer wait interrupted — hold kept until confirmed or forgotten.",
+                    Exception = ex.Message
+                });
+            }
             MessageBox.Show(this, ex.Message,
                 norwegian ? "OEM-installasjon" : "OEM install",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
