@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.58",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.58/UpdateExpress_v0.7.2.58.exe",
-  "sha256": "e95069c688f4b2b22da3a5d86216dbf8fabc0a9d0385b7f890298bcfb455272b",
-  "publishedAt": "2026-11-23T17:00:06Z",
-  "releaseNotes": "OEM reboot-hold (#131 eab57e7) on 0.7.2.57. Tip 64a111d. Keep 0.7.2.57 for rollback."
+  "version": "0.7.2.59",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.59/UpdateExpress_v0.7.2.59.exe",
+  "sha256": "1e9c5d1e0b709f6978a93c5d18075098043e5843b56d30df42b6eab71884b665",
+  "publishedAt": "2026-11-24T19:45:12Z",
+  "releaseNotes": "OEM DownloadPending (#131 0b69710) + setup Klokkeslett (#134 0628edb) on 0.7.2.58. Tip 98ee073. Keep 0.7.2.58 for rollback."
 }
