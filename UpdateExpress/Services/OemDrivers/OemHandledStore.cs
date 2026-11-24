@@ -8,7 +8,9 @@ namespace UpdateExpress.Services.OemDrivers;
 /// <summary>
 /// Persists OEM packages the user confirmed installed, reboot-held, or dismissed through
 /// Update Express so the next catalog search does not keep offering the same Id+Version.
-/// Download-only must never hide a row — only Installed / RebootHold / Dismissed count.
+/// Download-only is tracked as <c>DownloadPending</c> (does not hide) so a later reboot
+/// pending signal can promote Chipset/Graphics-style packages that were installed from
+/// Downloads outside the in-app WaitForExit path.
 /// </summary>
 internal static class OemHandledStore
 {
@@ -49,9 +51,54 @@ internal static class OemHandledStore
     internal static void RememberRebootHold(UpdateEntry entry, string? localPath = null) =>
         Remember(entry, "RebootHold", localPath);
 
+    /// <summary>
+    /// Track a package download that is not yet confirmed installed. Does <b>not</b> hide
+    /// from Search; used so reboot-pending can promote to RebootHold/Installed.
+    /// </summary>
+    internal static void RememberDownloadPending(UpdateEntry entry, string? localPath = null) =>
+        Remember(entry, "DownloadPending", localPath);
+
     /// <summary>Persist hide so the catalog will not keep offering an incompatible package.</summary>
     internal static void RememberDismissed(UpdateEntry entry, string? localPath = null) =>
         Remember(entry, "Dismissed", localPath);
+
+    /// <summary>
+    /// Recent package downloads that are not yet Installed/RebootHold/Dismissed.
+    /// Used when Windows reports reboot pending after the user ran installers from Downloads.
+    /// </summary>
+    internal static IReadOnlyList<UpdateEntry> ListDownloadPending(TimeSpan maxAge)
+    {
+        lock (Gate)
+        {
+            var state = LoadAndPruneUnlocked();
+            var cutoff = DateTimeOffset.Now - maxAge;
+            return state.Items
+                .Where(i => IsDownloadPending(i.Outcome) && i.At >= cutoff)
+                .Select(ToEntry)
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// DownloadPending rows whose download timestamp is before the current OS boot
+    /// (TickCount64 uptime). Typical Chipset/Graphics path: download → run from Explorer → reboot.
+    /// </summary>
+    internal static IReadOnlyList<UpdateEntry> ListDownloadPendingFromPreviousBoot()
+    {
+        TimeSpan uptime;
+        try { uptime = TimeSpan.FromMilliseconds(Environment.TickCount64); }
+        catch { return Array.Empty<UpdateEntry>(); }
+        if (uptime <= TimeSpan.Zero) return Array.Empty<UpdateEntry>();
+        var bootAt = DateTimeOffset.Now - uptime;
+        lock (Gate)
+        {
+            var state = LoadAndPruneUnlocked();
+            return state.Items
+                .Where(i => IsDownloadPending(i.Outcome) && i.At < bootAt)
+                .Select(ToEntry)
+                .ToList();
+        }
+    }
 
     private static void Remember(UpdateEntry entry, string outcome, string? localPath)
     {
@@ -71,6 +118,11 @@ internal static class OemHandledStore
             string key = Key(id, entry.UnifiedVersion);
             int index = state.Items.FindIndex(i =>
                 string.Equals(Key(i.Id, i.Version), key, StringComparison.OrdinalIgnoreCase));
+            // Do not downgrade Installed/RebootHold/Dismissed back to DownloadPending.
+            if (index >= 0 &&
+                string.Equals(outcome, "DownloadPending", StringComparison.OrdinalIgnoreCase) &&
+                IsHideOutcome(state.Items[index].Outcome))
+                return;
             var item = new HandledItem
             {
                 Id = id,
@@ -85,7 +137,7 @@ internal static class OemHandledStore
             else state.Items[index] = item;
             if (state.Items.Count > 500)
                 state.Items = state.Items
-                    .Where(i => IsHideOutcome(i.Outcome))
+                    .Where(i => IsHideOutcome(i.Outcome) || IsDownloadPending(i.Outcome))
                     .OrderByDescending(i => i.At)
                     .Take(500)
                     .ToList();
@@ -146,15 +198,32 @@ internal static class OemHandledStore
         string.Equals(outcome, "Dismissed", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(outcome, "Skjult", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsDownloadPending(string? outcome) =>
+        string.Equals(outcome, "DownloadPending", StringComparison.OrdinalIgnoreCase);
+
+    private static UpdateEntry ToEntry(HandledItem item) => new()
+    {
+        Title = item.Title,
+        OemPackageId = item.Id.StartsWith("title:", StringComparison.OrdinalIgnoreCase) ||
+                       item.Id.StartsWith("url:", StringComparison.OrdinalIgnoreCase)
+            ? ""
+            : item.Id,
+        DriverVersionFromWua = item.Version,
+        Source = string.IsNullOrWhiteSpace(item.Source) ? "OEM" : item.Source,
+        Category = "Driver / firmware",
+        KB = "OEM",
+        DriverClassification = "OEM",
+        DriverStatus = "Recommended"
+    };
+
     /// <summary>
-    /// Drop legacy download-only rows written by earlier builds so Check for Updates
-    /// offers those packages again until a real install is confirmed or dismissed.
+    /// Drop unknown legacy outcomes. Keep hide outcomes and DownloadPending.
     /// </summary>
     private static OemHandledState LoadAndPruneUnlocked()
     {
         var state = LoadUnlocked();
         int before = state.Items.Count;
-        state.Items.RemoveAll(i => !IsHideOutcome(i.Outcome));
+        state.Items.RemoveAll(i => !IsHideOutcome(i.Outcome) && !IsDownloadPending(i.Outcome));
         if (state.Items.Count != before)
             SaveUnlocked(state);
         return state;

@@ -358,6 +358,26 @@ public partial class MainWindow : Window
                     });
                 }
                 catch { /* folder open is best-effort */ }
+
+                // Bulk path is download-only; Chipset/Graphics were often installed from this
+                // folder outside WaitForExit. Offer to mark them so Search/History stay correct.
+                var mark = MessageBox.Show(this,
+                    norwegian
+                        ? $"Åpnet Nedlastinger\\UpdateExpress-OEM.\n\nJA: merk de {ok} nedlastede pakkene som installert/omstart (skjul fra Drivers, Vellykket i Historikk).\nNEI: behold dem tilgjengelige til du bekrefter senere."
+                        : $"Opened Downloads\\UpdateExpress-OEM.\n\nYES: mark the {ok} downloaded packages as installed/reboot (hide from Drivers, Successful in History).\nNO: keep them available until you confirm later.",
+                    norwegian ? "OEM masse-nedlasting" : "OEM bulk download",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+                if (mark == MessageBoxResult.Yes)
+                {
+                    foreach (var entry in selected)
+                    {
+                        if (!OemHandledStore.IsHandled(entry))
+                            ConfirmOemInstalled(entry, null, norwegian,
+                                norwegian
+                                    ? "OEM-pakke merket etter masse-nedlasting (installasjon/omstart utenfor WaitForExit)."
+                                    : "OEM package marked after bulk download (install/reboot outside WaitForExit).");
+                    }
+                }
             }
         }
         finally
@@ -472,7 +492,9 @@ public partial class MainWindow : Window
 
         if (package)
         {
-            // Download alone must not write History or mark handled — Drivers row stays until Vellykket.
+            // Track download without hiding — reboot-pending can promote Chipset/Graphics
+            // that were run from Downloads outside TryRunOemInstallerAsync.
+            OemHandledStore.RememberDownloadPending(entry, path);
             if (StatusText != null) StatusText.Text = note;
 
             if (!quiet)
@@ -483,8 +505,8 @@ public partial class MainWindow : Window
                 {
                     var run = MessageBox.Show(this,
                         norwegian
-                            ? $"Lagret:\n{path}\n\nJA: kjør installasjonsprogrammet nå.\nNEI: behold filen — oppføringen forblir tilgjengelig til installasjon er bekreftet."
-                            : $"Saved:\n{path}\n\nYES: run the installer now.\nNO: keep the file — the row stays available until install is confirmed.",
+                            ? $"Lagret:\n{path}\n\nJA: kjør installasjonsprogrammet nå.\nNEI: behold filen — du kan installere fra mappen (merk deretter som installert)."
+                            : $"Saved:\n{path}\n\nYES: run the installer now.\nNO: keep the file — you can install from the folder (then mark as installed).",
                         norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
                         MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
                     if (run == MessageBoxResult.Yes)
@@ -495,10 +517,10 @@ public partial class MainWindow : Window
                     {
                         var mark = MessageBox.Show(this,
                             norwegian
-                                ? "Har du allerede installert denne OEM-pakken?\n\nJA: skjul den fra Drivers/Firmware og merk som Vellykket.\nNEI: behold den tilgjengelig."
-                                : "Did you already install this OEM package?\n\nYES: hide it from Drivers/Firmware and mark as Successful.\nNO: keep it available.",
+                                ? "Installerer du denne OEM-pakken nå (f.eks. fra Nedlastinger), eller er den allerede installert / krever omstart?\n\nJA: skjul fra Drivers/Firmware og merk som Vellykket.\nNEI: behold tilgjengelig (omstart med ventende reboot kan fortsatt promotere den)."
+                                : "Are you installing this OEM package now (e.g. from Downloads), or is it already installed / reboot-required?\n\nYES: hide from Drivers/Firmware and mark as Successful.\nNO: keep available (a pending reboot can still promote it).",
                             norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
-                            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+                            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
                         if (mark == MessageBoxResult.Yes)
                             ConfirmOemInstalled(entry, path, norwegian);
                     }
@@ -544,12 +566,16 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // Persist hold as soon as the installer is running. Chipset/Graphics-style
-            // packages often reboot before WaitForExit returns, so OemInstall never logged
+            // Persist hold + History as soon as the installer is running. Chipset/Graphics
+            // often reboot before WaitForExit returns — without this, OemInstall never logged
             // and the next Search re-offered (+ re-downloaded) the same Id+Version.
+            string startedNote = norwegian
+                ? $"OEM-installasjon startet. Fil: {path}"
+                : $"OEM installer started. File: {path}";
             OemHandledStore.RememberRebootHold(entry, path);
             holdRecorded = true;
             removedPending = RemoveOemPending(entry);
+            RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Vellykket", startedNote));
             ActivityLog.TryWrite("OemInstall", "RebootHold", new
             {
                 Title = entry.DisplayTitle,
@@ -565,10 +591,15 @@ public partial class MainWindow : Window
             // 0 = success; 3010 = reboot required; 1641 = reboot initiated.
             if (process.ExitCode is 0 or 3010 or 1641)
             {
-                string note = norwegian
-                    ? $"OEM-installasjon fullført (exit {process.ExitCode}). Fil: {path}"
-                    : $"OEM install finished (exit {process.ExitCode}). File: {path}";
-                ConfirmOemInstalled(entry, path, norwegian, note, process.ExitCode);
+                // History already written at start — upgrade hold to Installed only.
+                OemHandledStore.RememberInstalled(entry, path);
+                ActivityLog.TryWrite("OemInstall", "Installert", new
+                {
+                    Title = entry.DisplayTitle,
+                    ExitCode = process.ExitCode,
+                    Path = path,
+                    OemPackageId = entry.OemPackageId
+                });
                 if (process.ExitCode is 3010 or 1641 || RebootPendingReader.IsRebootPending())
                     RefreshRebootNeededBanner();
             }
@@ -1890,6 +1921,7 @@ public partial class MainWindow : Window
     {
         if (RebootNeededBanner is null) return;
         bool needed = RebootPendingReader.IsRebootPending();
+        bool becamePending = needed && !_windowsRebootPending;
         _windowsRebootPending = needed;
         RebootNeededBanner.Visibility = needed ? Visibility.Visible : Visibility.Collapsed;
         bool norwegian = _schedule.Language == "no";
@@ -1903,6 +1935,10 @@ public partial class MainWindow : Window
             RebootNeededBanner.Text = RebootBannerText();
             RebootNeededBanner.Opacity = 1;
             if (!_rebootBlinkTimer.IsEnabled) _rebootBlinkTimer.Start();
+            // Chipset/Graphics: downloaded then installed from Explorer → reboot, never OemInstall.
+            // Promote DownloadPending so Search hides them and History shows Vellykket.
+            if (becamePending)
+                PromoteOemDownloads(norwegian, previousBootOnly: false);
         }
         else
         {
@@ -1911,8 +1947,34 @@ public partial class MainWindow : Window
             RebootNeededBanner.Opacity = 1;
             RebootNeededBanner.Text = RebootBannerText();
         }
+        // After reboot (flags often cleared): still promote downloads from before this boot.
+        PromoteOemDownloads(norwegian, previousBootOnly: true);
         RefreshLongUptimeHint();
         RefreshPatchConflictBanner();
+    }
+
+    /// <summary>
+    /// Mark OEM package downloads as installed when reboot is pending, or when the download
+    /// clearly happened before the current boot (install-from-Downloads + reboot path).
+    /// </summary>
+    private void PromoteOemDownloads(bool norwegian, bool previousBootOnly)
+    {
+        var pending = previousBootOnly
+            ? OemHandledStore.ListDownloadPendingFromPreviousBoot()
+            : OemHandledStore.ListDownloadPending(TimeSpan.FromDays(2));
+        if (pending.Count == 0) return;
+        string note = previousBootOnly
+            ? (norwegian
+                ? "OEM-pakke merket etter nedlasting før omstart (installasjon utenfor WaitForExit)."
+                : "OEM package marked after download before reboot (install outside WaitForExit).")
+            : (norwegian
+                ? "OEM-pakke merket etter nedlasting + omstart venter (installasjon utenfor WaitForExit)."
+                : "OEM package marked after download + reboot pending (install outside WaitForExit).");
+        foreach (var entry in pending)
+        {
+            if (OemHandledStore.IsHandled(entry)) continue;
+            ConfirmOemInstalled(entry, null, norwegian, note);
+        }
     }
 
     private void RefreshPatchConflictBanner()
@@ -3138,6 +3200,8 @@ public partial class MainWindow : Window
             {
                 try
                 {
+                    // Promote downloads from before this boot before catalog merge (Chipset/Graphics).
+                    PromoteOemDownloads(_schedule.Language == "no", previousBootOnly: true);
                     var identity = _machineIdentity;
                     if (IsMissingIdentity(identity.Manufacturer) || IsMissingIdentity(identity.Product) && IsMissingIdentity(identity.Model))
                         identity = await Task.Run(MachineIdentityReader.Read).ConfigureAwait(true);
