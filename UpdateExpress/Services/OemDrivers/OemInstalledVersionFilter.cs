@@ -14,6 +14,28 @@ internal static class OemInstalledVersionFilter
     private sealed record InstalledDriver(string Name, string Version);
     private sealed record Snapshot(string BiosVersion, IReadOnlyList<InstalledDriver> Drivers);
 
+    /// <summary>
+    /// True when local inventory shows an installed version ≥ the offer.
+    /// Fail closed (false) when match is ambiguous or inventory is unavailable.
+    /// </summary>
+    internal static bool IsOfferSatisfiedByInstalled(UpdateEntry entry)
+    {
+        if (entry is null) return false;
+        try
+        {
+            var snapshot = ReadSnapshot();
+            string? installed = ResolveInstalled(entry, snapshot);
+            string offered = entry.UnifiedVersion;
+            if (OemVersionComparer.IsBlank(installed) || OemVersionComparer.IsBlank(offered))
+                return false;
+            return OemVersionComparer.TryCompare(offered, installed) is <= 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     internal static IReadOnlyList<UpdateEntry> Filter(
         IReadOnlyList<UpdateEntry> entries,
         Action<string>? report = null)
