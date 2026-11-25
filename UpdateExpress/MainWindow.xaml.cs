@@ -3706,7 +3706,13 @@ public partial class MainWindow : Window
         if (_busy) return;
         // Pending snapshots persist when switching tabs. History is never installable.
         var software = _pendingSnapshot.Where(x => x.IsSelected && x.Category != "Driver / firmware" && x.SafeDefault && !string.IsNullOrWhiteSpace(x.UpdateId)).ToList();
-        var drivers = _pendingSnapshot.Where(x => x.IsSelected && x.Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(x.UpdateId)).ToList();
+        // Distinct by UpdateId — Search already collapses Title+Version lookalikes, but a stale
+        // snapshot can still hold two selected rows for the same WUA package.
+        var drivers = _pendingSnapshot
+            .Where(x => x.IsSelected && x.Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(x.UpdateId))
+            .GroupBy(x => x.UpdateId.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.OrderByDescending(x => x.DriverAssigned).First())
+            .ToList();
         var apps = _appEntries.Where(x => x.IsSelected).ToList();
         if (software.Count + drivers.Count + apps.Count == 0) return;
         // Only installation requires elevation; scanning and diagnostics remain available.
@@ -3873,8 +3879,8 @@ public partial class MainWindow : Window
                         DriverRebootHoldStore.Remember(d, "Restart required after WUA driver install");
                     }
                     string driverState = driverResult == null ? notVerifiedLabel :
-                        driverResult.Status == "Installert" ? verifyingLabel :
-                        driverResult.Status == "Delvis fullført" ? notVerifiedLabel :
+                        driverResult.Status is "Installert" or "Already up to date" ? verifyingLabel :
+                        driverResult.Status is "Delvis fullført" or "Verification unavailable" ? notVerifiedLabel :
                         "Failed" + (string.IsNullOrWhiteSpace(driverResult.ErrorCode) ? "" : " " + driverResult.ErrorCode);
                     string? driverTip = null;
                     if (driverState.StartsWith("Failed", StringComparison.Ordinal) && driverResult is not null && !string.IsNullOrWhiteSpace(driverResult.ErrorCode))

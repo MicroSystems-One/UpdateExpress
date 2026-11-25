@@ -386,7 +386,7 @@ internal static class DriverAutomation
                     var driverResult = results.FirstOrDefault();
                     string state = driverResult == null ? "Not verified" :
                         driverResult.Status is "Installert" or "Already up to date" ? "Completed" :
-                        driverResult.Status is "Delvis fullført" ? "Not verified" :
+                        driverResult.Status is "Delvis fullført" or "Verification unavailable" ? "Not verified" :
                         "Failed" + (string.IsNullOrWhiteSpace(driverResult.ErrorCode) ? "" : " " + driverResult.ErrorCode);
                     if (state == "Completed") ok++;
                     if (driverResult?.Source?.Contains("Restart", StringComparison.OrdinalIgnoreCase) == true)

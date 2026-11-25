@@ -196,6 +196,9 @@ public static class WindowsUpdateReader
                 : "Installed driver version not verified for this hardware ID.";
         }
         InstalledDriverReader.Classify(entries);
+        // Collapse verified lookalike WUA driver offers before Search / Installation Manager.
+        // Only UpdateId and Title+DriverVersion+HardwareId — never drop a different HWID.
+        entries = DedupePendingDrivers(entries);
         // Drivers that already installed with Restart required stay hidden while reboot is pending.
         // Do not hard-drop Older/Same vs PnP — Extension INF packages share HWID with base drivers.
         entries = DriverRebootHoldStore.FilterAvailable(entries);
@@ -209,6 +212,41 @@ public static class WindowsUpdateReader
             .ThenBy(entry => entry.Category)
             .ThenBy(entry => entry.Title)
             .ToList();
+    }
+
+    // Collapse only when package identity is the same UpdateId, or the same Title+Version+HardwareId.
+    // Distinct HardwareIds stay — InstallSelectedDriver installs one UpdateId per exact HWID check.
+    internal static List<UpdateEntry> DedupePendingDrivers(List<UpdateEntry> entries)
+    {
+        var drivers = entries.Where(e => e.Category == "Driver / firmware").ToList();
+        if (drivers.Count <= 1) return entries;
+        var others = entries.Where(e => e.Category != "Driver / firmware").ToList();
+
+        static UpdateEntry Prefer(IEnumerable<UpdateEntry> group) =>
+            group
+                .OrderByDescending(d => d.DriverAssigned)
+                .ThenByDescending(d => string.Equals(d.DriverClassification, "Firmware", StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(d => !string.IsNullOrWhiteSpace(d.DriverHardwareId))
+                .ThenBy(d => d.UpdateId, StringComparer.OrdinalIgnoreCase)
+                .First();
+
+        // 1) Same UpdateId (revision-insensitive) → one row. Rows without UpdateId stay as-is.
+        var byUpdateId = drivers
+            .Where(d => !string.IsNullOrWhiteSpace(d.UpdateId))
+            .GroupBy(d => d.UpdateId.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(Prefer)
+            .Concat(drivers.Where(d => string.IsNullOrWhiteSpace(d.UpdateId)))
+            .ToList();
+
+        // 2) Same Title + WUA DriverVersion + HardwareId → one row (verified same target).
+        var collapsed = byUpdateId
+            .GroupBy(d =>
+                    $"{(d.Title ?? "").Trim()}\u001f{(d.DriverVersionFromWua ?? "").Trim()}\u001f{(d.DriverHardwareId ?? "").Trim()}",
+                StringComparer.OrdinalIgnoreCase)
+            .Select(Prefer)
+            .ToList();
+
+        return others.Concat(collapsed).ToList();
     }
     private static string ValueOrUnknown(string value) => string.IsNullOrWhiteSpace(value) ? "Unknown" : value;
 
@@ -1003,8 +1041,52 @@ public static class WindowsUpdateReader
                 string.Join("\n", observed) + "\n", Encoding.UTF8);
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Driver recheck logging failed: " + ex.Message); }
+        // Missing from IsInstalled=0 can mean installed, hidden, or superseded by another offer.
+        // Only claim Already up to date when WUA affirms IsInstalled=1 for this UpdateId (+ HWID).
         if (sameId.Count == 0)
-            throw new InvalidOperationException($"Selected driver was not returned by the installation-time WUA search ({observed.Count} result(s)). See C:\\ProgramData\\UpdateExpress\\driver-recheck.log. No installation was attempted.");
+        {
+            bool installedAffirmed = false;
+            try
+            {
+                dynamic installedSearch = searcher.Search("IsInstalled=1 and Type='Driver'");
+                for (int i = 0; i < (int)installedSearch.Updates.Count; i++)
+                {
+                    dynamic candidate = installedSearch.Updates.Item(i);
+                    string id = Convert.ToString(candidate.Identity.UpdateID) ?? "";
+                    if (!id.Equals(selected.UpdateId, StringComparison.OrdinalIgnoreCase)) continue;
+                    string hw = "";
+                    try { hw = Convert.ToString(candidate.DriverHardwareID) ?? ""; } catch { }
+                    if (string.IsNullOrWhiteSpace(selected.DriverHardwareId) ||
+                        hw.Equals(selected.DriverHardwareId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        installedAffirmed = true;
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Driver installed-state recheck failed: " + ex.Message);
+            }
+            string stage = installedAffirmed ? "AlreadyInstalled" : "NoLongerPending";
+            string status = installedAffirmed ? "Already up to date" : "Verification unavailable";
+            report?.Invoke(installedAffirmed
+                ? "Selected driver is already installed (WUA IsInstalled=1)."
+                : "Selected driver is no longer pending and was not found as installed.");
+            try
+            {
+                File.AppendAllText(Path.Combine(auditDir, "driver-recheck.log"),
+                    $"[{DateTimeOffset.Now:O}] stage={stage}; update={selected.UpdateId}; hardware={selected.DriverHardwareId}; pendingCandidates={observed.Count}; status={status}\n",
+                    Encoding.UTF8);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Driver already-installed logging failed: " + ex.Message); }
+            return new List<UpdateEntry> { new UpdateEntry {
+                Title = selected.Title, Category = selected.Category, UpdateId = selected.UpdateId,
+                Status = status,
+                Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                Source = "Windows Update Agent"
+            } };
+        }
         var matchingHardware = sameId.Where(x => x.HardwareId.Equals(selected.DriverHardwareId, StringComparison.OrdinalIgnoreCase)).ToList();
         if (matchingHardware.Count != 1)
             throw new InvalidOperationException($"Driver identity recheck failed: {sameId.Count} UpdateID match(es), {matchingHardware.Count} exact hardware-ID match(es). No installation was attempted.");
