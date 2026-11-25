@@ -45,7 +45,12 @@ public static class WindowsUpdateReader
         if (driver) return "Driver / firmware";
         var title = (Convert.ToString(u.Title) ?? "").ToLowerInvariant();
         if (title.Contains("preview") || title.Contains("forhåndsvisning") || title.Contains("vorschau") || ReadBool(u, "IsBeta")) return "Preview / valgfri";
-        if (title.Contains("feature update") || title.Contains("funksjonsoppdatering") || title.Contains("enablement package")) return "Versjonsoppgradering";
+        if (title.Contains("feature update") || title.Contains("funksjonsoppdatering") || title.Contains("enablement package"))
+            return "Versjonsoppgradering";
+        // WUA sometimes returns short titles such as "Windows 11, version 25H2" without the
+        // "Feature update to" prefix — still a feature upgrade, not a cumulative.
+        if (Regex.IsMatch(title, @"windows\s*1[01].*\b\d{2}h[12]\b", RegexOptions.IgnoreCase))
+            return "Versjonsoppgradering";
         return "Programvare / sikkerhet";
     }
     private static bool IsFirmwareUpdate(dynamic update)
@@ -204,6 +209,10 @@ public static class WindowsUpdateReader
                 entry.Title.Contains(featureOffer.Title, StringComparison.OrdinalIgnoreCase) ||
                 entry.Title.Contains(FeatureRelease(featureOffer.Title), StringComparison.OrdinalIgnoreCase)))
             entries.Add(featureOffer);
+        // Same pending list feeds the grid, Windows:N counts, Select All, IM, reminders, and
+        // unattended — collapse same-product feature upgrades to the newest verified offer.
+        FeatureUpdateOfferReader.TryReadInstalled(out string installedDisplay, out int installedBuild);
+        entries = FeatureUpdateSelection.KeepNewest(entries, installedDisplay, installedBuild);
         return entries
             .OrderBy(entry => entry.Category == "Versjonsoppgradering" ? 0 : 1)
             .ThenBy(entry => entry.Category)

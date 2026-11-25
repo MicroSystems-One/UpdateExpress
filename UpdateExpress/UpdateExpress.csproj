@@ -30,4 +30,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.11" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="UpdateExpress.Tests" />
+  </ItemGroup>
 </Project>
