@@ -310,4 +310,77 @@ public class SuccessLogDedupeTests
         // Rows that were never reshaped keep the key they were hidden under.
         Assert.Equal(HistoryArchive.LegacyDisplayIdentityKey(software), HistoryArchive.DisplayIdentityKey(software));
     }
+
+    private static readonly string[] NoEvents = Array.Empty<string>();
+    private static readonly HistoryArchive.HiddenDisplayIdentity[] NoRules = Array.Empty<HistoryArchive.HiddenDisplayIdentity>();
+
+    [Fact]
+    public void Hiding_a_row_also_hides_its_twin_recorded_under_another_title()
+    {
+        // The category install helper queues "KB — title", so the archived row and the
+        // Windows Update row of one failed install share the UpdateId but not the title.
+        var live = WuaHistory(DotNetTitle, IdB, "2026-11-25 14:11:02", "Mislykket", "0x80070643");
+        var archived = Archived("Windows Update", "KB5066747 — " + DotNetTitle, IdB, "2026-11-25 14:14:04", "Failed 0x80070643");
+        var rows = new[] { live, archived };
+
+        var shown = Assert.Single(HistoryArchive.CollapseVisible(rows, NoEvents, NoRules));
+        Assert.Same(archived, shown);
+
+        // The archive holds only its own row; the Windows Update row is read live.
+        var (rule, eventKeys) = HistoryArchive.BuildHide(shown, new[] { archived });
+
+        Assert.Empty(HistoryArchive.CollapseVisible(rows, eventKeys, new[] { rule }));
+    }
+
+    [Fact]
+    public void Hiding_the_Windows_Update_row_also_hides_the_archived_twin()
+    {
+        var live = WuaHistory(DotNetTitle, IdB, "2026-11-25 14:11:02", "Mislykket", "0x80070643");
+        var archived = Archived("Windows Update", "KB5066747 — " + DotNetTitle, IdB, "2026-11-25 14:10:40", "Failed 0x80070643");
+
+        var (rule, eventKeys) = HistoryArchive.BuildHide(live, new[] { archived });
+
+        Assert.Contains(HistoryArchive.EventKey(archived), eventKeys);
+        Assert.Empty(HistoryArchive.CollapseVisible(new[] { live, archived }, NoEvents, new[] { rule }));
+    }
+
+    [Fact]
+    public void A_later_attempt_of_a_hidden_update_is_shown_again()
+    {
+        var live = WuaHistory(DotNetTitle, IdB, "2026-11-25 14:11:02", "Mislykket", "0x80070643");
+        var archived = Archived("Windows Update", "KB5066747 — " + DotNetTitle, IdB, "2026-11-25 14:14:04", "Failed 0x80070643");
+        var (rule, eventKeys) = HistoryArchive.BuildHide(archived, new[] { archived });
+        var retry = WuaHistory(DotNetTitle, IdB, "2026-11-27 09:00:00", "Mislykket", "0x80070643");
+
+        var visible = HistoryArchive.CollapseVisible(new[] { live, archived, retry }, eventKeys, new[] { rule });
+
+        Assert.Same(retry, Assert.Single(visible));
+    }
+
+    [Fact]
+    public void Hiding_one_driver_leaves_the_other_with_the_same_title_and_version()
+    {
+        var older = WuaHistory(IntelTitle, IdB, "2026-11-25 14:13:20", "Mislykket", "0x80070103");
+        var hiddenRow = WuaHistory(IntelTitle, IdA, "2026-11-25 14:13:28", "Mislykket", "0x80070103");
+        var rows = new[] { older, hiddenRow };
+
+        var (rule, eventKeys) = HistoryArchive.BuildHide(hiddenRow, Array.Empty<UpdateEntry>());
+        var visible = HistoryArchive.CollapseVisible(rows, eventKeys, new[] { rule });
+
+        Assert.Same(older, Assert.Single(visible));
+        Assert.False(OutcomeIdentity.SameUpdate(older, hiddenRow));
+    }
+
+    [Fact]
+    public void Rows_hidden_by_0_7_2_59_stay_hidden()
+    {
+        var driver = WuaHistory(IntelTitle, IdA, "2026-11-20 10:00:00", "Mislykket", "0x80070103");
+        var saved = new HistoryArchive.HiddenDisplayIdentity
+        {
+            Identity = "INTEL - SYSTEM - 10/3/2016 12:00:00 AM - 10.1.1.38||10.1.1.38|MISLYKKET|0X80070103",
+            MaxDate = "2026-11-20 10:00:00"
+        };
+
+        Assert.Empty(HistoryArchive.CollapseVisible(new[] { driver }, NoEvents, new[] { saved }));
+    }
 }

@@ -1474,9 +1474,7 @@ public partial class MainWindow : Window
         HistoryArchive.HideFromDisplay(entry);
         OemHandledStore.RememberDismissed(entry);
         RemoveOemPending(entry);
-        string hiddenIdentity = HistoryArchive.DisplayIdentityKey(entry);
-        _historySnapshot.RemoveAll(row =>
-            string.Equals(HistoryArchive.DisplayIdentityKey(row), hiddenIdentity, StringComparison.OrdinalIgnoreCase));
+        _historySnapshot.RemoveAll(row => OutcomeIdentity.SameUpdate(row, entry));
         if (_showingHistory) SetTab("history");
         else if (_activeTab is "drivers" or "all" or "software") SetTab(_activeTab);
         RefreshHealthSummary();
@@ -3589,9 +3587,7 @@ public partial class MainWindow : Window
         dlg.ShowDialog();
         if (dlg.Hidden)
         {
-            string hiddenIdentity = HistoryArchive.DisplayIdentityKey(entry);
-            _historySnapshot.RemoveAll(row =>
-                string.Equals(HistoryArchive.DisplayIdentityKey(row), hiddenIdentity, StringComparison.OrdinalIgnoreCase));
+            _historySnapshot.RemoveAll(row => OutcomeIdentity.SameUpdate(row, entry));
             if (_showingHistory) SetTab("history");
             RefreshHealthSummary();
         }

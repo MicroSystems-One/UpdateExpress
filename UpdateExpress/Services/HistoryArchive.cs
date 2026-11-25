@@ -343,24 +343,66 @@ internal static class HistoryArchive
         // attempt more than a day after the latest success.
         rows.RemoveAll(entry => CoveredBySuccess(entry, rows));
         ApplyFixed(rows, state);
-        var hidden = new HashSet<string>(state.HiddenEventKeys, StringComparer.OrdinalIgnoreCase);
-        if (hidden.Count > 0 || state.HiddenDisplayIdentities.Count > 0)
-            rows.RemoveAll(entry => IsHidden(entry, hidden, state.HiddenDisplayIdentities));
         // Collapse History rows for the same update and outcome (same WUA UpdateId, or the
         // same title, KB, version, status, and error code). Empty KB/Version count as equal.
         // Keep the newest Date/Time. Distinct versions (e.g. Defender KB2267602), success vs
         // failure, and one driver version under two UpdateIds stay separate.
-        rows = CollapseIdenticalRows(rows);
+        rows = CollapseVisible(rows, state.HiddenEventKeys, state.HiddenDisplayIdentities);
         foreach (var entry in rows)
             OperationalPriority.Apply(entry);
         return rows.OrderByDescending(entry => ParseDate(entry.Date) ?? DateTime.MinValue).ToList();
     }
 
     /// <summary>
-    /// One visible History row per installed update. Prefer the newest Date/Time.
+    /// One visible History row per installed update, the newest Date/Time that is not hidden.
+    /// A hide covers every row of the update up to its cutoff, whichever of them the saved
+    /// identity names: the rows of one update can carry different titles.
     /// </summary>
-    private static List<UpdateEntry> CollapseIdenticalRows(IReadOnlyList<UpdateEntry> rows) =>
-        OutcomeIdentity.Collapse(rows, ParseDate);
+    internal static List<UpdateEntry> CollapseVisible(
+        IReadOnlyList<UpdateEntry> rows,
+        IEnumerable<string> hiddenEventKeys,
+        IReadOnlyList<HiddenDisplayIdentity> hiddenIdentities)
+    {
+        var hiddenEvents = new HashSet<string>(hiddenEventKeys, StringComparer.OrdinalIgnoreCase);
+        if (hiddenEvents.Count == 0 && hiddenIdentities.Count == 0)
+            return OutcomeIdentity.Collapse(rows, ParseDate);
+
+        var visible = new List<UpdateEntry>();
+        foreach (var group in OutcomeIdentity.Groups(rows))
+        {
+            DateTime? cutoff = null;
+            if (hiddenIdentities.Count > 0)
+            {
+                foreach (var row in group)
+                {
+                    string identity = DisplayIdentityKey(row);
+                    string legacyIdentity = LegacyDisplayIdentityKey(row);
+                    foreach (var rule in hiddenIdentities)
+                    {
+                        if (!string.IsNullOrWhiteSpace(rule.UpdateId) &&
+                            !string.Equals(rule.UpdateId.Trim(), (row.UpdateId ?? "").Trim(), StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (!string.Equals(rule.Identity, identity, StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(rule.Identity, legacyIdentity, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        // No recorded cutoff: treat as hide-all for this identity (legacy-safe).
+                        var max = string.IsNullOrWhiteSpace(rule.MaxDate)
+                            ? DateTime.MaxValue
+                            : ParseDate(rule.MaxDate) ?? DateTime.MaxValue;
+                        if (cutoff is null || max > cutoff) cutoff = max;
+                    }
+                }
+            }
+
+            var shown = group
+                .Where(row => !hiddenEvents.Contains(EventKey(row))
+                    && (cutoff is null || (ParseDate(row.Date) ?? DateTime.MinValue) > cutoff))
+                .ToList();
+            if (shown.Count > 0)
+                visible.Add(OutcomeIdentity.Best(shown, ParseDate));
+        }
+        return visible;
+    }
 
     /// <summary>
     /// Stable History display key: Update title + KB + Version + Status (+ ErrorCode).
@@ -392,72 +434,70 @@ internal static class HistoryArchive
 
     /// <summary>
     /// Remember a history row the user chose to hide. Windows Update history itself is left unchanged.
-    /// Hides every existing event that shares the collapsed display identity up through the
-    /// newest Date/Time on that row; a later genuine new attempt stays visible.
+    /// Hides every existing event of the same update up through the newest Date/Time among
+    /// them; a later genuine new attempt stays visible.
     /// </summary>
     internal static void HideFromDisplay(UpdateEntry entry)
     {
         lock (Gate)
         {
             var state = LoadUnlocked();
-            string identity = DisplayIdentityKey(entry);
-            var maxDate = ParseDate(entry.Date) ?? DateTime.MinValue;
-
-            void HideEvent(UpdateEntry candidate)
+            var (rule, eventKeys) = BuildHide(entry, state.Entries);
+            foreach (string key in eventKeys)
             {
-                string key = EventKey(candidate);
                 if (!state.HiddenEventKeys.Contains(key, StringComparer.OrdinalIgnoreCase))
                     state.HiddenEventKeys.Add(key);
-                var when = ParseDate(candidate.Date);
-                if (when is DateTime dated && dated > maxDate)
-                    maxDate = dated;
             }
 
-            HideEvent(entry);
-            foreach (var existing in state.Entries)
-            {
-                if (string.Equals(DisplayIdentityKey(existing), identity, StringComparison.OrdinalIgnoreCase))
-                    HideEvent(existing);
-            }
-
-            string maxDateText = maxDate == DateTime.MinValue
-                ? (entry.Date ?? "").Trim()
-                : maxDate.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-            int index = state.HiddenDisplayIdentities.FindIndex(rule =>
-                string.Equals(rule.Identity, identity, StringComparison.OrdinalIgnoreCase));
-            var rule = new HiddenDisplayIdentity { Identity = identity, MaxDate = maxDateText };
+            int index = state.HiddenDisplayIdentities.FindIndex(existing =>
+                string.Equals(existing.Identity, rule.Identity, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals((existing.UpdateId ?? "").Trim(), (rule.UpdateId ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
             if (index < 0)
                 state.HiddenDisplayIdentities.Add(rule);
             else
             {
                 var existingMax = ParseDate(state.HiddenDisplayIdentities[index].MaxDate) ?? DateTime.MinValue;
-                if (maxDate >= existingMax)
+                if ((ParseDate(rule.MaxDate) ?? DateTime.MinValue) >= existingMax)
                     state.HiddenDisplayIdentities[index] = rule;
             }
             SaveUnlocked(state);
         }
     }
 
-    private static bool IsHidden(
+    /// <summary>
+    /// What hiding <paramref name="entry"/> saves: the event keys of the archived rows of the
+    /// same update, and the identity with the Date/Time cutoff that also covers rows the
+    /// archive does not hold (live Windows Update history).
+    /// </summary>
+    internal static (HiddenDisplayIdentity Rule, List<string> EventKeys) BuildHide(
         UpdateEntry entry,
-        HashSet<string> hiddenEventKeys,
-        IReadOnlyList<HiddenDisplayIdentity> hiddenIdentities)
+        IReadOnlyList<UpdateEntry> archived)
     {
-        if (hiddenEventKeys.Contains(EventKey(entry))) return true;
-        if (hiddenIdentities.Count == 0) return false;
-        string identity = DisplayIdentityKey(entry);
-        string legacyIdentity = LegacyDisplayIdentityKey(entry);
-        var when = ParseDate(entry.Date) ?? DateTime.MinValue;
-        foreach (var rule in hiddenIdentities)
+        var sameUpdate = OutcomeIdentity.Groups(archived.Append(entry))
+            .FirstOrDefault(group => group.Any(row => ReferenceEquals(row, entry)))
+            ?? new List<UpdateEntry> { entry };
+
+        var eventKeys = new List<string>();
+        var maxDate = DateTime.MinValue;
+        foreach (var row in sameUpdate)
         {
-            if (!string.Equals(rule.Identity, identity, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(rule.Identity, legacyIdentity, StringComparison.OrdinalIgnoreCase)) continue;
-            // No recorded cutoff: treat as hide-all for this identity (legacy-safe).
-            if (string.IsNullOrWhiteSpace(rule.MaxDate)) return true;
-            var max = ParseDate(rule.MaxDate) ?? DateTime.MaxValue;
-            if (when <= max) return true;
+            string key = EventKey(row);
+            if (!eventKeys.Contains(key, StringComparer.OrdinalIgnoreCase))
+                eventKeys.Add(key);
+            if (ParseDate(row.Date) is DateTime dated && dated > maxDate)
+                maxDate = dated;
         }
-        return false;
+
+        var rule = new HiddenDisplayIdentity
+        {
+            Identity = DisplayIdentityKey(entry),
+            // One driver version under two UpdateIds is two updates with one identity text.
+            UpdateId = OutcomeIdentity.SplitsByUpdateId(entry) ? entry.UpdateId.Trim() : null,
+            MaxDate = maxDate == DateTime.MinValue
+                ? (entry.Date ?? "").Trim()
+                : maxDate.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
+        };
+        return (rule, eventKeys);
     }
 
     internal static bool IsStillOffered(UpdateEntry history, IReadOnlyList<UpdateEntry> pending) =>
@@ -669,9 +709,15 @@ internal static class HistoryArchive
         public List<HiddenDisplayIdentity> HiddenDisplayIdentities { get; set; } = new();
     }
 
-    private sealed class HiddenDisplayIdentity
+    internal sealed class HiddenDisplayIdentity
     {
         public string Identity { get; set; } = "";
+        /// <summary>
+        /// Set when the identity text alone names several updates (one driver version under
+        /// two UpdateIds): the hide then covers this UpdateId only. Absent in rules saved by
+        /// builds up to 0.7.2.59, which cover every row with the identity.
+        /// </summary>
+        public string? UpdateId { get; set; }
         /// <summary>Inclusive newest Date/Time (yyyy-MM-dd HH:mm:ss) covered by the hide.</summary>
         public string MaxDate { get; set; } = "";
     }

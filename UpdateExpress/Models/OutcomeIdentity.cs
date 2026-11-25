@@ -44,7 +44,53 @@ internal static class OutcomeIdentity
     internal static List<UpdateEntry> Collapse(
         IEnumerable<UpdateEntry> rows,
         Func<string?, DateTime?> parseDate,
+        Func<UpdateEntry, bool>? preferred = null) =>
+        Groups(rows).Select(group => Best(group, parseDate, preferred)).ToList();
+
+    private static bool HasId(UpdateEntry entry) => !string.IsNullOrWhiteSpace(entry.UpdateId);
+
+    private static bool Versioned(UpdateEntry entry) => Norm(entry.UnifiedVersion).Length > 0;
+
+    /// <summary>True when rows with this row's title are told apart by UpdateId (see <see cref="Collapse"/>).</summary>
+    internal static bool SplitsByUpdateId(UpdateEntry entry) => HasId(entry) && Versioned(entry);
+
+    /// <summary>Whether two rows are the same update and outcome, judged on these two rows alone.</summary>
+    internal static bool SameUpdate(UpdateEntry left, UpdateEntry right)
+    {
+        bool bothHaveIds = HasId(left) && HasId(right);
+        if (bothHaveIds && string.Equals(IdKey(left), IdKey(right), StringComparison.Ordinal)) return true;
+        if (!string.Equals(TitleKey(left), TitleKey(right), StringComparison.Ordinal)) return false;
+        return !(bothHaveIds && Versioned(left));
+    }
+
+    /// <summary>The row shown for one update: a <paramref name="preferred"/> row wins, then the newest.</summary>
+    internal static UpdateEntry Best(
+        IEnumerable<UpdateEntry> group,
+        Func<string?, DateTime?> parseDate,
         Func<UpdateEntry, bool>? preferred = null)
+    {
+        UpdateEntry? best = null;
+        foreach (var row in group)
+        {
+            if (best is null) { best = row; continue; }
+            bool rowPreferred = preferred?.Invoke(row) ?? false;
+            bool bestPreferred = preferred?.Invoke(best) ?? false;
+            if (rowPreferred != bestPreferred)
+            {
+                if (rowPreferred) best = row;
+                continue;
+            }
+            if ((parseDate(row.Date) ?? DateTime.MinValue) >= (parseDate(best.Date) ?? DateTime.MinValue))
+                best = row;
+        }
+        return best!;
+    }
+
+    /// <summary>
+    /// The rows of each update, by the rules of <see cref="Collapse"/>. A row that cannot be
+    /// assigned to one update (no id, several ids share its versioned title) is in no group.
+    /// </summary>
+    internal static List<List<UpdateEntry>> Groups(IEnumerable<UpdateEntry> rows)
     {
         // Union-find over id keys and title keys; each row hangs on one of them.
         var parent = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -67,8 +113,8 @@ internal static class OutcomeIdentity
         foreach (var row in rows)
         {
             string titleNode = "title:" + TitleKey(row);
-            bool versioned = Norm(row.UnifiedVersion).Length > 0;
-            if (!string.IsNullOrWhiteSpace(row.UpdateId))
+            bool versioned = Versioned(row);
+            if (HasId(row))
             {
                 string idNode = "id:" + IdKey(row);
                 placed.Add((idNode, row));
@@ -98,27 +144,8 @@ internal static class OutcomeIdentity
 
         return placed
             .GroupBy(item => Find(item.Node), StringComparer.Ordinal)
-            .Select(group => Best(group.Select(item => item.Row)))
+            .Select(group => group.Select(item => item.Row).ToList())
             .ToList();
-
-        UpdateEntry Best(IEnumerable<UpdateEntry> group)
-        {
-            UpdateEntry? best = null;
-            foreach (var row in group)
-            {
-                if (best is null) { best = row; continue; }
-                bool rowPreferred = preferred?.Invoke(row) ?? false;
-                bool bestPreferred = preferred?.Invoke(best) ?? false;
-                if (rowPreferred != bestPreferred)
-                {
-                    if (rowPreferred) best = row;
-                    continue;
-                }
-                if ((parseDate(row.Date) ?? DateTime.MinValue) >= (parseDate(best.Date) ?? DateTime.MinValue))
-                    best = row;
-            }
-            return best!;
-        }
     }
 
     /// <summary>
