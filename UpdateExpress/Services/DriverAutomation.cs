@@ -355,7 +355,7 @@ internal static class DriverAutomation
             return;
         }
 
-        var queue = selected.Select(d => new InstallationQueueItem("Driver", d.Title)).ToList();
+        var queue = selected.Select(d => new InstallationQueueItem("Driver", d.Title) { UpdateId = d.UpdateId }).ToList();
         AgentLog.Write($"Drivers install helper: installing {selected.Count} queued driver(s) with progress UI.");
         var manager = new InstallationManagerWindow(queue)
         {

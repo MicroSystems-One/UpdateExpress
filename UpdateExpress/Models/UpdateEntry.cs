@@ -78,26 +78,52 @@ public sealed class UpdateEntry
             return trailing.Success ? trailing.Groups["version"].Value : "";
         }
     }
+    /// <summary>WUA driver date noise left once the trailing version is removed: " - 10/3/2016 12:00:00 AM".</summary>
+    private static readonly System.Text.RegularExpressions.Regex WuaDriverDateNoise = new(
+        @"\s+-\s+\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M\s*$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// True for a WUA driver title ("… - 10/3/2016 12:00:00 AM - 10.1.1.38"). Windows Update
+    /// history rows carry no Category, so the title is the only sign that the row is a driver.
+    /// </summary>
+    internal bool HasWuaDriverDateNoise =>
+        WuaDriverDateNoise.IsMatch(TrailingVersion.Replace(Title ?? "", ""));
+
     public string DisplayTitle
     {
         get
         {
             if (Category == "Application") return Title;
-            if (Category != "Driver / firmware")
+            // A driver reads the same in History as in Installation Manager and the Drivers tab,
+            // whether or not the row that survived the merge carries a Category.
+            if (Category != "Driver / firmware" && !HasWuaDriverDateNoise)
                 return string.IsNullOrEmpty(SoftwareVersion) ? Title : SoftwareVersionLabel.Replace(Title, "").Trim();
 
             // Strip trailing WUA date noise, keep a clean base name, then append version so
             // near-identical driver titles stay distinguishable in the Update column.
-            string baseTitle = System.Text.RegularExpressions.Regex.Replace(
-                TrailingVersion.Replace(Title, ""),
-                @"\s+-\s+\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M\s*$", "",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+            string baseTitle = WuaDriverDateNoise.Replace(TrailingVersion.Replace(Title ?? "", ""), "").Trim();
             string version = UnifiedVersion;
             if (string.IsNullOrWhiteSpace(version) || version == "—")
                 return baseTitle;
             if (baseTitle.Contains(version, StringComparison.OrdinalIgnoreCase))
                 return baseTitle;
             return $"{baseTitle}  ·  {version}";
+        }
+    }
+
+    /// <summary>
+    /// Title with the version and WUA date noise removed, for comparing rows only. The same
+    /// update reads "X - 1.2.3" in Windows Update history and "X  ·  1.2.3" on a driver row.
+    /// </summary>
+    internal string IdentityTitle
+    {
+        get
+        {
+            string title = Title ?? "";
+            if (Category == "Application") return title;
+            title = TrailingVersion.Replace(SoftwareVersionLabel.Replace(title, ""), "");
+            return WuaDriverDateNoise.Replace(title, "").Trim();
         }
     }
     public bool IsHistoryFailed => Status is "Mislykket" or "Avbrutt" or "Failed" or "Cancelled" or "Feilet / avbrutt";
@@ -111,20 +137,15 @@ public sealed class UpdateEntry
     public bool HasFixableErrorCode => IsHistoryFailed && !string.IsNullOrWhiteSpace(ErrorCode);
     // Keep the original HRESULT in ErrorCode for logging and export. In the grid,
     // display the HRESULT instead of a failure label, never beside a success label.
-    public string DisplayStatus => IsHistoryFixed
-        ? "Fixed"
-        : HasFixableErrorCode
-        ? ErrorCode
-        // Pending driver rows (WUA + OEM catalog) prefer DriverStatus. History rows have a
-        // Date and use Status. OEM release times live in DateDisplay only so they stay pending.
-        : Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(DriverStatus) &&
-          (string.IsNullOrWhiteSpace(Date) || OpensExternalUrl)
-            ? DriverStatus : Status;
+    // Status is stored in whichever language the writing code used (Windows Update history
+    // rows in Norwegian, Installation Manager outcomes in English), so it is worded here.
+    public string DisplayStatus => HistoryStatusDisplay.Format(this);
     public string StatusDetails
     {
         get
         {
-            string core = string.IsNullOrWhiteSpace(ErrorCode) ? Status : $"{Status}\nError code: {ErrorCode}";
+            string status = HistoryStatusDisplay.Format(Status);
+            string core = string.IsNullOrWhiteSpace(ErrorCode) ? status : $"{status}\nError code: {ErrorCode}";
             return string.IsNullOrWhiteSpace(StatusNote) ? core : StatusNote + "\n" + core;
         }
     }

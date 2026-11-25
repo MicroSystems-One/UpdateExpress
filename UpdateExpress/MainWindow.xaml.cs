@@ -1474,9 +1474,7 @@ public partial class MainWindow : Window
         HistoryArchive.HideFromDisplay(entry);
         OemHandledStore.RememberDismissed(entry);
         RemoveOemPending(entry);
-        string hiddenIdentity = HistoryArchive.DisplayIdentityKey(entry);
-        _historySnapshot.RemoveAll(row =>
-            string.Equals(HistoryArchive.DisplayIdentityKey(row), hiddenIdentity, StringComparison.OrdinalIgnoreCase));
+        _historySnapshot.RemoveAll(row => OutcomeIdentity.SameUpdate(row, entry));
         if (_showingHistory) SetTab("history");
         else if (_activeTab is "drivers" or "all" or "software") SetTab(_activeTab);
         RefreshHealthSummary();
@@ -1491,18 +1489,8 @@ public partial class MainWindow : Window
         });
     }
 
-    private static List<UpdateEntry> MergeOutcomeEntries(IEnumerable<UpdateEntry> history, IReadOnlyList<UpdateEntry> recent)
-    {
-        var merged = new List<UpdateEntry>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in recent.Concat(history))
-        {
-            string key = $"{entry.Source}|{entry.UpdateId}|{entry.Title}|{entry.ErrorCode}|{entry.Date}";
-            if (!seen.Add(key)) continue;
-            merged.Add(entry);
-        }
-        return merged;
-    }
+    private static List<UpdateEntry> MergeOutcomeEntries(IEnumerable<UpdateEntry> history, IReadOnlyList<UpdateEntry> recent) =>
+        OutcomeIdentity.MergeRecentWithHistory(history, recent, ReminderSchedule.TryParseDate);
 
     private void OpenOutcomeFix(UpdateEntry entry, bool norwegian)
     {
@@ -1531,7 +1519,7 @@ public partial class MainWindow : Window
         ShowErrorFix(entry);
     }
 
-    private static UpdateEntry ToInstallOutcomeEntry(InstallationQueueItem item)
+    internal static UpdateEntry ToInstallOutcomeEntry(InstallationQueueItem item)
     {
         string blob = item.State + " " + (item.Tip ?? "");
         var hr = System.Text.RegularExpressions.Regex.Match(blob, @"0x[0-9A-Fa-f]{8}");
@@ -1553,13 +1541,16 @@ public partial class MainWindow : Window
         return new UpdateEntry
         {
             Title = item.Name,
+            // KB and UpdateId as Windows Update history records them, so this row and the
+            // history row for the same install are recognised as one.
+            KB = string.Join(", ", SplitKbs(item.Name)),
             Category = category,
             Source = item.Source,
             Status = failed ? "Failed" : completed ? "Successful" : item.State,
             ErrorCode = error,
             StatusNote = string.IsNullOrWhiteSpace(item.Tip) ? "install-outcome" : item.Tip,
             Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-            UpdateId = "",
+            UpdateId = item.UpdateId,
             SafeDefault = false
         };
     }
@@ -2620,6 +2611,7 @@ public partial class MainWindow : Window
     };
     private void ApplyLanguage()
     {
+        HistoryStatusDisplay.NorwegianUi = _schedule.Language == "no";
         _languageReady = true;
         bool norwegian = _schedule.Language == "no";
         void Translate(object? element)
@@ -3595,9 +3587,7 @@ public partial class MainWindow : Window
         dlg.ShowDialog();
         if (dlg.Hidden)
         {
-            string hiddenIdentity = HistoryArchive.DisplayIdentityKey(entry);
-            _historySnapshot.RemoveAll(row =>
-                string.Equals(HistoryArchive.DisplayIdentityKey(row), hiddenIdentity, StringComparison.OrdinalIgnoreCase));
+            _historySnapshot.RemoveAll(row => OutcomeIdentity.SameUpdate(row, entry));
             if (_showingHistory) SetTab("history");
             RefreshHealthSummary();
         }
@@ -3658,7 +3648,7 @@ public partial class MainWindow : Window
             return;
         }
         string note = string.IsNullOrWhiteSpace(entry.StatusNote) ? "" : entry.StatusNote + "\n\n";
-        MessageBox.Show(this, $"Update: {entry.Title}\nKB: {entry.KB}\nCategory: {entry.Category}\nPriority: {entry.PriorityDisplay}\nStatus: {entry.Status}\nDate: {entry.DateShown}\nError: {entry.ErrorCode}\n\n{note}{assessment}\n\nUninstall is not implemented.", "Update Details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show(this, $"Update: {entry.Title}\nKB: {entry.KB}\nCategory: {entry.Category}\nPriority: {entry.PriorityDisplay}\nStatus: {HistoryStatusDisplay.Format(entry.Status)}\nDate: {entry.DateShown}\nError: {entry.ErrorCode}\n\n{note}{assessment}\n\nUninstall is not implemented.", "Update Details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
     }
     private void Export_Click(object sender, RoutedEventArgs e)
     {
@@ -3756,8 +3746,8 @@ public partial class MainWindow : Window
         }
         bool norwegian = _schedule.Language == "no";
         var queue = new List<InstallationQueueItem>();
-        queue.AddRange(software.Select(x => new InstallationQueueItem("Windows Update", x.Title)));
-        queue.AddRange(drivers.Select(x => new InstallationQueueItem("Driver", x.Title)));
+        queue.AddRange(software.Select(x => new InstallationQueueItem("Windows Update", x.Title) { UpdateId = x.UpdateId }));
+        queue.AddRange(drivers.Select(x => new InstallationQueueItem("Driver", x.Title) { UpdateId = x.UpdateId }));
         queue.AddRange(apps.Select(x => new InstallationQueueItem("WinGet", x.DisplayName)));
         var manager = new InstallationManagerWindow(queue, norwegian: norwegian) { Owner = this };
         if (AppDialog.Show(this,
@@ -4478,7 +4468,7 @@ public partial class MainWindow : Window
                 UpdateUntilCurrent.Save(state);
                 RefreshUpdateUntilCurrentUi();
 
-                var queue = matches.Select(entry => new InstallationQueueItem("Windows Update", entry.Title)).ToList();
+                var queue = matches.Select(entry => new InstallationQueueItem("Windows Update", entry.Title) { UpdateId = entry.UpdateId }).ToList();
                 string subtitle = norwegian
                     ? "Oppdater til ferdig. Windows starter på nytt når en runde krever det, og søket kjøres på nytt etterpå."
                     : "Update until current. Windows restarts when a round requires it, then the search runs again.";
