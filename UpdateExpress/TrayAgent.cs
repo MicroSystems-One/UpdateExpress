@@ -22,6 +22,7 @@ internal sealed class TrayAgent : IDisposable
     private readonly System.Threading.Timer _timer;
     private readonly System.Threading.Timer _defenderTimer;
     private readonly System.Threading.Timer _reminderTimer;
+    private readonly System.Threading.Timer _rebootNoticeTimer;
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
     private readonly string _baselinePath = Path.Combine(InstallationManager.InstallDir, "monitor-initialized.flag");
     private readonly string _statePath = Path.Combine(InstallationManager.InstallDir, "monitor-state.txt");
@@ -107,6 +108,22 @@ internal sealed class TrayAgent : IDisposable
             null,
             TimeSpan.FromSeconds(20),
             TimeSpan.FromSeconds(30));
+        // A due restart must reach the user as the Update Express notice before the session-0
+        // service falls back to the bare Windows countdown (RebootCoordinator.ServiceGrace),
+        // so this cannot wait for the 5-minute poll above.
+        _rebootNoticeTimer = new System.Threading.Timer(
+            _ =>
+            {
+                try
+                {
+                    if (RebootCoordinator.IsPendingDue())
+                        _dispatcher.BeginInvoke(new Action(() => RebootCoordinator.RunDueJob(allowUiPrompt: true)));
+                }
+                catch (Exception ex) { AgentLog.Write("Restart notice poll failed: " + ex.Message); }
+            },
+            null,
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(5));
         WriteMonitorStatus("waiting", 0, 0, null, null);
         try { RmmStatusExport.WriteBestEffort("tray-start", force: true); } catch { /* ignore */ }
         AgentLog.Write($"Tray agent started; WUA monitor every {monitorInterval.TotalHours:0.##}h; Defender+Critical+General+Drivers+Apps+reboot poll every 5m; Påminnelse poll every 30s when Main UI closed.");
@@ -453,6 +470,7 @@ internal sealed class TrayAgent : IDisposable
         _timer.Dispose();
         _defenderTimer.Dispose();
         _reminderTimer.Dispose();
+        _rebootNoticeTimer.Dispose();
         AgentLog.Write("Agent stopped.");
         _tray.Visible = false;
         _tray.Dispose();
