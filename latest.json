@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.59",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.59/UpdateExpress_v0.7.2.59.exe",
-  "sha256": "1e9c5d1e0b709f6978a93c5d18075098043e5843b56d30df42b6eab71884b665",
-  "publishedAt": "2026-11-24T19:45:12Z",
-  "releaseNotes": "OEM DownloadPending (#131 0b69710) + setup Klokkeslett (#134 0628edb) on 0.7.2.58. Tip 98ee073. Keep 0.7.2.58 for rollback."
+  "version": "0.7.2.60",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.60/UpdateExpress_v0.7.2.60.exe",
+  "sha256": "72c3b616496c72c4ff8da54d61b97fc8d7690222142e41a370632896356798fa",
+  "publishedAt": "2026-11-25T23:00:11Z",
+  "releaseNotes": "Restart notice, OEM Install Selected, OEM column removed, Denne PCen label, history dedupe, newest feature update, WUA driver dedupe (#131 8b849a3, #137 3499979, #139 929aebd, #138 eb2af94, #140 b21bf10, #141 61b6079, #142 86b4cec, #144 406e979, #143 b73947d) on 0.7.2.59. Tip aa02e4d. Keep 0.7.2.59 for rollback."
 }
