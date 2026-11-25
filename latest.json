@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.60",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.60/UpdateExpress_v0.7.2.60.exe",
-  "sha256": "72c3b616496c72c4ff8da54d61b97fc8d7690222142e41a370632896356798fa",
-  "publishedAt": "2026-11-25T23:00:11Z",
-  "releaseNotes": "Restart notice, OEM Install Selected, OEM column removed, Denne PCen label, history dedupe, newest feature update, WUA driver dedupe (#131 8b849a3, #137 3499979, #139 929aebd, #138 eb2af94, #140 b21bf10, #141 61b6079, #142 86b4cec, #144 406e979, #143 b73947d) on 0.7.2.59. Tip aa02e4d. Keep 0.7.2.59 for rollback."
+  "version": "0.7.2.61",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.61/UpdateExpress_v0.7.2.61.exe",
+  "sha256": "b11a95a2d14ab6c428efd97d0ec788d8cf93fd7dd54b7aa91d8ed5d34243ef6f",
+  "publishedAt": "2026-11-25T23:22:45Z",
+  "releaseNotes": "Scheduled restart still found after the queue files are cleared (pending-reboot.json in shared-directory discovery); failed OEM install ends as one History row (#148 507b95e) on 0.7.2.60. Tip 6803102. Keep 0.7.2.60 for rollback."
 }
