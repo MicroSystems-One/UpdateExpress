@@ -2138,17 +2138,15 @@ public partial class MainWindow : Window
     /// <summary>
     /// Outcome of the last finished unattended «install at HH:mm» run (unattended-until-clear.json):
     /// failed when any item failed or the run was stopped, “—” when no run has finished yet.
+    /// Stays on the previous run's outcome while the next run is armed or running.
     /// </summary>
-    private static string LastScheduledMaintenanceResult(bool norwegian)
-    {
-        var run = UnattendedUntilClear.Load();
-        if (run.CompletedAt is null) return "—";
-        bool failed = run.Failed.Count > 0 ||
-                      string.Equals(run.Phase, "stopped", StringComparison.OrdinalIgnoreCase);
-        return failed
-            ? (norwegian ? "feil" : "failed")
-            : (norwegian ? "vellykket" : "successful");
-    }
+    private static string LastScheduledMaintenanceResult(bool norwegian) =>
+        UnattendedUntilClear.LastFinishedFailed(UnattendedUntilClear.Load()) switch
+        {
+            null => "—",
+            true => norwegian ? "feil" : "failed",
+            false => norwegian ? "vellykket" : "successful"
+        };
 
     public void ShowProxySettings()
     {

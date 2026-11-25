@@ -196,6 +196,27 @@ internal static class RebootCoordinator
     /// </summary>
     internal static readonly TimeSpan ServiceGrace = TimeSpan.FromSeconds(60);
 
+    private static DateTime? _graceDue;
+    private static string? _graceSource;
+    private static DateTime _graceStartedUtc;
+
+    /// <summary>
+    /// True while the service should still leave this due restart to a user session. The grace
+    /// counts from when this process first saw the entry as due, not from the due time: after
+    /// sleep or a late service start the due time is long past, and the agent, waking at the
+    /// same moment, needs the same head start.
+    /// </summary>
+    private static bool InServiceGrace(PendingRebootState pending, DateTime due)
+    {
+        if (_graceDue != due || !string.Equals(_graceSource, pending.Source, StringComparison.OrdinalIgnoreCase))
+        {
+            _graceDue = due;
+            _graceSource = pending.Source;
+            _graceStartedUtc = DateTime.UtcNow;
+        }
+        return DateTime.UtcNow - _graceStartedUtc < ServiceGrace;
+    }
+
     /// <summary>
     /// Poll pending reboot file. Committed restarts (see <see cref="IsCommitted"/>) run without
     /// requiring AutoReboot.Enabled. With <paramref name="allowUiPrompt"/> (tray agent, main
@@ -242,7 +263,7 @@ internal static class RebootCoordinator
         if (IsCommitted(pending))
         {
             // Session 0 cannot show the notice: give the signed-in user's agent first go.
-            if (!allowUiPrompt && DateTime.Now < due + ServiceGrace) return;
+            if (!allowUiPrompt && InServiceGrace(pending, due)) return;
 
             bool norwegian = string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase);
             comment = !string.Equals(pending.Source, "reminder", StringComparison.OrdinalIgnoreCase)

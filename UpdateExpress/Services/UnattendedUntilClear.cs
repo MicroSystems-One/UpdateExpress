@@ -54,6 +54,17 @@ internal static class UnattendedUntilClear
         File.WriteAllText(PathFile, JsonSerializer.Serialize(state, Json));
     }
 
+    /// <summary>
+    /// Whether the most recent finished run failed (any failed item, or stopped): this ledger's
+    /// own run once it has finished, otherwise the run before it. Null = no run has finished yet.
+    /// </summary>
+    internal static bool? LastFinishedFailed(UnattendedUntilClearState state)
+    {
+        if (state.CompletedAt is null) return state.PreviousRunFailed;
+        return state.Failed.Count > 0 ||
+               string.Equals(state.Phase, "stopped", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static bool IsRunActive(UnattendedUntilClearState? state = null)
     {
         state ??= Load();
@@ -86,8 +97,10 @@ internal static class UnattendedUntilClear
 
         if (fresh)
         {
+            bool? previousRunFailed = LastFinishedFailed(state);
             state = new UnattendedUntilClearState
             {
+                PreviousRunFailed = previousRunFailed,
                 Active = true,
                 Phase = "armed",
                 ArmedAt = DateTime.Now,
@@ -825,6 +838,8 @@ internal sealed class UnattendedUntilClearState
     public DateTime? ArmedAt { get; set; }
     public DateTime? ScheduledStartAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    /// <summary>Outcome of the run that finished before this one was armed; arming resets the rest.</summary>
+    public bool? PreviousRunFailed { get; set; }
     public DateTime? ShowResultAfter { get; set; }
     public DateTime? LastContinueAt { get; set; }
     /// <summary>Boot stamp when Phase entered reboot; used to detect post-restart resume.</summary>
