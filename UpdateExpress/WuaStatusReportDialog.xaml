@@ -4,8 +4,8 @@
         Title="WUA status report"
         Width="760" Height="560" MinWidth="680" MinHeight="440"
         WindowStartupLocation="CenterOwner"
-        Background="#F3F6FB" FontFamily="Segoe UI"
-        ShowInTaskbar="False">
+        Background="#F3F3F3" FontFamily="Segoe UI Variable Text, Segoe UI"
+        ShowInTaskbar="False" Icon="Assets/UpdateExpress-U.ico">
   <Window.Resources>
     <Style x:Key="DialogActionButton" TargetType="Button">
       <Setter Property="Height" Value="30"/>
@@ -42,7 +42,7 @@
       </Setter>
     </Style>
   </Window.Resources>
-  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="14" Padding="18">
+  <Border Margin="16" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="8" Padding="18">
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
@@ -51,8 +51,8 @@
         <RowDefinition Height="*"/>
         <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
-      <TextBlock Text="WUA status report" FontSize="18" FontWeight="SemiBold" Foreground="#152137"/>
-      <TextBlock Grid.Row="1" Margin="0,8,0,10" TextWrapping="Wrap" Foreground="#52617A"
+      <TextBlock Text="WUA status report" FontSize="18" FontWeight="SemiBold" Foreground="#1C1C1C"/>
+      <TextBlock Grid.Row="1" Margin="0,8,0,10" TextWrapping="Wrap" Foreground="#5D5D5D"
                  Text="Open the latest or a previous WUA deep check report. Copy into an AI chat or ticket for further troubleshooting."/>
       <DockPanel Grid.Row="2" Margin="0,0,0,10" LastChildFill="True">
         <TextBlock Text="Report:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="#334155"/>
@@ -60,8 +60,8 @@
       </DockPanel>
       <TextBox x:Name="ReportBox" Grid.Row="3" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
                VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-               FontFamily="Consolas" FontSize="11" BorderBrush="#DDE3EB" Padding="10"
-               Background="#F8FAFC"/>
+               FontFamily="Consolas" FontSize="11" BorderBrush="#E5E5E5" Padding="10"
+               Background="#F9F9F9"/>
       <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Height="30" Margin="0,14,0,0">
         <Button Content="Copy to clipboard" Style="{StaticResource DialogActionButton}" Click="Copy_Click"/>
         <Button Content="Open log folder" Style="{StaticResource DialogActionButton}" Click="OpenFolder_Click"/>

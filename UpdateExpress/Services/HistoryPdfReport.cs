@@ -82,7 +82,7 @@ public static class HistoryPdfReport
             int needed = 4 + titleLines.Count;
             if (lines.Count > 0 && lines.Count + needed > maxLines)
             { pages.Add(lines); lines = new List<PdfLine>(); }
-            Add($"{++i}. {Safe(e.Date)} | {Safe(e.KB)} | {Safe(e.Status)}");
+            Add($"{++i}. {Safe(e.DateShown)} | {Safe(e.KB)} | {Safe(HistoryStatusDisplay.Format(e.Status))}");
             foreach (var title in titleLines) Add("   " + title);
             var category = Safe(e.Category);
             if (string.IsNullOrWhiteSpace(category)) category = "Not available";
