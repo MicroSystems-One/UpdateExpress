@@ -2111,7 +2111,8 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Results expander title: “Søke resultater” / “Search results” plus three spaces and
-    /// “Sist sjekket: HH:mm - neste sjekk: HH:mm” (language-aware).
+    /// “Sist sjekket: HH:mm - neste sjekk: HH:mm - Sist omstart: dd.MM.yyyy HH:mm
+    /// Siste planlagte vedlikehold: vellykket/feil” (language-aware).
     /// </summary>
     private void RefreshResultsHeading()
     {
@@ -2124,9 +2125,29 @@ public partial class MainWindow : Window
         string next = status is not null && status.NextScheduled != default
             ? status.NextScheduled.ToString("HH:mm")
             : "—";
-        ListHeading.Text = no
-            ? $"{title}   Sist sjekket: {last} - neste sjekk: {next}"
-            : $"{title}   Last checked: {last} - next check: {next}";
+        string restart = _bootedAt.ToString("dd.MM.yyyy HH:mm");
+        string maintenance = LastScheduledMaintenanceResult(no);
+        string text = no
+            ? $"{title}   Sist sjekket: {last} - neste sjekk: {next} - Sist omstart: {restart} Siste planlagte vedlikehold: {maintenance}"
+            : $"{title}   Last checked: {last} - next check: {next} - Last restart: {restart} Last scheduled maintenance: {maintenance}";
+        ListHeading.Text = text;
+        // The heading trims with an ellipsis in a narrow window; keep the full line reachable.
+        ListHeading.ToolTip = text;
+    }
+
+    /// <summary>
+    /// Outcome of the last finished unattended «install at HH:mm» run (unattended-until-clear.json):
+    /// failed when any item failed or the run was stopped, “—” when no run has finished yet.
+    /// </summary>
+    private static string LastScheduledMaintenanceResult(bool norwegian)
+    {
+        var run = UnattendedUntilClear.Load();
+        if (run.CompletedAt is null) return "—";
+        bool failed = run.Failed.Count > 0 ||
+                      string.Equals(run.Phase, "stopped", StringComparison.OrdinalIgnoreCase);
+        return failed
+            ? (norwegian ? "feil" : "failed")
+            : (norwegian ? "vellykket" : "successful");
     }
 
     public void ShowProxySettings()
@@ -3106,7 +3127,8 @@ public partial class MainWindow : Window
         {
             _confirmedRebootTimer?.Stop();
             _confirmedRebootTimer = null;
-            RebootCoordinator.RunDueJob(allowUiPrompt: false);
+            // Show the countdown notice; without it the user sees only the Windows sign-out notice.
+            RebootCoordinator.RunDueJob(allowUiPrompt: true);
         };
         _confirmedRebootTimer.Start();
     }

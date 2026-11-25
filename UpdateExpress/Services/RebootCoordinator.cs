@@ -24,6 +24,12 @@ internal sealed class PendingRebootState
     public string Reason { get; set; } = "";
     public string Source { get; set; } = "";
     public bool Cancelled { get; set; }
+    /// <summary>
+    /// Fixed restart time, set while the countdown notice is live or postponed. The notice
+    /// opens at <see cref="EarliestRebootAt"/> and counts down to this. Null = start a full
+    /// countdown at <see cref="EarliestRebootAt"/>.
+    /// </summary>
+    public DateTime? RestartAt { get; set; }
 }
 
 /// <summary>
@@ -96,7 +102,7 @@ internal static class RebootCoordinator
                     System.Windows.MessageBoxImage.Information);
                 return true;
             }
-            // Already outside hours → start countdown UI (Cancel / Restart now / Postpone).
+            // Already outside hours → start the countdown notice (Stop / Postpone).
             return PromptConfirmAndMaybeReboot(source, reboot, owner);
         }
 
@@ -106,7 +112,7 @@ internal static class RebootCoordinator
 
     private static bool PromptConfirmAndMaybeReboot(string source, AutoRebootPolicy reboot, System.Windows.Window? owner)
     {
-        // Countdown modal lets any signed-in user Cancel / Restart now / Postpone 30m.
+        // Countdown notice lets the signed-in user Stop or Postpone 15 minutes.
         StartCountdownReboot(
             source,
             reboot.CountdownSeconds,
@@ -116,7 +122,12 @@ internal static class RebootCoordinator
         return true;
     }
 
-    internal static void SchedulePending(string source, DateTime earliest, string reason)
+    internal static void SchedulePending(
+        string source,
+        DateTime earliest,
+        string reason,
+        DateTime? restartAt = null,
+        bool log = true)
     {
         var state = new PendingRebootState
         {
@@ -124,16 +135,42 @@ internal static class RebootCoordinator
             EarliestRebootAt = earliest,
             Reason = reason,
             Source = source,
-            Cancelled = false
+            Cancelled = false,
+            RestartAt = restartAt
         };
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(PendingPath)!);
             File.WriteAllText(PendingPath, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
+            if (!log) return;
             AgentLog.Write($"Pending reboot scheduled for {earliest:O} ({source}): {reason}");
-            ActivityLog.TryWrite("AutoReboot", "Scheduled", new { earliest, source, reason }, mode: "Automatic", source: "RebootCoordinator");
+            ActivityLog.TryWrite("AutoReboot", "Scheduled", new { earliest, restartAt, source, reason }, mode: "Automatic", source: "RebootCoordinator");
         }
         catch (Exception ex) { AgentLog.Write("Could not save pending reboot: " + ex.Message); }
+    }
+
+    /// <summary>
+    /// A restart the user has already been told about: a confirmed maintenance reminder, or a
+    /// countdown notice that is live or postponed. These run without the auto-reboot policy gates.
+    /// </summary>
+    internal static bool IsCommitted(PendingRebootState pending) =>
+        pending.RestartAt is not null ||
+        string.Equals(pending.Source, "reminder", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsPendingDue() =>
+        LoadPending() is { Cancelled: false, EarliestRebootAt: DateTime due } && DateTime.Now >= due;
+
+    private static bool IsSamePending(PendingRebootState expected) =>
+        LoadPending() is { Cancelled: false } current &&
+        current.EarliestRebootAt == expected.EarliestRebootAt &&
+        string.Equals(current.Source, expected.Source, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Drop the pending file only if it is still the live notice's own entry.</summary>
+    internal static void ClearPendingIfRestartAt(DateTime restartAt)
+    {
+        if (LoadPending()?.RestartAt is DateTime current &&
+            Math.Abs((current - restartAt).TotalSeconds) < 1)
+            ClearPending();
     }
 
     internal static PendingRebootState? LoadPending()
@@ -153,20 +190,38 @@ internal static class RebootCoordinator
     }
 
     /// <summary>
-    /// Poll pending reboot file. Reminder-confirmed reboots run without a second prompt
-    /// (and without requiring AutoReboot.Enabled). Other sources may prompt when
-    /// <paramref name="allowUiPrompt"/> is true (tray); the Windows service passes false.
+    /// How long the session-0 service leaves a due, committed restart alone so the signed-in
+    /// user's agent can show the Update Express notice. The service cannot show UI itself;
+    /// after this it falls back to <c>shutdown /r /t</c>, which shows only the Windows notice.
+    /// </summary>
+    internal static readonly TimeSpan ServiceGrace = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Poll pending reboot file. Committed restarts (see <see cref="IsCommitted"/>) run without
+    /// requiring AutoReboot.Enabled. With <paramref name="allowUiPrompt"/> (tray agent, main
+    /// window) the countdown notice is shown; the Windows service passes false.
     /// </summary>
     internal static void RunDueJob(bool allowUiPrompt = true)
     {
         var pending = LoadPending();
         if (pending is null || pending.Cancelled || pending.EarliestRebootAt is null) return;
-        if (DateTime.Now < pending.EarliestRebootAt.Value) return;
+        DateTime due = pending.EarliestRebootAt.Value;
+        if (DateTime.Now < due) return;
+
+        // A notice-owned restart from before this boot is already satisfied by that boot.
+        if (pending.RestartAt is not null && pending.CreatedAt < CategoryPromptState.ApproximateBootTime())
+        {
+            AgentLog.Write($"Dropped pending {pending.Source} restart from {pending.CreatedAt:O}: the PC has restarted since.");
+            ClearPending();
+            return;
+        }
 
         var policy = UpdatePolicy.Load();
         policy.Normalize();
         var reboot = policy.WindowsAutomation.AutoReboot;
-        int countdown = Math.Clamp(reboot.CountdownSeconds, 60, 3600);
+        int seconds = pending.RestartAt is DateTime restartAt
+            ? Math.Clamp((int)Math.Ceiling((restartAt - DateTime.Now).TotalSeconds), 60, 3600)
+            : Math.Clamp(reboot.CountdownSeconds, 60, 3600);
 
         // Do not cut a confirmed Applications queue short (same tray poll race as 2026-11-21).
         // Applications-sourced reboots are allowed through so mid-queue resume can proceed.
@@ -177,80 +232,128 @@ internal static class RebootCoordinator
             SchedulePending(
                 pending.Source,
                 slip,
-                (pending.Reason ?? "") + " (waiting for application installs)");
+                (pending.Reason ?? "") + " (waiting for application installs)",
+                pending.RestartAt is null ? null : slip.AddSeconds(seconds));
             AgentLog.Write($"Deferred {pending.Source} reboot until {slip:O} — applications install queue active.");
             return;
         }
 
-        // User already confirmed the maintenance reminder — honor it from tray or service.
-        if (string.Equals(pending.Source, "reminder", StringComparison.OrdinalIgnoreCase))
+        string comment;
+        if (IsCommitted(pending))
         {
-            ClearPending();
+            // Session 0 cannot show the notice: give the signed-in user's agent first go.
+            if (!allowUiPrompt && DateTime.Now < due + ServiceGrace) return;
+
             bool norwegian = string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase);
-            StartCountdownReboot(
-                "reminder",
-                countdown,
-                norwegian
+            comment = !string.Equals(pending.Source, "reminder", StringComparison.OrdinalIgnoreCase)
+                ? "Update Express: restart after updates. Save your work."
+                : norwegian
                     ? "Update Express: omstart etter bekreftet vedlikeholdspåminnelse. Lagre arbeidet."
-                    : "Update Express: restart after confirmed maintenance reminder. Save your work.",
-                showUi: allowUiPrompt);
-            return;
+                    : "Update Express: restart after confirmed maintenance reminder. Save your work.";
+        }
+        else
+        {
+            if (!reboot.Enabled)
+            {
+                ClearPending();
+                return;
+            }
+
+            if (IsInsideActiveHours(reboot, DateTime.Now))
+            {
+                // Slip to next outside window if clock drifted into active hours.
+                SchedulePending(pending.Source, NextOutsideActiveHours(reboot, DateTime.Now), pending.Reason);
+                return;
+            }
+
+            if (!allowUiPrompt)
+            {
+                // Session-0 service cannot prompt; leave pending for the tray agent.
+                return;
+            }
+
+            comment = "Update Express: deferred restart after Windows updates. Save your work.";
         }
 
-        if (!reboot.Enabled)
+        if (allowUiPrompt)
         {
-            ClearPending();
-            return;
-        }
-
-        if (IsInsideActiveHours(reboot, DateTime.Now))
-        {
-            // Slip to next outside window if clock drifted into active hours.
-            SchedulePending(pending.Source, NextOutsideActiveHours(reboot, DateTime.Now), pending.Reason);
-            return;
-        }
-
-        if (!allowUiPrompt)
-        {
-            // Session-0 service cannot prompt; leave pending for the tray agent.
+            // The notice replaces the pending entry with its own once it owns the session slot,
+            // so a second poller (tray + main window) cannot open a second notice.
+            StartCountdownReboot(pending.Source, seconds, comment, showUi: true,
+                stillWanted: () => IsSamePending(pending));
             return;
         }
 
         ClearPending();
-        StartCountdownReboot(pending.Source, countdown,
-            "Update Express: deferred restart after Windows updates. Save your work.",
-            showUi: true);
+        StartCountdownReboot(pending.Source, seconds, comment, showUi: false);
     }
 
     /// <summary>
-    /// Start a Windows restart countdown. When <paramref name="showUi"/> is true, show the
-    /// centered Avbryt / Omstart nå / Utsett 30 minutter modal for any signed-in user.
+    /// Count down to a restart. With <paramref name="showUi"/> the Update Express notice runs
+    /// the countdown and restarts at 0, so Windows shows no sign-out notice of its own. Without
+    /// it (session 0, or the notice failed) Windows runs the countdown and shows its own notice.
+    /// <paramref name="owner"/> is unused: the notice is ownerless so it still shows when the
+    /// main window is minimised.
     /// </summary>
     internal static void StartCountdownReboot(
         string source,
         int countdownSeconds,
         string comment,
         bool showUi = true,
-        System.Windows.Window? owner = null)
+        System.Windows.Window? owner = null,
+        Func<bool>? stillWanted = null)
     {
         int seconds = Math.Clamp(countdownSeconds, 60, 3600);
         if (showUi)
         {
             try
             {
-                RebootCountdownWindow.RunWithUi(source, seconds, comment, owner);
+                RebootCountdownWindow.RunWithUi(source, seconds, comment, stillWanted);
                 return;
             }
             catch (Exception ex)
             {
-                AgentLog.Write("Reboot countdown UI failed; falling back to silent countdown: " + ex.Message);
+                AgentLog.Write("Reboot countdown notice failed; falling back to the Windows countdown: " + ex.Message);
+                ClearPending();
             }
         }
 
         StartCountdownRebootCore(source, seconds, comment);
     }
 
-    /// <summary>Issue <c>shutdown /r /t …</c> without UI (used by the countdown modal and fallbacks).</summary>
+    /// <summary>
+    /// Restart now, once the notice's countdown has run out. <c>/t 0</c> shows no Windows
+    /// sign-out notice; <c>/f</c> keeps what <c>shutdown /r /t N</c> (N &gt; 0) implied before.
+    /// </summary>
+    internal static void RestartNow(string source, string comment)
+    {
+        string safeComment = (comment ?? "Update Express restart").Replace("\"", "'");
+        try
+        {
+            AgentLog.Write($"Reboot countdown finished; restarting now for {source}.");
+            ActivityLog.TryWrite("AutoReboot", "Restarting", new { source }, mode: "Automatic", source: "RebootCoordinator");
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "shutdown.exe",
+                Arguments = $"/r /f /t 0 /c \"{safeComment}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Failed to restart after countdown: " + ex);
+            ActivityLog.TryWrite("AutoReboot", "Failed", ex.ToString(), mode: "Automatic", source: "RebootCoordinator");
+            System.Windows.Forms.MessageBox.Show(
+                "Could not restart Windows.\n\n" + ex.Message +
+                "\n\nRestart Windows manually when convenient.",
+                "Update Express",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>Issue <c>shutdown /r /t …</c> without Update Express UI (session 0 and fallbacks).</summary>
     internal static void StartCountdownRebootCore(string source, int countdownSeconds, string comment)
     {
         int seconds = Math.Clamp(countdownSeconds, 0, 3600);
@@ -281,8 +384,18 @@ internal static class RebootCoordinator
         }
     }
 
-    /// <summary>Abort a pending <c>shutdown /r /t …</c> countdown if one is active (no-op otherwise).</summary>
+    /// <summary>
+    /// Cancel a restart countdown from outside the notice: close a live notice in this session
+    /// without restarting, and abort a Windows countdown if one is armed.
+    /// </summary>
     internal static void CancelCountdownReboot(string reason = "")
+    {
+        RebootCountdownWindow.SignalCancel();
+        AbortWindowsCountdown(reason);
+    }
+
+    /// <summary>Abort a pending <c>shutdown /r /t …</c> countdown if one is active (no-op otherwise).</summary>
+    internal static void AbortWindowsCountdown(string reason = "")
     {
         try
         {

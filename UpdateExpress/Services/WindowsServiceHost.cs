@@ -67,7 +67,8 @@ internal sealed class UpdateExpressServiceWorker : BackgroundService
                 else
                 {
                     await DefenderAutomation.RunDueJobAsync().ConfigureAwait(false);
-                    // Honor reminder-confirmed reboots without UI (Session 0; no prompts).
+                    // Session 0 cannot show the restart notice. The signed-in user's agent shows
+                    // it; this only completes a committed restart that nobody picked up.
                     try { RebootCoordinator.RunDueJob(allowUiPrompt: false); }
                     catch (Exception rex)
                     {
@@ -81,13 +82,13 @@ internal sealed class UpdateExpressServiceWorker : BackgroundService
                 _log.LogWarning(ex, "Service automation tick failed");
             }
 
-            // Poll sooner when a reminder-confirmed reboot is armed.
+            // Poll sooner when a committed restart is armed.
             TimeSpan delay = TimeSpan.FromMinutes(5);
             try
             {
                 var pending = RebootCoordinator.LoadPending();
                 if (pending is { Cancelled: false, EarliestRebootAt: DateTime due }
-                    && string.Equals(pending.Source, "reminder", StringComparison.OrdinalIgnoreCase))
+                    && RebootCoordinator.IsCommitted(pending))
                 {
                     var until = due - DateTime.Now;
                     if (until <= TimeSpan.Zero) delay = TimeSpan.FromSeconds(15);

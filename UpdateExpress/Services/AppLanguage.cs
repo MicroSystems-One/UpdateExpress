@@ -47,6 +47,17 @@ internal static class AppLanguage
         ["Could not check for Update Express updates.\n\n{0}"] =
             "Kunne ikke sjekke etter Update Express-oppdateringer.\n\n{0}",
         ["Unknown error"] = "Ukjent feil",
+
+        // Restart countdown notice
+        ["Update Express – Restart"] = "Update Express – Omstart",
+        ["Restart coming soon"] = "Omstart om kort tid",
+        ["Restart in {0}"] = "Omstart om {0}",
+        ["Save your work now. This PC restarts when the countdown reaches 0."] =
+            "Lagre arbeidet ditt nå. PC-en starter på nytt når nedtellingen når 0.",
+        ["Stop cancels the restart. Postpone moves it 15 minutes out."] =
+            "Stop avbryter omstarten. Utsett flytter den 15 minutter frem.",
+        ["Stop"] = "Stop",
+        ["Postpone 15 minutes"] = "Utsett 15 minutter",
     };
 
     /// <summary>Resolve an English UI key to the active app language.</summary>
