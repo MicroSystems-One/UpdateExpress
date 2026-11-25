@@ -65,6 +65,19 @@ public static class FeatureUpdateSelection
         return keep;
     }
 
+    /// <summary>
+    /// Short WUA / Settings titles such as "Windows 11, version 25H2" or "Windows 11, 24H2".
+    /// Must not match cumulatives that merely mention Version 23H2 in a longer title.
+    /// </summary>
+    public static bool IsShortFeatureUpdateTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return false;
+        return Regex.IsMatch(
+            title.Trim(),
+            @"^Windows\s*1[01]\s*,\s*(?:version\s+)?\d{2}H[12]\b",
+            RegexOptions.IgnoreCase);
+    }
+
     /// <summary>True when the entry is a Windows feature / enablement / registry candidate row.</summary>
     public static bool IsFeatureUpdateRow(UpdateEntry entry)
     {
@@ -78,7 +91,7 @@ public static class FeatureUpdateSelection
         return title.Contains("feature update", StringComparison.OrdinalIgnoreCase)
             || title.Contains("funksjonsoppdatering", StringComparison.OrdinalIgnoreCase)
             || title.Contains("enablement package", StringComparison.OrdinalIgnoreCase)
-            || (ReleaseToken.IsMatch(title) && (Windows11Title.IsMatch(title) || Windows10Title.IsMatch(title)));
+            || IsShortFeatureUpdateTitle(title);
     }
 
     public static bool IsVerifiedWuaOffer(UpdateEntry entry) =>

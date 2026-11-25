@@ -47,9 +47,9 @@ public static class WindowsUpdateReader
         if (title.Contains("preview") || title.Contains("forhåndsvisning") || title.Contains("vorschau") || ReadBool(u, "IsBeta")) return "Preview / valgfri";
         if (title.Contains("feature update") || title.Contains("funksjonsoppdatering") || title.Contains("enablement package"))
             return "Versjonsoppgradering";
-        // WUA sometimes returns short titles such as "Windows 11, version 25H2" without the
-        // "Feature update to" prefix — still a feature upgrade, not a cumulative.
-        if (Regex.IsMatch(title, @"windows\s*1[01].*\b\d{2}h[12]\b", RegexOptions.IgnoreCase))
+        // Short titles only (e.g. "Windows 11, version 25H2") — never match cumulatives that
+        // merely mention Version 23H2 in a longer title (would drop them from K2/K3 automation).
+        if (FeatureUpdateSelection.IsShortFeatureUpdateTitle(Convert.ToString(u.Title)))
             return "Versjonsoppgradering";
         return "Programvare / sikkerhet";
     }

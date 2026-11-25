@@ -117,6 +117,27 @@ public class FeatureUpdateSelectionTests
         Assert.True(FeatureUpdateSelection.RankRelease("25H2") > FeatureUpdateSelection.RankRelease("24H2"));
     }
 
+    [Theory]
+    [InlineData("Windows 11, version 25H2", true)]
+    [InlineData("Windows 11, 24H2", true)]
+    [InlineData("Windows 10, version 22H2", true)]
+    [InlineData("Feature update to Windows 11, version 25H2", false)] // caught by keyword path, not short-title
+    [InlineData("2024-11 Cumulative Update for Windows 11 Version 23H2 for x64-based Systems (KB5046617)", false)]
+    [InlineData("2024-11 Security Update for Windows 11 Version 24H2 for x64-based Systems (KB5046617)", false)]
+    public void IsShortFeatureUpdateTitle_OnlyMatchesShortFeatureTitles(string title, bool expected)
+    {
+        Assert.Equal(expected, FeatureUpdateSelection.IsShortFeatureUpdateTitle(title));
+    }
+
+    [Fact]
+    public void IsFeatureUpdateRow_DoesNotTreatCumulativeAsFeatureViaTitle()
+    {
+        var cumulative = Cumulative(
+            "2024-11 Cumulative Update for Windows 11 Version 23H2 for x64-based Systems (KB5046617)",
+            "KB5046617");
+        Assert.False(FeatureUpdateSelection.IsFeatureUpdateRow(cumulative));
+    }
+
     private static UpdateEntry Candidate(string title, string version) => new()
     {
         Title = title,
