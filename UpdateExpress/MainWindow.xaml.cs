@@ -195,10 +195,9 @@ public partial class MainWindow : Window
         SelectAllUpdates.Visibility = Visibility.Visible;
         SelectedCountText.Visibility = Visibility.Visible;
         HistoryPdfButton.Visibility = tab == "history" ? Visibility.Visible : Visibility.Collapsed;
-        // History must not expose OEM DOC/OEM download affordances (even if a row still has URLs).
-        var oemCols = tab == "history" ? Visibility.Collapsed : Visibility.Visible;
-        if (OemDocColumn != null) OemDocColumn.Visibility = oemCols;
-        if (OemPackageColumn != null) OemPackageColumn.Visibility = oemCols;
+        // History must not expose the OEM DOC download (even if a row still has URLs).
+        if (OemDocColumn != null)
+            OemDocColumn.Visibility = tab == "history" ? Visibility.Collapsed : Visibility.Visible;
         UpdatesGrid.Items.Refresh();
         UpdateSelectionControls();
         if (_languageReady) ApplyLanguage();
@@ -294,8 +293,8 @@ public partial class MainWindow : Window
         _ = DownloadOemEntryAsync(entry, package: false, quiet: false);
 
     /// <summary>
-    /// OEM part of Install Selected. Each package takes the per-row OEM ↓ path (download, then
-    /// run its installer and wait for it), one at a time, without per-package questions.
+    /// OEM part of Install Selected. Each package takes the same path as a double-clicked OEM row
+    /// (download, then run its installer and wait for it), one at a time, without per-package questions.
     /// </summary>
     /// <param name="confirm">False when the combined Install Selected dialog already asked.</param>
     private async Task InstallSelectedOemAsync(IReadOnlyList<UpdateEntry> selected, bool confirm)
@@ -786,12 +785,6 @@ public partial class MainWindow : Window
         // History dismiss may have cleared URLs; match title+version for OEM rows.
         return string.Equals((pending.Title ?? "").Trim(), (reference.Title ?? "").Trim(), StringComparison.OrdinalIgnoreCase) &&
                string.Equals(pending.UnifiedVersion, reference.UnifiedVersion, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void OpenOemDriver_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { DataContext: UpdateEntry entry })
-            OpenOemDriverEntry(entry);
     }
 
     private void OpenOemReadme_Click(object sender, RoutedEventArgs e)
@@ -2624,14 +2617,10 @@ public partial class MainWindow : Window
         ["Include optional"] = "Inkluder valgfrie",
         ["All WUA drivers"] = "Alle WUA-drivere",
         ["OEM drivers"] = "OEM-drivere",
-        ["Open OEM download"] = "Åpne OEM-nedlasting",
         ["TXT file download"] = "Last ned TXT-fil",
         ["DOC ↓"] = "DOC ↓",
-        ["OEM ↓"] = "OEM ↓",
         ["Download the OEM TXT/README companion when available."] =
             "Last ned OEM TXT/README-filen når den finnes.",
-        ["Download the OEM package (exe/zip/…) in Update Express. Not installed through WUA."] =
-            "Last ned OEM-pakken (exe/zip/…) i Update Express. Installeres ikke via WUA.",
         ["Downloaded"] = "Lastet ned",
         ["Change setup…"] = "Endre oppsett…",
         ["About Update Express vs Windows Update"] = "Om Update Express vs Windows Update",
@@ -3751,7 +3740,7 @@ public partial class MainWindow : Window
             .ToList();
         var apps = _appEntries.Where(x => x.IsSelected).ToList();
         // OEM catalog rows never go through WUA (empty UpdateId): each package is downloaded
-        // and its own installer is run, as the per-row OEM ↓ button does.
+        // and its own installer is run.
         var oem = _pendingSnapshot.Where(x => x.IsSelected && IsOemDownloadable(x)).ToList();
         if (software.Count + drivers.Count + apps.Count == 0)
         {

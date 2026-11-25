@@ -223,7 +223,7 @@ internal sealed class LenovoOemDriverCatalog : IOemDriverCatalog
             }
         }
 
-        // Package URL is required for Open OEM download. Readme-only rows are skipped.
+        // Package URL is required to download the package. Readme-only rows are skipped.
         if (string.IsNullOrWhiteSpace(downloadUrl))
             return null;
 
@@ -239,7 +239,7 @@ internal sealed class LenovoOemDriverCatalog : IOemDriverCatalog
             DownloadUrl: downloadUrl,
             DetailsUrl: detailsUrl,
             ReleasedAt: released,
-            Reason: $"Lenovo PC Support catalog (MT {machineType}). OEM ↓ downloads the installer in Update Express; DOC ↓ downloads the readme when available. Not installed through WUA.",
+            Reason: $"Lenovo PC Support catalog (MT {machineType}). Select the row and use Install Selected to download the package and run its installer; DOC ↓ downloads the readme when available. Not installed through WUA.",
             ReadmeUrl: readmeUrl);
     }
 
