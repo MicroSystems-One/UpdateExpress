@@ -117,7 +117,32 @@ internal static class FeatureUpdateOfferReader
             return null;
         }
 
-        return considered.Where(item => item.Eligible).OrderBy(item => item.DestBuild).ThenBy(item => item.Version).FirstOrDefault();
+        // Prefer the newest eligible destination (e.g. 25H2 over 24H2 on a 23H2 PC).
+        return considered.Where(item => item.Eligible)
+            .OrderByDescending(item => item.DestBuild)
+            .ThenByDescending(item => item.Version)
+            .FirstOrDefault();
+    }
+
+    /// <summary>Installed DisplayVersion / CurrentBuild for feature-update selection.</summary>
+    internal static void TryReadInstalled(out string displayVersion, out int currentBuild)
+    {
+        displayVersion = "Unknown";
+        currentBuild = 0;
+        try
+        {
+            using var hive = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using var current = hive.OpenSubKey(CurrentVersionPath);
+            displayVersion = current?.GetValue("DisplayVersion")?.ToString()?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(displayVersion))
+                displayVersion = current?.GetValue("ReleaseId")?.ToString()?.Trim() ?? "Unknown";
+            currentBuild = ReadInt(current?.GetValue("CurrentBuild"));
+            if (currentBuild <= 0) currentBuild = Environment.OSVersion.Version.Build;
+        }
+        catch
+        {
+            if (currentBuild <= 0) currentBuild = Environment.OSVersion.Version.Build;
+        }
     }
 
     private static UpdateEntry ToEntry(Assessment offer)
