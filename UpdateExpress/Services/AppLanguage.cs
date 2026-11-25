@@ -57,7 +57,9 @@ internal static class AppLanguage
         ["Stop cancels the restart. Postpone moves it 15 minutes out."] =
             "Stop avbryter omstarten. Utsett flytter den 15 minutter frem.",
         ["Stop"] = "Stop",
+        ["Restart now"] = "Omstart nå",
         ["Postpone 15 minutes"] = "Utsett 15 minutter",
+        ["Update Express: restart now."] = "Update Express: omstart nå.",
     };
 
     /// <summary>Resolve an English UI key to the active app language.</summary>

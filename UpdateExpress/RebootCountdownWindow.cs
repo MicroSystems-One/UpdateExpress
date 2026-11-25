@@ -17,7 +17,7 @@ namespace UpdateExpress;
 
 /// <summary>
 /// Update Express restart notice: DEVICE\user, a live countdown to the restart, and
-/// Stop | Utsett 15 minutter. The notice owns the countdown and restarts at 0, so Windows
+/// Stop | Omstart nå | Utsett 15 minutter. The notice owns the countdown and restarts at 0, so Windows
 /// shows no sign-out notice of its own. Topmost for its whole lifetime, ownerless (shows
 /// with the main window minimised or closed), one per user session.
 /// </summary>
@@ -29,6 +29,7 @@ internal sealed class RebootCountdownWindow : Window
         None,
         Elapsed,
         Stop,
+        RestartNow,
         Postpone,
         CancelledElsewhere
     }
@@ -57,7 +58,7 @@ internal sealed class RebootCountdownWindow : Window
 
         Title = AppLanguage.T("Update Express – Restart");
         AppIcon.Apply(this);
-        Width = 520;
+        Width = 560;
         MinWidth = 460;
         SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -106,10 +107,13 @@ internal sealed class RebootCountdownWindow : Window
             Margin = new Thickness(0, 0, 0, 16)
         };
 
-        // Neither button is default/cancel: the notice takes the foreground while the user may
+        // No button is default/cancel: the notice takes the foreground while the user may
         // be typing, and a stray Enter or Esc must not decide for them.
         var stop = MakeButton(AppLanguage.T("Stop"), primary: false);
         stop.Click += (_, _) => Finish(Choice.Stop);
+
+        var now = MakeButton(AppLanguage.T("Restart now"), primary: false);
+        now.Click += (_, _) => Finish(Choice.RestartNow);
 
         var postpone = MakeButton(AppLanguage.T("Postpone 15 minutes"), primary: true);
         postpone.Click += (_, _) => Finish(Choice.Postpone);
@@ -121,7 +125,9 @@ internal sealed class RebootCountdownWindow : Window
             VerticalAlignment = WpfVerticalAlignment.Center,
             Height = ButtonHeight
         };
+        // Left → right: Stop | Omstart nå | Utsett 15 minutter (same order as the old dialog).
         row.Children.Add(stop);
+        row.Children.Add(now);
         row.Children.Add(postpone);
 
         Content = new Border
@@ -187,7 +193,7 @@ internal sealed class RebootCountdownWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        // The title-bar X and Alt+F4 are not a choice; the user picks Stop or Postpone.
+        // The title-bar X and Alt+F4 are not a choice; the user picks one of the buttons.
         if (!_decided) e.Cancel = true;
         base.OnClosing(e);
     }
@@ -198,7 +204,7 @@ internal sealed class RebootCountdownWindow : Window
         b.Height = ButtonHeight;
         b.MinHeight = ButtonHeight;
         b.MaxHeight = ButtonHeight;
-        b.MinWidth = 150;
+        b.MinWidth = 132;
         b.Padding = new Thickness(12, 0, 12, 0);
         b.Margin = new Thickness(4, 0, 4, 0);
         b.VerticalAlignment = WpfVerticalAlignment.Center;
@@ -335,6 +341,11 @@ internal sealed class RebootCountdownWindow : Window
                 case Choice.Stop:
                     RebootCoordinator.ClearPending();
                     RebootCoordinator.AbortWindowsCountdown("user pressed Stop in the restart notice");
+                    break;
+
+                case Choice.RestartNow:
+                    RebootCoordinator.ClearPending();
+                    RebootCoordinator.RestartNow(source, AppLanguage.T("Update Express: restart now."), userChoice: true);
                     break;
 
                 case Choice.Postpone:

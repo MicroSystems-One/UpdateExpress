@@ -322,16 +322,20 @@ internal static class RebootCoordinator
     }
 
     /// <summary>
-    /// Restart now, once the notice's countdown has run out. <c>/t 0</c> shows no Windows
-    /// sign-out notice; <c>/f</c> keeps what <c>shutdown /r /t N</c> (N &gt; 0) implied before.
+    /// Restart now: the notice's countdown ran out, or the user pressed Restart now. <c>/t 0</c>
+    /// shows no Windows sign-out notice; <c>/f</c> keeps what <c>shutdown /r /t N</c> (N &gt; 0)
+    /// implied before.
     /// </summary>
-    internal static void RestartNow(string source, string comment)
+    internal static void RestartNow(string source, string comment, bool userChoice = false)
     {
         string safeComment = (comment ?? "Update Express restart").Replace("\"", "'");
         try
         {
-            AgentLog.Write($"Reboot countdown finished; restarting now for {source}.");
-            ActivityLog.TryWrite("AutoReboot", "Restarting", new { source }, mode: "Automatic", source: "RebootCoordinator");
+            AgentLog.Write(userChoice
+                ? $"User chose Restart now in the restart notice; restarting for {source}."
+                : $"Reboot countdown finished; restarting now for {source}.");
+            ActivityLog.TryWrite("AutoReboot", "Restarting", new { source, userChoice },
+                mode: userChoice ? "Manual" : "Automatic", source: "RebootCoordinator");
             Process.Start(new ProcessStartInfo
             {
                 FileName = "shutdown.exe",
