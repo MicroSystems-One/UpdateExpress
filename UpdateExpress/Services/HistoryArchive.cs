@@ -152,7 +152,7 @@ internal static class HistoryArchive
             ErrorCode = error,
             StatusNote = string.IsNullOrWhiteSpace(item.Tip) ? "" : item.Tip,
             Date = (at ?? DateTime.Now).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-            UpdateId = "",
+            UpdateId = item.UpdateId,
             SafeDefault = false
         };
     }
@@ -346,9 +346,10 @@ internal static class HistoryArchive
         var hidden = new HashSet<string>(state.HiddenEventKeys, StringComparer.OrdinalIgnoreCase);
         if (hidden.Count > 0 || state.HiddenDisplayIdentities.Count > 0)
             rows.RemoveAll(entry => IsHidden(entry, hidden, state.HiddenDisplayIdentities));
-        // Collapse fully identical History rows (same title, KB, version, status,
-        // and error code). Empty KB/Version count as equal. Keep the newest Date/Time.
-        // Distinct versions (e.g. Defender KB2267602) and success vs failure stay separate.
+        // Collapse History rows for the same update and outcome (same WUA UpdateId, or the
+        // same title, KB, version, status, and error code). Empty KB/Version count as equal.
+        // Keep the newest Date/Time. Distinct versions (e.g. Defender KB2267602), success vs
+        // failure, and one driver version under two UpdateIds stay separate.
         rows = CollapseIdenticalRows(rows);
         foreach (var entry in rows)
             OperationalPriority.Apply(entry);
@@ -356,38 +357,33 @@ internal static class HistoryArchive
     }
 
     /// <summary>
-    /// One visible History row per display identity. Prefer the newest Date/Time.
+    /// One visible History row per installed update. Prefer the newest Date/Time.
     /// </summary>
-    private static List<UpdateEntry> CollapseIdenticalRows(IReadOnlyList<UpdateEntry> rows)
-    {
-        var best = new Dictionary<string, UpdateEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in rows)
-        {
-            string key = DisplayIdentityKey(entry);
-            if (!best.TryGetValue(key, out var existing))
-            {
-                best[key] = entry;
-                continue;
-            }
-            var entryDate = ParseDate(entry.Date) ?? DateTime.MinValue;
-            var existingDate = ParseDate(existing.Date) ?? DateTime.MinValue;
-            if (entryDate >= existingDate)
-                best[key] = entry;
-        }
-        return best.Values.ToList();
-    }
+    private static List<UpdateEntry> CollapseIdenticalRows(IReadOnlyList<UpdateEntry> rows) =>
+        OutcomeIdentity.Collapse(rows, ParseDate);
 
     /// <summary>
     /// Stable History display key: Update title + KB + Version + Status (+ ErrorCode).
     /// Empty fields match each other. Status differs keep success and failure both visible.
+    /// The title is compared without its version and WUA date noise, and the status without
+    /// regard to the language it was stored in.
     /// </summary>
-    internal static string DisplayIdentityKey(UpdateEntry entry)
+    internal static string DisplayIdentityKey(UpdateEntry entry) => OutcomeIdentity.TitleKey(entry);
+
+    /// <summary>
+    /// <see cref="DisplayIdentityKey"/> as builds up to 0.7.2.59 computed it: the displayed
+    /// title (Windows Update history driver rows kept their date noise) and the stored status
+    /// text. Rows hidden by those builds are saved under this key.
+    /// </summary>
+    internal static string LegacyDisplayIdentityKey(UpdateEntry entry)
     {
         static string Norm(string? value) =>
             Regex.Replace(value ?? "", @"\s+", " ").Trim();
 
+        bool uncategorizedDriver = entry.HasWuaDriverDateNoise
+            && entry.Category is not ("Driver / firmware" or "Application");
         return string.Join("|",
-            Norm(entry.DisplayTitle).ToUpperInvariant(),
+            Norm(uncategorizedDriver ? entry.Title : entry.DisplayTitle).ToUpperInvariant(),
             Norm(entry.KB).ToUpperInvariant(),
             Norm(entry.UnifiedVersion),
             Norm(entry.Status).ToUpperInvariant(),
@@ -450,10 +446,12 @@ internal static class HistoryArchive
         if (hiddenEventKeys.Contains(EventKey(entry))) return true;
         if (hiddenIdentities.Count == 0) return false;
         string identity = DisplayIdentityKey(entry);
+        string legacyIdentity = LegacyDisplayIdentityKey(entry);
         var when = ParseDate(entry.Date) ?? DateTime.MinValue;
         foreach (var rule in hiddenIdentities)
         {
-            if (!string.Equals(rule.Identity, identity, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.Equals(rule.Identity, identity, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(rule.Identity, legacyIdentity, StringComparison.OrdinalIgnoreCase)) continue;
             // No recorded cutoff: treat as hide-all for this identity (legacy-safe).
             if (string.IsNullOrWhiteSpace(rule.MaxDate)) return true;
             var max = ParseDate(rule.MaxDate) ?? DateTime.MaxValue;

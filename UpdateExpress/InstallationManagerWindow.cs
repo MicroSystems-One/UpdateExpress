@@ -13,6 +13,8 @@ public sealed class InstallationQueueItem(string source, string name) : System.C
 {
     public string Source { get; } = source;
     public string Name { get; } = name;
+    /// <summary>WUA UpdateID of the queued update. Empty for WinGet. Ties the outcome row to its Windows Update history event.</summary>
+    public string UpdateId { get; init; } = "";
     private string _state = "Pending";
     public string State
     {

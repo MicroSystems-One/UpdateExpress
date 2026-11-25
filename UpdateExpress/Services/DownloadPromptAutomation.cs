@@ -498,7 +498,7 @@ internal static class DownloadPromptAutomation
             string title = meta?.Title ?? id;
             if (!string.IsNullOrWhiteSpace(meta?.KB))
                 title = meta!.KB + " — " + title;
-            return new InstallationQueueItem("Windows Update", title);
+            return new InstallationQueueItem("Windows Update", title) { UpdateId = id };
         }).ToList();
 
         AgentLog.Write($"{displayName} install helper: installing {ids.Count} queued update(s) with progress UI.");
