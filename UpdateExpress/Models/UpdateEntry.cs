@@ -139,7 +139,7 @@ public sealed class UpdateEntry
     public string ErrorCode { get; set; } = "";
     /// <summary>Settings feature update. The row opens Windows Update instead of installing through WUA.</summary>
     public bool OpensWindowsUpdate { get; set; }
-    /// <summary>OEM package download URL (exe/zip/…). Double-click / Open OEM download opens this.</summary>
+    /// <summary>OEM package download URL (exe/zip/…). Install Selected or a double-click downloads this.</summary>
     public string ExternalUrl { get; set; } = "";
     public bool OpensExternalUrl => !string.IsNullOrWhiteSpace(ExternalUrl);
     /// <summary>Optional OEM TXT / README companion (Lenovo). Separate from the installer package.</summary>
