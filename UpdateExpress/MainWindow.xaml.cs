@@ -1901,6 +1901,8 @@ public partial class MainWindow : Window
     private DispatcherTimer? _confirmedRebootTimer;
     private bool _rebootPrompt;
     private bool _windowsRebootPending;
+    /// <summary>One session prompt for DownloadPending without installed-version evidence.</summary>
+    private bool _oemDownloadPromotePromptShown;
     private readonly DispatcherTimer _installOutcomeBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
     private int? _installOutcomeSuccess;
     private int? _installOutcomeFailures;
@@ -1935,10 +1937,9 @@ public partial class MainWindow : Window
             RebootNeededBanner.Text = RebootBannerText();
             RebootNeededBanner.Opacity = 1;
             if (!_rebootBlinkTimer.IsEnabled) _rebootBlinkTimer.Start();
-            // Chipset/Graphics: downloaded then installed from Explorer → reboot, never OemInstall.
-            // Promote DownloadPending so Search hides them and History shows Vellykket.
+            // Evidence-gated promote only — never Installed solely because reboot is pending.
             if (becamePending)
-                PromoteOemDownloads(norwegian, previousBootOnly: false);
+                PromoteOemDownloads(norwegian, previousBootOnly: false, allowConfirmPrompt: true);
         }
         else
         {
@@ -1947,33 +1948,64 @@ public partial class MainWindow : Window
             RebootNeededBanner.Opacity = 1;
             RebootNeededBanner.Text = RebootBannerText();
         }
-        // After reboot (flags often cleared): still promote downloads from before this boot.
-        PromoteOemDownloads(norwegian, previousBootOnly: true);
+        // After reboot (flags often cleared): evidence-first; one session confirm if still ambiguous.
+        PromoteOemDownloads(norwegian, previousBootOnly: true, allowConfirmPrompt: true);
         RefreshLongUptimeHint();
         RefreshPatchConflictBanner();
     }
 
     /// <summary>
-    /// Mark OEM package downloads as installed when reboot is pending, or when the download
-    /// clearly happened before the current boot (install-from-Downloads + reboot path).
+    /// Promote DownloadPending → Installed/Vellykket only with installed-version evidence,
+    /// or (once per session, when allowed) explicit user confirmation.
+    /// Never auto-mark solely because a download predates boot / reboot-pending (Codex P1).
     /// </summary>
-    private void PromoteOemDownloads(bool norwegian, bool previousBootOnly)
+    private void PromoteOemDownloads(bool norwegian, bool previousBootOnly, bool allowConfirmPrompt)
     {
         var pending = previousBootOnly
             ? OemHandledStore.ListDownloadPendingFromPreviousBoot()
             : OemHandledStore.ListDownloadPending(TimeSpan.FromDays(2));
         if (pending.Count == 0) return;
-        string note = previousBootOnly
-            ? (norwegian
-                ? "OEM-pakke merket etter nedlasting før omstart (installasjon utenfor WaitForExit)."
-                : "OEM package marked after download before reboot (install outside WaitForExit).")
-            : (norwegian
-                ? "OEM-pakke merket etter nedlasting + omstart venter (installasjon utenfor WaitForExit)."
-                : "OEM package marked after download + reboot pending (install outside WaitForExit).");
+
+        var evidenced = new List<UpdateEntry>();
+        var needsConfirm = new List<UpdateEntry>();
         foreach (var entry in pending)
         {
             if (OemHandledStore.IsHandled(entry)) continue;
-            ConfirmOemInstalled(entry, null, norwegian, note);
+            if (OemInstalledVersionFilter.IsOfferSatisfiedByInstalled(entry))
+                evidenced.Add(entry);
+            else
+                needsConfirm.Add(entry);
+        }
+
+        string evidenceNote = norwegian
+            ? "OEM-pakke merket: installert versjon ≥ tilbud (etter nedlasting)."
+            : "OEM package marked: installed version ≥ offer (after download).";
+        foreach (var entry in evidenced)
+            ConfirmOemInstalled(entry, null, norwegian, evidenceNote);
+
+        if (!allowConfirmPrompt || needsConfirm.Count == 0 || _oemDownloadPromotePromptShown)
+            return;
+        if (!IsLoaded || !IsVisible) return;
+
+        _oemDownloadPromotePromptShown = true;
+        var titles = string.Join("\n", needsConfirm.Select(e => "• " + e.DisplayTitle).Take(8));
+        if (needsConfirm.Count > 8)
+            titles += norwegian ? $"\n… (+{needsConfirm.Count - 8} til)" : $"\n… (+{needsConfirm.Count - 8} more)";
+        var answer = MessageBox.Show(this,
+            norwegian
+                ? $"Disse OEM-pakkene er lastet ned, men installasjon er ikke bekreftet via Update Express:\n\n{titles}\n\nJA: merk som Vellykket / skjult (du har installert dem).\nNEI: behold dem tilgjengelige i Drivers."
+                : $"These OEM packages were downloaded, but install was not confirmed through Update Express:\n\n{titles}\n\nYES: mark as Successful / hidden (you installed them).\nNO: keep them available in Drivers.",
+            norwegian ? "OEM-nedlastinger" : "OEM downloads",
+            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+        if (answer != MessageBoxResult.Yes) return;
+
+        string confirmNote = norwegian
+            ? "OEM-pakke merket etter brukerbekreftelse (nedlasting uten WaitForExit)."
+            : "OEM package marked after user confirmation (download without WaitForExit).";
+        foreach (var entry in needsConfirm)
+        {
+            if (OemHandledStore.IsHandled(entry)) continue;
+            ConfirmOemInstalled(entry, null, norwegian, confirmNote);
         }
     }
 
@@ -3200,8 +3232,8 @@ public partial class MainWindow : Window
             {
                 try
                 {
-                    // Promote downloads from before this boot before catalog merge (Chipset/Graphics).
-                    PromoteOemDownloads(_schedule.Language == "no", previousBootOnly: true);
+                    // Evidence-first before catalog merge; one session confirm if still ambiguous.
+                    PromoteOemDownloads(_schedule.Language == "no", previousBootOnly: true, allowConfirmPrompt: true);
                     var identity = _machineIdentity;
                     if (IsMissingIdentity(identity.Manufacturer) || IsMissingIdentity(identity.Product) && IsMissingIdentity(identity.Model))
                         identity = await Task.Run(MachineIdentityReader.Read).ConfigureAwait(true);
