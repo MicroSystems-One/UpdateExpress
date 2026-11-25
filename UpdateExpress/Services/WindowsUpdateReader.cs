@@ -196,6 +196,10 @@ public static class WindowsUpdateReader
                 : "Installed driver version not verified for this hardware ID.";
         }
         InstalledDriverReader.Classify(entries);
+        // Collapse lookalike WUA driver offers before the grid / Installation Manager see them.
+        // WUA only guarantees uniqueness by UpdateID:Revision; Intel System-style packages often
+        // return several UpdateIDs with the same Title + DriverVersion (and sometimes the same HWID).
+        entries = DedupePendingDrivers(entries);
         // Drivers that already installed with Restart required stay hidden while reboot is pending.
         // Do not hard-drop Older/Same vs PnP — Extension INF packages share HWID with base drivers.
         entries = DriverRebootHoldStore.FilterAvailable(entries);
@@ -209,6 +213,55 @@ public static class WindowsUpdateReader
             .ThenBy(entry => entry.Category)
             .ThenBy(entry => entry.Title)
             .ToList();
+    }
+
+    // Keep UpdateID identity, then collapse Title+DriverVersion(+HardwareId) lookalikes so Search
+    // and Installation Manager do not queue the same Intel-style package twice.
+    internal static List<UpdateEntry> DedupePendingDrivers(List<UpdateEntry> entries)
+    {
+        var drivers = entries.Where(e => e.Category == "Driver / firmware").ToList();
+        if (drivers.Count <= 1) return entries;
+        var others = entries.Where(e => e.Category != "Driver / firmware").ToList();
+
+        static UpdateEntry Prefer(IEnumerable<UpdateEntry> group) =>
+            group
+                .OrderByDescending(d => d.DriverAssigned)
+                .ThenByDescending(d => string.Equals(d.DriverClassification, "Firmware", StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(d => !string.IsNullOrWhiteSpace(d.DriverHardwareId))
+                .ThenBy(d => d.UpdateId, StringComparer.OrdinalIgnoreCase)
+                .First();
+
+        // 1) Same UpdateId (revision-insensitive) → one row. Rows without UpdateId stay as-is.
+        var byUpdateId = drivers
+            .Where(d => !string.IsNullOrWhiteSpace(d.UpdateId))
+            .GroupBy(d => d.UpdateId.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(Prefer)
+            .Concat(drivers.Where(d => string.IsNullOrWhiteSpace(d.UpdateId)))
+            .ToList();
+
+        // 2) Same Title + WUA DriverVersion + HardwareId → one row.
+        var byTitleVersionHw = byUpdateId
+            .GroupBy(d =>
+                    $"{(d.Title ?? "").Trim()}\u001f{(d.DriverVersionFromWua ?? "").Trim()}\u001f{(d.DriverHardwareId ?? "").Trim()}",
+                StringComparer.OrdinalIgnoreCase)
+            .Select(Prefer)
+            .ToList();
+
+        // 3) Same Title + non-empty DriverVersion (HWIDs may differ) → one package offer.
+        // WUA often lists INTEL System / Realtek packages once per HWID with identical titles;
+        // installing the first marks siblings installed and the second recheck throws 0x80131509.
+        var collapsed = byTitleVersionHw
+            .GroupBy(d =>
+            {
+                string version = (d.DriverVersionFromWua ?? "").Trim();
+                if (string.IsNullOrWhiteSpace(version))
+                    return "\u0000" + (d.UpdateId ?? "") + "\u001f" + (d.DriverHardwareId ?? "");
+                return $"{(d.Title ?? "").Trim()}\u001f{version}";
+            }, StringComparer.OrdinalIgnoreCase)
+            .Select(Prefer)
+            .ToList();
+
+        return others.Concat(collapsed).ToList();
     }
     private static string ValueOrUnknown(string value) => string.IsNullOrWhiteSpace(value) ? "Unknown" : value;
 
@@ -1003,8 +1056,25 @@ public static class WindowsUpdateReader
                 string.Join("\n", observed) + "\n", Encoding.UTF8);
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Driver recheck logging failed: " + ex.Message); }
+        // Missing from IsInstalled=0 means a sibling install (or a prior success) already
+        // satisfied this UpdateId. Treat as success — do not surface managed 0x80131509.
         if (sameId.Count == 0)
-            throw new InvalidOperationException($"Selected driver was not returned by the installation-time WUA search ({observed.Count} result(s)). See C:\\ProgramData\\UpdateExpress\\driver-recheck.log. No installation was attempted.");
+        {
+            report?.Invoke("Selected driver is no longer pending (already installed or superseded).");
+            try
+            {
+                File.AppendAllText(Path.Combine(auditDir, "driver-recheck.log"),
+                    $"[{DateTimeOffset.Now:O}] stage=AlreadyInstalled; update={selected.UpdateId}; hardware={selected.DriverHardwareId}; pendingCandidates={observed.Count}\n",
+                    Encoding.UTF8);
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Driver already-installed logging failed: " + ex.Message); }
+            return new List<UpdateEntry> { new UpdateEntry {
+                Title = selected.Title, Category = selected.Category, UpdateId = selected.UpdateId,
+                Status = "Already up to date",
+                Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                Source = "Windows Update Agent"
+            } };
+        }
         var matchingHardware = sameId.Where(x => x.HardwareId.Equals(selected.DriverHardwareId, StringComparison.OrdinalIgnoreCase)).ToList();
         if (matchingHardware.Count != 1)
             throw new InvalidOperationException($"Driver identity recheck failed: {sameId.Count} UpdateID match(es), {matchingHardware.Count} exact hardware-ID match(es). No installation was attempted.");
