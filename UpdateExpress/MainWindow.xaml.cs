@@ -68,7 +68,7 @@ public partial class MainWindow : Window
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
         (e.Category == "Driver / firmware" ? IsManuallyInstallableDriver(e) : e.SafeDefault);
 
-    /// <summary>WUA-installable rows plus OEM catalog rows (selection for bulk download).</summary>
+    /// <summary>WUA-installable rows plus OEM catalog rows (both handled by Install Selected).</summary>
     private bool IsSelectablePending(UpdateEntry e) =>
         IsEligiblePending(e) || (!_showingHistory && IsOemDownloadable(e));
 
@@ -121,24 +121,8 @@ public partial class MainWindow : Window
         SelectAllUpdates.IsChecked = totalEligible > 0 && totalSelected == totalEligible;
         SelectedCountText.Text = _schedule.Language == "no" ? $"{totalSelected} valgt" : $"{totalSelected} selected";
         InstallButton.IsEnabled = !_busy && !_showingHistory &&
-            (_pendingSnapshot.Any(e => e.IsSelected && !string.IsNullOrWhiteSpace(e.UpdateId)) || appCount > 0);
-        UpdateOemBulkDownloadButton();
+            (_pendingSnapshot.Any(e => e.IsSelected && (!string.IsNullOrWhiteSpace(e.UpdateId) || IsOemDownloadable(e))) || appCount > 0);
         UpdateInstallSelectionBlink();
-    }
-
-    private void UpdateOemBulkDownloadButton()
-    {
-        if (OemBulkDownloadButton is null) return;
-        int oemSelected = _showingHistory
-            ? 0
-            : Entries.Count(e => VisibleInTab(e) && IsOemDownloadable(e) && e.IsSelected);
-        OemBulkDownloadButton.Visibility = oemSelected > 1 && !_busy
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        OemBulkDownloadButton.IsEnabled = oemSelected > 1 && !_busy;
-        OemBulkDownloadButton.ToolTip = _schedule.Language == "no"
-            ? $"Last ned {oemSelected} valgte OEM-pakker"
-            : $"Download {oemSelected} selected OEM packages";
     }
 
     private void UpdateCheckbox_Click(object sender, RoutedEventArgs e)
@@ -215,10 +199,6 @@ public partial class MainWindow : Window
         var oemCols = tab == "history" ? Visibility.Collapsed : Visibility.Visible;
         if (OemDocColumn != null) OemDocColumn.Visibility = oemCols;
         if (OemPackageColumn != null) OemPackageColumn.Visibility = oemCols;
-        if (OemBulkDownloadButton != null && tab == "history")
-            OemBulkDownloadButton.Visibility = Visibility.Collapsed;
-        else
-            UpdateOemBulkDownloadButton();
         UpdatesGrid.Items.Refresh();
         UpdateSelectionControls();
         if (_languageReady) ApplyLanguage();
@@ -313,82 +293,122 @@ public partial class MainWindow : Window
     private void OpenOemReadmeEntry(UpdateEntry entry) =>
         _ = DownloadOemEntryAsync(entry, package: false, quiet: false);
 
-    private async void OemBulkDownload_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// OEM part of Install Selected. Each package takes the per-row OEM ↓ path (download, then
+    /// run its installer and wait for it), one at a time, without per-package questions.
+    /// </summary>
+    /// <param name="confirm">False when the combined Install Selected dialog already asked.</param>
+    private async Task InstallSelectedOemAsync(IReadOnlyList<UpdateEntry> selected, bool confirm)
     {
-        var selected = Entries
-            .Where(x => VisibleInTab(x) && IsOemDownloadable(x) && x.IsSelected)
-            .ToList();
-        if (selected.Count <= 1) return;
+        if (selected.Count == 0 || _busy) return;
         bool norwegian = _schedule.Language == "no";
-        var answer = MessageBox.Show(this,
-            norwegian
-                ? $"Laste ned {selected.Count} valgte OEM-pakker etter hverandre til Nedlastinger\\UpdateExpress-OEM?\n\nJA: start nedlasting.\nNEI: avbryt."
-                : $"Download {selected.Count} selected OEM packages one after another to Downloads\\UpdateExpress-OEM?\n\nYES: start download.\nNO: cancel.",
-            norwegian ? "OEM masse-nedlasting" : "OEM bulk download",
-            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
-        if (answer != MessageBoxResult.Yes) return;
+        string title = norwegian ? "OEM-installasjon" : "OEM install";
+        static string Bullets(IReadOnlyList<UpdateEntry> items, bool norwegian)
+        {
+            const int max = 12;
+            string list = string.Join("\n", items.Take(max).Select(x => "• " + x.DisplayTitle));
+            if (items.Count > max)
+                list += norwegian ? $"\n… og {items.Count - max} til" : $"\n… and {items.Count - max} more";
+            return list;
+        }
+        if (confirm)
+        {
+            string question = selected.Count == 1
+                ? (norwegian ? "Laste ned og installere 1 valgt OEM-pakke?" : "Download and install 1 selected OEM package?")
+                : (norwegian
+                    ? $"Laste ned og installere {selected.Count} valgte OEM-pakker?"
+                    : $"Download and install {selected.Count} selected OEM packages?");
+            var answer = MessageBox.Show(this,
+                question + "\n\n" + Bullets(selected, norwegian) + (norwegian
+                    ? "\n\nHver pakke lastes ned til Nedlastinger\\UpdateExpress-OEM, og installasjonsprogrammet kjøres, én om gangen. Følg vinduet til hvert installasjonsprogram. Pakker uten installasjonsprogram (f.eks. zip) blir bare lagret.\n\nEt OEM-installasjonsprogram kan selv kreve eller utføre omstart.\n\nJA: start.\nNEI: avbryt."
+                    : "\n\nEach package is downloaded to Downloads\\UpdateExpress-OEM and its installer is run, one at a time. Follow each installer's own window. Packages without an installer (e.g. zip) are only saved.\n\nAn OEM installer may require or perform a restart itself.\n\nYES: start.\nNO: cancel."),
+                title, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+            if (answer != MessageBoxResult.Yes) return;
+        }
 
-        if (_busy) return;
         _busy = true;
+        InstallButtonActive = true;
+        InstallButton.Content = norwegian ? "Installerer OEM-pakker…" : "Installing OEM packages…";
         UpdateSelectionControls();
-        int ok = 0, failed = 0;
+        int ran = 0;
+        var savedOnly = new List<UpdateEntry>();
+        var notDownloaded = new List<UpdateEntry>();
+        var installerFailed = new List<UpdateEntry>();
         try
         {
             for (int i = 0; i < selected.Count; i++)
             {
                 var entry = selected[i];
-                StatusText.Text = norwegian
-                    ? $"OEM-nedlasting {i + 1}/{selected.Count}: {entry.DisplayTitle}"
-                    : $"OEM download {i + 1}/{selected.Count}: {entry.DisplayTitle}";
-                bool success = await DownloadOemEntryAsync(entry, package: true, quiet: true).ConfigureAwait(true);
-                if (success) ok++;
-                else failed++;
+                StatusText.Text = $"OEM {i + 1}/{selected.Count}: {entry.DisplayTitle}";
+                switch (await DownloadOemEntryAsync(entry, package: true, quiet: true).ConfigureAwait(true))
+                {
+                    case OemPackageOutcome.InstallerRan: ran++; break;
+                    case OemPackageOutcome.Saved: savedOnly.Add(entry); break;
+                    case OemPackageOutcome.InstallerFailed: installerFailed.Add(entry); break;
+                    default: notDownloaded.Add(entry); break;
+                }
             }
+            int failed = notDownloaded.Count + installerFailed.Count;
             StatusText.Text = norwegian
-                ? $"OEM masse-nedlasting ferdig: {ok} OK, {failed} feilet."
-                : $"OEM bulk download finished: {ok} OK, {failed} failed.";
-            if (ok > 0)
+                ? $"OEM ferdig: {ran} installasjonsprogram kjørt, {savedOnly.Count} bare lagret, {failed} feilet."
+                : $"OEM finished: {ran} installer(s) run, {savedOnly.Count} saved only, {failed} failed.";
+            if (savedOnly.Count + failed > 0)
             {
-                try
+                if (savedOnly.Count > 0)
                 {
-                    Process.Start(new ProcessStartInfo
+                    try
                     {
-                        FileName = OemPackageDownload.DownloadsRoot,
-                        UseShellExecute = true
-                    });
-                }
-                catch { /* folder open is best-effort */ }
-
-                // Bulk path is download-only; Chipset/Graphics were often installed from this
-                // folder outside WaitForExit. Offer to mark them so Search/History stay correct.
-                var mark = MessageBox.Show(this,
-                    norwegian
-                        ? $"Åpnet Nedlastinger\\UpdateExpress-OEM.\n\nJA: merk de {ok} nedlastede pakkene som installert/omstart (skjul fra Drivers, Vellykket i Historikk).\nNEI: behold dem tilgjengelige til du bekrefter senere."
-                        : $"Opened Downloads\\UpdateExpress-OEM.\n\nYES: mark the {ok} downloaded packages as installed/reboot (hide from Drivers, Successful in History).\nNO: keep them available until you confirm later.",
-                    norwegian ? "OEM masse-nedlasting" : "OEM bulk download",
-                    MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
-                if (mark == MessageBoxResult.Yes)
-                {
-                    foreach (var entry in selected)
-                    {
-                        if (!OemHandledStore.IsHandled(entry))
-                            ConfirmOemInstalled(entry, null, norwegian,
-                                norwegian
-                                    ? "OEM-pakke merket etter masse-nedlasting (installasjon/omstart utenfor WaitForExit)."
-                                    : "OEM package marked after bulk download (install/reboot outside WaitForExit).");
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = OemPackageDownload.DownloadsRoot,
+                            UseShellExecute = true
+                        });
                     }
+                    catch { /* folder open is best-effort */ }
                 }
+
+                // One summary instead of the per-package dialogs of the per-row flow.
+                var summary = new StringBuilder(StatusText.Text);
+                void Section(string heading, IReadOnlyList<UpdateEntry> items)
+                {
+                    if (items.Count > 0)
+                        summary.Append("\n\n").Append(heading).Append('\n').Append(Bullets(items, norwegian));
+                }
+                Section(norwegian
+                    ? "Lagret uten installasjonsprogram – installer fra Nedlastinger\\UpdateExpress-OEM (åpnet):"
+                    : "Saved without an installer to run – install from Downloads\\UpdateExpress-OEM (opened):", savedOnly);
+                Section(norwegian ? "Nedlasting feilet:" : "Download failed:", notDownloaded);
+                Section(norwegian
+                    ? "Installasjonsprogrammet feilet eller ble ikke startet:"
+                    : "Installer failed or did not start:", installerFailed);
+                summary.Append(norwegian
+                    ? "\n\nDisse oppføringene forblir tilgjengelige under Drivere / fastvare."
+                    : "\n\nThese entries stay available under Drivers / Firmware.");
+                MessageBox.Show(this, summary.ToString(), title, MessageBoxButton.OK,
+                    failed > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
             }
         }
         finally
         {
             _busy = false;
+            InstallButtonActive = false;
+            ResetInstallButtonLabel();
             UpdateSelectionControls();
             RefreshHealthSummary();
         }
     }
 
-    private async Task<bool> DownloadOemEntryAsync(UpdateEntry entry, bool package, bool quiet)
+    private enum OemPackageOutcome { NotDownloaded, Saved, InstallerRan, InstallerFailed }
+
+    private static bool LooksLikeOemInstaller(string path) =>
+        path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".msi", StringComparison.OrdinalIgnoreCase);
+
+    /// <param name="quiet">
+    /// True from Install Selected, which asked once for the whole selection: nothing is asked
+    /// per package, and a saved installer is run straight away.
+    /// </param>
+    private async Task<OemPackageOutcome> DownloadOemEntryAsync(UpdateEntry entry, bool package, bool quiet)
     {
         bool norwegian = _schedule.Language == "no";
         string url = package ? entry.ExternalUrl : entry.ReadmeUrl;
@@ -403,7 +423,7 @@ public partial class MainWindow : Window
                     norwegian ? "OEM-driver" : "OEM driver",
                     MessageBoxButton.OK, MessageBoxImage.Information);
             }
-            return false;
+            return OemPackageOutcome.NotDownloaded;
         }
 
         string brand = entry.Source.StartsWith("OEM / ", StringComparison.OrdinalIgnoreCase)
@@ -426,7 +446,7 @@ public partial class MainWindow : Window
             var answer = MessageBox.Show(this, details,
                 norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
                 MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes);
-            if (answer != MessageBoxResult.Yes) return false;
+            if (answer != MessageBoxResult.Yes) return OemPackageOutcome.NotDownloaded;
         }
 
         string? path = null;
@@ -471,7 +491,7 @@ public partial class MainWindow : Window
                     }
                 }
             }
-            return false;
+            return OemPackageOutcome.NotDownloaded;
         }
 
         ActivityLog.TryWrite("OemDownload", "Saved", new
@@ -490,6 +510,7 @@ public partial class MainWindow : Window
                 ? $"OEM TXT/readme lastet ned til {path}"
                 : $"OEM TXT/readme downloaded to {path}");
 
+        var outcome = OemPackageOutcome.Saved;
         if (package)
         {
             // Track download without hiding — reboot-pending can promote Chipset/Graphics
@@ -497,10 +518,13 @@ public partial class MainWindow : Window
             OemHandledStore.RememberDownloadPending(entry, path);
             if (StatusText != null) StatusText.Text = note;
 
+            bool looksExe = LooksLikeOemInstaller(path);
+            if (quiet && looksExe)
+                outcome = await TryRunOemInstallerAsync(entry, path, norwegian, quiet: true).ConfigureAwait(true)
+                    ? OemPackageOutcome.InstallerRan
+                    : OemPackageOutcome.InstallerFailed;
             if (!quiet)
             {
-                bool looksExe = path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
-                                path.EndsWith(".msi", StringComparison.OrdinalIgnoreCase);
                 if (looksExe)
                 {
                     var run = MessageBox.Show(this,
@@ -511,7 +535,9 @@ public partial class MainWindow : Window
                         MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
                     if (run == MessageBoxResult.Yes)
                     {
-                        await TryRunOemInstallerAsync(entry, path, norwegian).ConfigureAwait(true);
+                        outcome = await TryRunOemInstallerAsync(entry, path, norwegian).ConfigureAwait(true)
+                            ? OemPackageOutcome.InstallerRan
+                            : OemPackageOutcome.InstallerFailed;
                     }
                     else
                     {
@@ -546,10 +572,15 @@ public partial class MainWindow : Window
 
         if (!quiet)
             RefreshHealthSummary();
-        return true;
+        return outcome;
     }
 
-    private async Task TryRunOemInstallerAsync(UpdateEntry entry, string path, bool norwegian)
+    /// <returns>
+    /// False when the installer did not start or exited with a failure code, so the entry stays
+    /// available. True otherwise, including a wait cut short by a restart (hold kept).
+    /// </returns>
+    /// <param name="quiet">True from Install Selected: failures go to its one summary, not a dialog each.</param>
+    private async Task<bool> TryRunOemInstallerAsync(UpdateEntry entry, string path, bool norwegian, bool quiet = false)
     {
         bool holdRecorded = false;
         List<UpdateEntry> removedPending = new();
@@ -559,11 +590,13 @@ public partial class MainWindow : Window
             using var process = Process.Start(start);
             if (process is null)
             {
-                MessageBox.Show(this,
-                    norwegian ? "Kunne ikke starte installasjonsprogrammet." : "Could not start the installer.",
-                    norwegian ? "OEM-installasjon" : "OEM install",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
+                ActivityLog.TryWrite("OemInstall", "NotStarted", new { Title = entry.DisplayTitle, Path = path });
+                if (!quiet)
+                    MessageBox.Show(this,
+                        norwegian ? "Kunne ikke starte installasjonsprogrammet." : "Could not start the installer.",
+                        norwegian ? "OEM-installasjon" : "OEM install",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
             }
 
             // Persist hold + History as soon as the installer is running. Chipset/Graphics
@@ -602,6 +635,7 @@ public partial class MainWindow : Window
                 });
                 if (process.ExitCode is 3010 or 1641 || RebootPendingReader.IsRebootPending())
                     RefreshRebootNeededBanner();
+                return true;
             }
             else
             {
@@ -621,6 +655,7 @@ public partial class MainWindow : Window
                     Path = path,
                     OemPackageId = entry.OemPackageId
                 });
+                return false;
             }
         }
         catch (Exception ex)
@@ -649,9 +684,20 @@ public partial class MainWindow : Window
                     Exception = ex.Message
                 });
             }
-            MessageBox.Show(this, ex.Message,
-                norwegian ? "OEM-installasjon" : "OEM install",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            else
+            {
+                ActivityLog.TryWrite("OemInstall", "NotStarted", new
+                {
+                    Title = entry.DisplayTitle,
+                    Path = path,
+                    Exception = ex.Message
+                });
+            }
+            if (!quiet)
+                MessageBox.Show(this, ex.Message,
+                    norwegian ? "OEM-installasjon" : "OEM install",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            return holdRecorded;
         }
     }
 
@@ -2586,7 +2632,6 @@ public partial class MainWindow : Window
             "Last ned OEM TXT/README-filen når den finnes.",
         ["Download the OEM package (exe/zip/…) in Update Express. Not installed through WUA."] =
             "Last ned OEM-pakken (exe/zip/…) i Update Express. Installeres ikke via WUA.",
-        ["Download all selected OEM packages"] = "Last ned alle valgte OEM-pakker",
         ["Downloaded"] = "Lastet ned",
         ["Change setup…"] = "Endre oppsett…",
         ["About Update Express vs Windows Update"] = "Om Update Express vs Windows Update",
@@ -3705,7 +3750,16 @@ public partial class MainWindow : Window
             .Select(g => g.OrderByDescending(x => x.DriverAssigned).First())
             .ToList();
         var apps = _appEntries.Where(x => x.IsSelected).ToList();
-        if (software.Count + drivers.Count + apps.Count == 0) return;
+        // OEM catalog rows never go through WUA (empty UpdateId): each package is downloaded
+        // and its own installer is run, as the per-row OEM ↓ button does.
+        var oem = _pendingSnapshot.Where(x => x.IsSelected && IsOemDownloadable(x)).ToList();
+        if (software.Count + drivers.Count + apps.Count == 0)
+        {
+            // No restart-as-administrator step, like the per-row button: the installer is
+            // shell-started, so Windows asks for elevation itself if this process lacks it.
+            await InstallSelectedOemAsync(oem, confirm: true);
+            return;
+        }
         // Only installation requires elevation; scanning and diagnostics remain available.
         // WUA may return 0x80240044 when a non-elevated process attempts a download.
         if (!UpdateExpress.Services.ElevationHelper.IsElevated)
@@ -3751,10 +3805,18 @@ public partial class MainWindow : Window
         queue.AddRange(drivers.Select(x => new InstallationQueueItem("Driver", x.Title) { UpdateId = x.UpdateId }));
         queue.AddRange(apps.Select(x => new InstallationQueueItem("WinGet", x.DisplayName)));
         var manager = new InstallationManagerWindow(queue, norwegian: norwegian) { Owner = this };
+        string oemLines = oem.Count == 0 ? "" : norwegian
+            ? $"\nOEM-pakker: {oem.Count}\n\nEtter de andre installasjonene lastes hver OEM-pakke ned, og installasjonsprogrammet kjøres, én om gangen. Pakker uten installasjonsprogram (f.eks. zip) blir bare lagret."
+            : $"\nOEM packages: {oem.Count}\n\nAfter the other installations, each OEM package is downloaded and its installer is run, one at a time. Packages without an installer (e.g. zip) are only saved.";
+        string restartLine = oem.Count == 0
+            ? (norwegian ? "Ingen automatisk omstart." : "No automatic restart will be performed.")
+            : (norwegian
+                ? "Update Express starter ikke på nytt automatisk, men et OEM-installasjonsprogram kan selv kreve eller utføre omstart."
+                : "Update Express does not restart automatically, but an OEM installer may require or perform a restart itself.");
         if (AppDialog.Show(this,
                 norwegian
-                    ? $"Installere {queue.Count} valgte oppdateringer fra alle faner?\n\nWindows-oppdateringer: {software.Count}\nDrivere: {drivers.Count}\nWinGet: {apps.Count}\n\nIngen automatisk omstart."
-                    : $"Install {queue.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}\n\nNo automatic restart will be performed.",
+                    ? $"Installere {queue.Count + oem.Count} valgte oppdateringer fra alle faner?\n\nWindows-oppdateringer: {software.Count}\nDrivere: {drivers.Count}\nWinGet: {apps.Count}{oemLines}\n\n{restartLine}"
+                    : $"Install {queue.Count + oem.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}{oemLines}\n\n{restartLine}",
                 norwegian ? "Bekreft kombinert installasjon" : "Confirm combined installation",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         _busy = true;
@@ -4112,6 +4174,9 @@ public partial class MainWindow : Window
             UpdateSelectionControls();
             RefreshRebootNeededBanner();
         }
+        // Already confirmed in the combined dialog. Runs after the installs so OEM installer
+        // windows (and any restart they trigger) do not interrupt Installation Manager.
+        await InstallSelectedOemAsync(oem, confirm: false);
     }
 
     private void ScheduleBackgroundWingetRefresh()
