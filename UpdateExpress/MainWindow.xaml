@@ -723,13 +723,13 @@
     <Border Background="#F9F9F9" BorderBrush="#E5E5E5" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,8">
       <StackPanel>
         <TextBlock Text="Automatic check intervals" FontWeight="SemiBold" Margin="0,0,0,4"/>
-        <TextBlock Text="How often the background agent looks for updates. Applications default to 4 hours; drivers to 24 hours; Windows pending-update monitor to 6 hours. Firmware stays manual." FontSize="12" Foreground="#5D5D5D" TextWrapping="Wrap" Margin="0,0,0,8"/>
+        <TextBlock Text="How often the background agent looks for updates. Applications default to 4 hours; drivers to 24 hours; Windows updates to 6 hours. Firmware stays manual." FontSize="12" Foreground="#5D5D5D" TextWrapping="Wrap" Margin="0,0,0,8"/>
         <WrapPanel Margin="0,0,0,2">
           <TextBlock Text="Applications (hours)" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,6,6"/>
           <TextBox x:Name="ApplicationsCheckHours" Text="4" Width="48" Height="26" Padding="4,2" Margin="0,0,16,6" ToolTip="Minimum 1 hour. Default 4."/>
           <TextBlock Text="Drivers (hours)" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,6,6"/>
           <TextBox x:Name="DriversCheckHours" Text="24" Width="48" Height="26" Padding="4,2" Margin="0,0,16,6" ToolTip="Minimum 24 hours. Default 24. Firmware is not scanned automatically."/>
-          <TextBlock Text="Windows monitor (hours)" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,6,6"/>
+          <TextBlock Text="Windows updates (hours)" FontSize="12" Foreground="#5D5D5D" VerticalAlignment="Center" Margin="0,0,6,6"/>
           <TextBox x:Name="WindowsMonitorHours" Text="6" Width="48" Height="26" Padding="4,2" Margin="0,0,0,6" ToolTip="How often the tray agent checks for pending Windows updates. Minimum 1 hour. Default 6."/>
         </WrapPanel>
       </StackPanel>

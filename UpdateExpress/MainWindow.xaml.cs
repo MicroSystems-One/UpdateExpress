@@ -996,7 +996,7 @@ public partial class MainWindow : Window
         }
         if (!int.TryParse(WindowsMonitorHours.Text.Trim(), out int monitorHours) || monitorHours < 1)
         {
-            MessageBox.Show(this, "Windows monitor interval must be at least 1 hour.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Windows updates interval must be at least 1 hour.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -2514,11 +2514,11 @@ public partial class MainWindow : Window
         ["Application automatic"] = "Programmer automatisk",
         ["Firmware: manual only"] = "Fastvare: kun manuelt", ["Save Policy"] = "Lagre policy",
         ["Automatic check intervals"] = "Automatiske sjekkintervaller",
-        ["How often the background agent looks for updates. Applications default to 4 hours; drivers to 24 hours; Windows pending-update monitor to 6 hours. Firmware stays manual."] =
-            "Hvor ofte bakgrunnsagenten ser etter oppdateringer. Programmer er standard 4 timer; drivere 24 timer; Windows-overvåking 6 timer. Fastvare forblir manuell.",
+        ["How often the background agent looks for updates. Applications default to 4 hours; drivers to 24 hours; Windows updates to 6 hours. Firmware stays manual."] =
+            "Hvor ofte bakgrunnsagenten ser etter oppdateringer. Programmer er standard 4 timer; drivere 24 timer; Windows-oppdateringer 6 timer. Fastvare forblir manuell.",
         ["Applications (hours)"] = "Programmer (timer)",
         ["Drivers (hours)"] = "Drivere (timer)",
-        ["Windows monitor (hours)"] = "Sjekk Windows-oppdateringer hver (timer)",
+        ["Windows updates (hours)"] = "Windows-oppdateringer (timer)",
         ["Advanced categories (intervals)"] = "Avanserte kategorier (intervaller)",
         ["Interval (minutes)"] = "Intervall (minutter)", ["Preferred time"] = "Foretrukket tid",
         ["Mode: Auto-install (K1)"] = "Modus: Auto-installasjon (K1)",
