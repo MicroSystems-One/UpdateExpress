@@ -2273,6 +2273,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         // First paint: Results starts collapsed — force Auto row (Collapsed event does not run at init).
         ApplyResultsRowLayout();
+        HeaderGrid.LayoutUpdated += (_, _) => UpdateThisPcLabelVisibility();
         AppIcon.Apply(this);
         // Tray skips Påminnelse while this Main UI session is open.
         MaintenanceReminderPromptGate.RegisterMainUiSession();
@@ -2490,7 +2491,7 @@ public partial class MainWindow : Window
         ["WUA status report"] = "WUA statusrapport", ["Error report"] = "Feilrapport",
         ["Reboot needed"] = "Omstart nødvendig",
         ["Export CSV"] = "Eksporter CSV", ["Diagnostics"] = "Diagnostikk", ["Check Status"] = "Kontroller status",
-        ["Refresh"] = "Oppdater", ["This PC"] = "Denne pcen",
+        ["Refresh"] = "Oppdater", ["This PC"] = "Denne PCen",
         ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
         ["Search results"] = "Søke resultater", ["Check for Updates & Results"] = "Søke resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
         ["All"] = "Alle",
@@ -4624,9 +4625,54 @@ public partial class MainWindow : Window
     {
         if (ThisPcButton is null) return;
         bool no = _schedule.Language == "no";
-        ThisPcButton.ToolTip = no ? "Denne pcen" : "This PC";
-        ThisPcButton.Tag = "This PC";
-        System.Windows.Automation.AutomationProperties.SetName(ThisPcButton, no ? "Denne pcen" : "This PC");
+        const string english = "This PC";
+        string label = no && Norwegian.TryGetValue(english, out var translated) ? translated : english;
+        if (ThisPcLabel is not null)
+        {
+            // Tag keeps the English key so Translate() resolves the same text.
+            ThisPcLabel.Tag = english;
+            ThisPcLabel.Text = label;
+        }
+        ThisPcButton.Tag = english;
+        ThisPcButton.ToolTip = label;
+        System.Windows.Automation.AutomationProperties.SetName(ThisPcButton, label);
+    }
+
+    private double _thisPcLabelWidth;
+    private string _thisPcLabelMeasuredText = "";
+
+    /// <summary>
+    /// Header columns are brand (*) | status (Auto) | actions (Auto), so the brand is what clips
+    /// when the row is too narrow. Drop the "This PC" label (the icon stays) whenever it would
+    /// cut into the logo + "Update Express" title, e.g. near the minimum window width.
+    /// The result does not depend on whether the label is currently shown, so it cannot oscillate.
+    /// </summary>
+    private void UpdateThisPcLabelVisibility()
+    {
+        if (ThisPcLabel is null || HeaderGrid is null || BrandLogo is null || BrandTitleRow is null) return;
+        if (HeaderGrid.ActualWidth <= 0) return;
+        bool shown = ThisPcLabel.Visibility == Visibility.Visible;
+        if (shown)
+        {
+            if (ThisPcLabel.DesiredSize.Width <= 0) return; // not measured yet
+            _thisPcLabelWidth = ThisPcLabel.DesiredSize.Width;
+            _thisPcLabelMeasuredText = ThisPcLabel.Text;
+        }
+        else if (_thisPcLabelMeasuredText != ThisPcLabel.Text)
+        {
+            // Language changed while hidden: show once so the new text gets measured.
+            ThisPcLabel.Visibility = Visibility.Visible;
+            return;
+        }
+
+        var columns = HeaderGrid.ColumnDefinitions;
+        double brandRoomWithLabel = HeaderGrid.ActualWidth - columns[1].ActualWidth - columns[2].ActualWidth
+            - (shown ? 0 : _thisPcLabelWidth);
+        double brandNeeds = BrandLogo.DesiredSize.Width + BrandTitleRow.DesiredSize.Width;
+        // Half a pixel of hysteresis so rounding at the exact boundary cannot flip the label back and forth.
+        bool fits = brandRoomWithLabel >= brandNeeds - (shown ? 0.5 : 0);
+        if (fits != shown)
+            ThisPcLabel.Visibility = fits ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private ManufacturerSupportLinks.SupportLink? _manufacturerSupport;
