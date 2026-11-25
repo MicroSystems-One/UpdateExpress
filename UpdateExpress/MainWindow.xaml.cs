@@ -583,6 +583,7 @@ public partial class MainWindow : Window
     {
         bool holdRecorded = false;
         List<UpdateEntry> removedPending = new();
+        UpdateEntry? startedRow = null;
         try
         {
             var start = new ProcessStartInfo(path) { UseShellExecute = true };
@@ -607,7 +608,8 @@ public partial class MainWindow : Window
             OemHandledStore.RememberRebootHold(entry, path);
             holdRecorded = true;
             removedPending = RemoveOemPending(entry);
-            RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Vellykket", startedNote));
+            startedRow = HistoryArchive.RecordOemOutcome(entry, "Vellykket", startedNote);
+            RememberOemHistory(startedRow);
             ActivityLog.TryWrite("OemInstall", "RebootHold", new
             {
                 Title = entry.DisplayTitle,
@@ -641,7 +643,10 @@ public partial class MainWindow : Window
                 string note = norwegian
                     ? $"OEM-installasjon avsluttet med kode {process.ExitCode}. Fil: {path}"
                     : $"OEM installer exited with code {process.ExitCode}. File: {path}";
-                RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Mislykket", note));
+                // The row written at start was provisional: this attempt ends as one failed row.
+                var failedRow = HistoryArchive.RecordOemOutcome(entry, "Mislykket", note, replaces: startedRow);
+                ForgetOemHistory(startedRow);
+                RememberOemHistory(failedRow);
                 OemHandledStore.Forget(entry);
                 holdRecorded = false;
                 // Early RemoveOemPending cleared the Drivers row — put it back for retry.
@@ -733,6 +738,22 @@ public partial class MainWindow : Window
             _entriesView.Refresh();
         }
         RefreshHealthSummary();
+    }
+
+    /// <summary>
+    /// Drop a row from the loaded History. Matched by event, not by reference: History may
+    /// have been reloaded from the archive while the installer ran.
+    /// </summary>
+    private void ForgetOemHistory(UpdateEntry? historyRow)
+    {
+        if (historyRow is null) return;
+        HistoryArchive.RemoveEvent(_historySnapshot, historyRow);
+        if (!_showingHistory) return;
+        string key = HistoryArchive.EventKey(historyRow);
+        foreach (var row in Entries
+                     .Where(row => string.Equals(HistoryArchive.EventKey(row), key, StringComparison.OrdinalIgnoreCase))
+                     .ToList())
+            Entries.Remove(row);
     }
 
     /// <returns>Removed pending OEM rows (so a failed installer can restore them).</returns>

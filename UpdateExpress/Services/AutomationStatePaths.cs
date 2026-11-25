@@ -264,8 +264,11 @@ internal static class AutomationStatePaths
     {
         try
         {
+            // pending-reboot.json counts on its own: a scheduled restart outlives the
+            // prompt/queue files, and the tray agent and the service must still find it.
             return System.IO.Directory.EnumerateFiles(dir, "*-prompt.json").Any()
                    || File.Exists(Path.Combine(dir, "unattended-until-clear.json"))
+                   || File.Exists(Path.Combine(dir, "pending-reboot.json"))
                    || File.Exists(Path.Combine(dir, "shared-schedule-notice.json"))
                    || System.IO.Directory.EnumerateFiles(dir, "*-install-queue.json").Any();
         }
