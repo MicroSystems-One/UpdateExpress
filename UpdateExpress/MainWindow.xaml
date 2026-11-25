@@ -341,11 +341,11 @@
  <ScrollViewer x:Name="MainScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="False">
  <Grid x:Name="MainLayout" Margin="16,0,16,12" MinHeight="{Binding ActualHeight, ElementName=MainScroll}"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition x:Name="ResultsRow" Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <!-- Header: left brand U; center-right two-line update status; right Check for updates. -->
-  <Grid Grid.Row="0" Margin="0,8,0,12" MinHeight="88"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+  <Grid x:Name="HeaderGrid" Grid.Row="0" Margin="0,8,0,12" MinHeight="88"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
-    <Border Width="55" Height="55" CornerRadius="8" Background="Transparent" Margin="0,0,18,0"><Image Source="Assets/UpdateExpress-U.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/></Border>
+    <Border x:Name="BrandLogo" Width="55" Height="55" CornerRadius="8" Background="Transparent" Margin="0,0,18,0"><Image Source="Assets/UpdateExpress-U.png" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/></Border>
     <StackPanel VerticalAlignment="Center">
-     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+     <StackPanel x:Name="BrandTitleRow" Orientation="Horizontal" VerticalAlignment="Center">
       <TextBlock FontSize="28" FontWeight="SemiBold" VerticalAlignment="Center"><Run Text="Update " Foreground="#1C1C1C"/><Run Text="Express" Foreground="#0067C0"/></TextBlock>
       <Button x:Name="ProductOverviewInfo" Click="ProductOverviewInfo_Click"
               ToolTip="About Update Express vs Windows Update"
@@ -359,8 +359,10 @@
      <TextBlock x:Name="AppSubtitle" Text="Windows Update Management · Background Monitoring" Foreground="#5D5D5D" FontSize="12" Margin="0,4,0,0"/>
     </StackPanel>
    </StackPanel>
+   <!-- Right gap 16 (was 96): the "This PC" label to the right takes that room, so the brand column
+        is at least as wide as before the label existed (both languages, OEM shown or hidden). -->
    <StackPanel x:Name="UpdateStatusPanel" Grid.Column="1" Visibility="Collapsed" Orientation="Horizontal"
-               VerticalAlignment="Center" HorizontalAlignment="Right" Margin="12,0,96,0">
+               VerticalAlignment="Center" HorizontalAlignment="Right" Margin="12,0,16,0">
     <Image x:Name="UpdateStatusIconUpToDate" Source="Assets/StatusUpToDate.png" Width="48" Height="48" Stretch="Uniform"
            Visibility="Collapsed" RenderOptions.BitmapScalingMode="HighQuality" Margin="0,0,12,0"
            VerticalAlignment="Center"/>
@@ -375,30 +377,17 @@
     </StackPanel>
    </StackPanel>
    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
-    <!-- OEM support (Lenovo/Dell/HP/…) — left of Denne PCen; hidden when manufacturer is unknown/generic. -->
-    <Button x:Name="ManufacturerSupportButton" Click="ManufacturerSupport_Click"
-            Visibility="Collapsed" Margin="0,0,10,0" Height="32" MinHeight="32" MaxHeight="32"
-            Padding="12,0" FontSize="13" FontWeight="SemiBold" Cursor="Hand" Focusable="True"
-            Background="White" Foreground="#0067C0" BorderBrush="#0067C0" BorderThickness="1"
-            Content="Manufacturer support" ToolTip="Open manufacturer support"
-            AutomationProperties.Name="Manufacturer support"/>
+    <!-- Left to right: "This PC" label + PC icon (one click target), a space, OEM support, Check for updates.
+         Margins: ThisPc 4 → OEM 4 + Scan 6, so ThisPc → Scan stays 10 when OEM support is collapsed. -->
     <Button x:Name="ThisPcButton" Click="ThisPc_Click"
-            Margin="0,0,10,0" Width="28" Height="28" MinWidth="28" MinHeight="28" MaxHeight="28" Padding="0"
+            Margin="0,0,4,0" Height="28" MinWidth="28" MinHeight="28" MaxHeight="28" Padding="5,0"
             Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="True"
-            ToolTip="Denne pcen" AutomationProperties.Name="This PC">
+            ToolTip="This PC" AutomationProperties.Name="This PC">
      <Button.Template>
       <ControlTemplate TargetType="Button">
        <!-- Borderless chrome: transparent hit target only; no rounded square frame. -->
-       <Border x:Name="Bd" Background="Transparent" BorderThickness="0" CornerRadius="4" Width="28" Height="28">
-        <Viewbox Width="18" Height="18" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
-         <Canvas Width="24" Height="24">
-          <!-- Monitor / PC icon -->
-          <Path Stroke="#1C1C1C" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"
-                Data="M3.5,4.5 H20.5 V14.5 H3.5 Z"/>
-          <Path Stroke="#1C1C1C" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                Data="M9,17.5 H15 M12,14.5 V17.5"/>
-         </Canvas>
-        </Viewbox>
+       <Border x:Name="Bd" Background="Transparent" BorderThickness="0" CornerRadius="4" Height="28" Padding="{TemplateBinding Padding}">
+        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
        </Border>
        <ControlTemplate.Triggers>
         <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="#E5E5E5"/></Trigger>
@@ -407,10 +396,31 @@
        </ControlTemplate.Triggers>
       </ControlTemplate>
      </Button.Template>
+     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+      <!-- Collapsed by UpdateThisPcLabelVisibility when it would clip the brand title; the icon stays. -->
+      <TextBlock x:Name="ThisPcLabel" Text="This PC" FontSize="13" Foreground="#1C1C1C"
+                 Margin="0,0,4,0" VerticalAlignment="Center"/>
+      <Viewbox Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center">
+       <Canvas Width="24" Height="24">
+        <!-- Monitor / PC icon -->
+        <Path Stroke="#1C1C1C" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"
+              Data="M3.5,4.5 H20.5 V14.5 H3.5 Z"/>
+        <Path Stroke="#1C1C1C" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+              Data="M9,17.5 H15 M12,14.5 V17.5"/>
+       </Canvas>
+      </Viewbox>
+     </StackPanel>
     </Button>
+    <!-- OEM support (Lenovo/Dell/HP/…) — right of Denne PCen; hidden when manufacturer is unknown/generic. -->
+    <Button x:Name="ManufacturerSupportButton" Click="ManufacturerSupport_Click"
+            Visibility="Collapsed" Margin="0,0,4,0" Height="32" MinHeight="32" MaxHeight="32"
+            Padding="12,0" FontSize="13" FontWeight="SemiBold" Cursor="Hand" Focusable="True"
+            Background="White" Foreground="#0067C0" BorderBrush="#0067C0" BorderThickness="1"
+            Content="Manufacturer support" ToolTip="Open manufacturer support"
+            AutomationProperties.Name="Manufacturer support"/>
     <Button x:Name="ScanButton" Content="Check for updates" Style="{StaticResource RowPrimaryButton}"
             Click="Scan_Click" VerticalAlignment="Center" HorizontalAlignment="Right"
-            Height="32" MinHeight="32" MaxHeight="32" Padding="16,0" FontSize="14"
+            Margin="6,0,6,0" Height="32" MinHeight="32" MaxHeight="32" Padding="16,0" FontSize="14"
             ToolTip="Search Windows Update for available updates"
             AutomationProperties.Name="Check for updates"/>
    </StackPanel>
