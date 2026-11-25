@@ -77,12 +77,14 @@ internal static class HistoryArchive
     /// Persist Installation Manager Completed/Failed rows into the same archive Historikk reads.
     /// WinGet (and driver/WUA installs that are not yet in live WUA history) otherwise never appear.
     /// </summary>
-    internal static int RecordInstallOutcomes(IReadOnlyList<UpdateEntry> outcomes)
+    /// <param name="replaces">A row these outcomes supersede; it is dropped in the same save.</param>
+    internal static int RecordInstallOutcomes(IReadOnlyList<UpdateEntry> outcomes, UpdateEntry? replaces = null)
     {
         if (outcomes == null || outcomes.Count == 0) return 0;
         lock (Gate)
         {
             var state = LoadUnlocked();
+            if (replaces != null) RemoveEvent(state.Entries, replaces);
             int recorded = 0;
             foreach (var entry in outcomes)
             {
@@ -157,11 +159,35 @@ internal static class HistoryArchive
         };
     }
 
+    /// <summary>Drop every copy of one history event from <paramref name="rows"/>.</summary>
+    internal static int RemoveEvent(List<UpdateEntry> rows, UpdateEntry row)
+    {
+        string key = EventKey(row);
+        return rows.RemoveAll(existing => string.Equals(EventKey(existing), key, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>
     /// Record an OEM install outcome that never goes through WUA.
     /// Download-only is not written to History (product: only Vellykket / Mislykket).
     /// </summary>
+    /// <param name="replaces">
+    /// The row written when the installer started, when this is the final result of that same
+    /// attempt: one attempt is one History row.
+    /// </param>
     internal static UpdateEntry? RecordOemOutcome(
+        UpdateEntry source,
+        string status,
+        string? statusNote = null,
+        DateTime? at = null,
+        UpdateEntry? replaces = null)
+    {
+        var entry = OemOutcomeRow(source, status, statusNote, at);
+        if (entry is null) return null;
+        return RecordInstallOutcomes(new[] { entry }, replaces) > 0 ? entry : null;
+    }
+
+    /// <summary>The History row for an OEM outcome; null when the status is not a final result.</summary>
+    internal static UpdateEntry? OemOutcomeRow(
         UpdateEntry source,
         string status,
         string? statusNote = null,
@@ -175,7 +201,7 @@ internal static class HistoryArchive
         string title = string.IsNullOrWhiteSpace(source.Title) ? source.DisplayTitle : source.Title;
         title = StripDownloadedSuffix(title);
 
-        var entry = new UpdateEntry
+        return new UpdateEntry
         {
             Title = title,
             KB = string.IsNullOrWhiteSpace(source.KB) ? "OEM" : source.KB,
@@ -198,7 +224,6 @@ internal static class HistoryArchive
             UpdateId = "",
             SafeDefault = false
         };
-        return RecordInstallOutcomes(new[] { entry }) > 0 ? entry : null;
     }
 
     /// <summary>Mark a failed History row Fixed so it no longer counts as Unresolved.</summary>

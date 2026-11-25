@@ -191,6 +191,35 @@ public class SuccessLogDedupeTests
     }
 
     [Fact]
+    public void Failed_OEM_attempt_ends_as_one_failed_row()
+    {
+        var package = new UpdateEntry
+        {
+            Title = "Intel Chipset Device Software",
+            Category = "Driver / firmware",
+            Source = "OEM",
+            OemPackageId = "intel-chipset",
+            DriverVersionFromWua = "10.1.19913.8607"
+        };
+        // The row written when the installer starts, then the row for its failure exit code.
+        var started = HistoryArchive.OemOutcomeRow(package, "Vellykket", "OEM installer started.", DateTime.Parse("2026-11-25 14:20:00"))!;
+        var failed = HistoryArchive.OemOutcomeRow(package, "Mislykket", "OEM installer exited with code 1603.", DateTime.Parse("2026-11-25 14:20:40"))!;
+        var other = WuaHistory(DotNetTitle, IdB, "2026-11-25 14:11:02");
+
+        // Left alone, the two rows are two events and both stay visible.
+        Assert.Equal(2, HistoryArchive.CollapseVisible(new[] { started, failed }, NoEvents, NoRules).Count);
+
+        // The archive and a reloaded History hold copies, so the row is matched by event.
+        var archive = new List<UpdateEntry> { other, started.Clone() };
+        Assert.Equal(1, HistoryArchive.RemoveEvent(archive, started));
+        archive.Add(failed);
+
+        var visible = HistoryArchive.CollapseVisible(archive, NoEvents, NoRules);
+        Assert.Same(failed, Assert.Single(visible, e => e.Title == package.Title));
+        Assert.Same(other, Assert.Single(visible, e => e.IsHistorySuccessful));
+    }
+
+    [Fact]
     public void Outcome_without_a_History_row_is_still_listed()
     {
         var history = new[] { WuaHistory(DotNetTitle, IdB, "2026-11-25 14:11:02") };
