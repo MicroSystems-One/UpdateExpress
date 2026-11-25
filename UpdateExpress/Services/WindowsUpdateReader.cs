@@ -196,9 +196,8 @@ public static class WindowsUpdateReader
                 : "Installed driver version not verified for this hardware ID.";
         }
         InstalledDriverReader.Classify(entries);
-        // Collapse lookalike WUA driver offers before the grid / Installation Manager see them.
-        // WUA only guarantees uniqueness by UpdateID:Revision; Intel System-style packages often
-        // return several UpdateIDs with the same Title + DriverVersion (and sometimes the same HWID).
+        // Collapse verified lookalike WUA driver offers before Search / Installation Manager.
+        // Only UpdateId and Title+DriverVersion+HardwareId — never drop a different HWID.
         entries = DedupePendingDrivers(entries);
         // Drivers that already installed with Restart required stay hidden while reboot is pending.
         // Do not hard-drop Older/Same vs PnP — Extension INF packages share HWID with base drivers.
@@ -215,8 +214,8 @@ public static class WindowsUpdateReader
             .ToList();
     }
 
-    // Keep UpdateID identity, then collapse Title+DriverVersion(+HardwareId) lookalikes so Search
-    // and Installation Manager do not queue the same Intel-style package twice.
+    // Collapse only when package identity is the same UpdateId, or the same Title+Version+HardwareId.
+    // Distinct HardwareIds stay — InstallSelectedDriver installs one UpdateId per exact HWID check.
     internal static List<UpdateEntry> DedupePendingDrivers(List<UpdateEntry> entries)
     {
         var drivers = entries.Where(e => e.Category == "Driver / firmware").ToList();
@@ -239,25 +238,11 @@ public static class WindowsUpdateReader
             .Concat(drivers.Where(d => string.IsNullOrWhiteSpace(d.UpdateId)))
             .ToList();
 
-        // 2) Same Title + WUA DriverVersion + HardwareId → one row.
-        var byTitleVersionHw = byUpdateId
+        // 2) Same Title + WUA DriverVersion + HardwareId → one row (verified same target).
+        var collapsed = byUpdateId
             .GroupBy(d =>
                     $"{(d.Title ?? "").Trim()}\u001f{(d.DriverVersionFromWua ?? "").Trim()}\u001f{(d.DriverHardwareId ?? "").Trim()}",
                 StringComparer.OrdinalIgnoreCase)
-            .Select(Prefer)
-            .ToList();
-
-        // 3) Same Title + non-empty DriverVersion (HWIDs may differ) → one package offer.
-        // WUA often lists INTEL System / Realtek packages once per HWID with identical titles;
-        // installing the first marks siblings installed and the second recheck throws 0x80131509.
-        var collapsed = byTitleVersionHw
-            .GroupBy(d =>
-            {
-                string version = (d.DriverVersionFromWua ?? "").Trim();
-                if (string.IsNullOrWhiteSpace(version))
-                    return "\u0000" + (d.UpdateId ?? "") + "\u001f" + (d.DriverHardwareId ?? "");
-                return $"{(d.Title ?? "").Trim()}\u001f{version}";
-            }, StringComparer.OrdinalIgnoreCase)
             .Select(Prefer)
             .ToList();
 
@@ -1056,21 +1041,48 @@ public static class WindowsUpdateReader
                 string.Join("\n", observed) + "\n", Encoding.UTF8);
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Driver recheck logging failed: " + ex.Message); }
-        // Missing from IsInstalled=0 means a sibling install (or a prior success) already
-        // satisfied this UpdateId. Treat as success — do not surface managed 0x80131509.
+        // Missing from IsInstalled=0 can mean installed, hidden, or superseded by another offer.
+        // Only claim Already up to date when WUA affirms IsInstalled=1 for this UpdateId (+ HWID).
         if (sameId.Count == 0)
         {
-            report?.Invoke("Selected driver is no longer pending (already installed or superseded).");
+            bool installedAffirmed = false;
+            try
+            {
+                dynamic installedSearch = searcher.Search("IsInstalled=1 and Type='Driver'");
+                for (int i = 0; i < (int)installedSearch.Updates.Count; i++)
+                {
+                    dynamic candidate = installedSearch.Updates.Item(i);
+                    string id = Convert.ToString(candidate.Identity.UpdateID) ?? "";
+                    if (!id.Equals(selected.UpdateId, StringComparison.OrdinalIgnoreCase)) continue;
+                    string hw = "";
+                    try { hw = Convert.ToString(candidate.DriverHardwareID) ?? ""; } catch { }
+                    if (string.IsNullOrWhiteSpace(selected.DriverHardwareId) ||
+                        hw.Equals(selected.DriverHardwareId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        installedAffirmed = true;
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Driver installed-state recheck failed: " + ex.Message);
+            }
+            string stage = installedAffirmed ? "AlreadyInstalled" : "NoLongerPending";
+            string status = installedAffirmed ? "Already up to date" : "Verification unavailable";
+            report?.Invoke(installedAffirmed
+                ? "Selected driver is already installed (WUA IsInstalled=1)."
+                : "Selected driver is no longer pending and was not found as installed.");
             try
             {
                 File.AppendAllText(Path.Combine(auditDir, "driver-recheck.log"),
-                    $"[{DateTimeOffset.Now:O}] stage=AlreadyInstalled; update={selected.UpdateId}; hardware={selected.DriverHardwareId}; pendingCandidates={observed.Count}\n",
+                    $"[{DateTimeOffset.Now:O}] stage={stage}; update={selected.UpdateId}; hardware={selected.DriverHardwareId}; pendingCandidates={observed.Count}; status={status}\n",
                     Encoding.UTF8);
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Driver already-installed logging failed: " + ex.Message); }
             return new List<UpdateEntry> { new UpdateEntry {
                 Title = selected.Title, Category = selected.Category, UpdateId = selected.UpdateId,
-                Status = "Already up to date",
+                Status = status,
                 Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 Source = "Windows Update Agent"
             } };

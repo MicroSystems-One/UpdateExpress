@@ -3880,7 +3880,7 @@ public partial class MainWindow : Window
                     }
                     string driverState = driverResult == null ? notVerifiedLabel :
                         driverResult.Status is "Installert" or "Already up to date" ? verifyingLabel :
-                        driverResult.Status == "Delvis fullført" ? notVerifiedLabel :
+                        driverResult.Status is "Delvis fullført" or "Verification unavailable" ? notVerifiedLabel :
                         "Failed" + (string.IsNullOrWhiteSpace(driverResult.ErrorCode) ? "" : " " + driverResult.ErrorCode);
                     string? driverTip = null;
                     if (driverState.StartsWith("Failed", StringComparison.Ordinal) && driverResult is not null && !string.IsNullOrWhiteSpace(driverResult.ErrorCode))
