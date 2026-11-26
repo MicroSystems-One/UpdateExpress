@@ -900,6 +900,13 @@ public partial class MainWindow : Window
             CategoryPromptState.Clear("applications");
     }
 
+    /// <summary>
+    /// The tray's Windows Update queues are a reason for Påminnelse and the tray does not scan
+    /// again while one is waiting, so drop from them what this window's scan no longer offers.
+    /// </summary>
+    private static void ReconcileWindowsPromptsWithScan(IReadOnlyList<UpdateEntry> offered) =>
+        CategoryPromptState.KeepOnlyOfferedInWindowsQueues(offered.Select(entry => entry.UpdateId ?? ""));
+
     private void ReconcileApplicationsPromptWithScan(IReadOnlyList<AppUpdate> remaining)
     {
         try
@@ -1296,6 +1303,7 @@ public partial class MainWindow : Window
             var pending = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(true, true));
             _historySnapshot = history;
             ReplacePendingSnapshot(pending);
+            ReconcileWindowsPromptsWithScan(pending);
             RefreshHealthSummary();
             StatusText.Text = "Status check complete. No installation performed.";
             SyncDefenderHeaderFromHistory();
@@ -1707,6 +1715,7 @@ public partial class MainWindow : Window
                 removeTitles.Add(drivers[i].Title.Trim());
         }
         if (removeIds.Count == 0 && removeTitles.Count == 0) return;
+        CategoryPromptState.RemoveInstalledFromWindowsQueues(removeIds);
 
         for (int i = _pendingSnapshot.Count - 1; i >= 0; i--)
         {
@@ -3038,7 +3047,9 @@ public partial class MainWindow : Window
     {
         reasonKey = "";
         int pending = CountAvailableUpdates();
-        if (pending > 0)
+        // The tray skips its updates-ready dialogs while this window is open and a Påminnelse
+        // is due, so the updates it found must count here even before this window has scanned.
+        if (pending > 0 || CategoryPromptState.LoadUpdatesWaitingForUser(DateTime.Now).Count > 0)
         {
             reasonKey = "pending";
             return true;
@@ -3098,7 +3109,20 @@ public partial class MainWindow : Window
                 : "•  " + name + "  ·  " + ver);
         }
 
-        int total = CountAvailableUpdates();
+        var trayOnly = CategoryPromptState.NotAlreadyListed(
+            CategoryPromptState.LoadUpdatesWaitingForUser(DateTime.Now),
+            _pendingSnapshot.Select(e => e.UpdateId ?? "").Concat(_appEntries.Select(a => a.Id ?? "")));
+        foreach (var item in trayOnly)
+        {
+            if (lines.Count >= maxLines) break;
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(item.KB)) parts.Add(item.KB.Trim());
+            if (!string.IsNullOrWhiteSpace(item.Title)) parts.Add(item.Title.Trim());
+            if (parts.Count == 0) continue;
+            lines.Add("•  " + string.Join("  ·  ", parts));
+        }
+
+        int total = CountAvailableUpdates() + trayOnly.Count;
         if (total > lines.Count)
         {
             bool norwegian = _schedule.Language == "no";
@@ -3404,6 +3428,7 @@ public partial class MainWindow : Window
             bool allDrivers = ShowAllDrivers.IsChecked == true;
             bool oemDrivers = ShowOemDrivers.IsChecked == true;
             var windows = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(includeOptional, allDrivers));
+            ReconcileWindowsPromptsWithScan(windows);
             int oemCount = 0;
             if (oemDrivers)
             {
@@ -4160,6 +4185,7 @@ public partial class MainWindow : Window
                         timeoutMessage: norwegian ? "Verifisering (WUA-rescan) tidsavbrutt." : "Verification (WUA rescan) timed out.",
                         abandonOnTimeout: true);
                     outstandingWork.Remove(pendingTask);
+                    ReconcileWindowsPromptsWithScan(pending);
                     // Keep last search results for display; rescan is only for verification.
                     // Successfully installed rows are pruned below after queue states are resolved.
                     var historyTask = WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
@@ -4636,6 +4662,7 @@ public partial class MainWindow : Window
                     RefreshUpdateUntilCurrentUi();
                     return;
                 }
+                ReconcileWindowsPromptsWithScan(pending);
 
                 var matches = pending.Where(UpdateUntilCurrent.IsInCycle).ToList();
                 if (matches.Count == 0)

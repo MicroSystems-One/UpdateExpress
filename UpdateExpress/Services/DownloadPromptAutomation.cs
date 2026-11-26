@@ -322,6 +322,14 @@ internal static class DownloadPromptAutomation
     {
         try
         {
+            if (MaintenanceReminderPromptGate.ShouldSuppressCategoryUpdateReadyPrompt())
+            {
+                AgentLog.Write(
+                    $"{displayName} automation: updates-ready prompt suppressed " +
+                    "(Påminnelse covers pending updates in this Main UI session).");
+                return;
+            }
+
             try { _balloon?.Invoke(balloonTitle, balloonText); }
             catch { }
 

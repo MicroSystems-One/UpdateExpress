@@ -326,6 +326,14 @@ internal static class ApplicationAutomation
     {
         try
         {
+            if (MaintenanceReminderPromptGate.ShouldSuppressCategoryUpdateReadyPrompt())
+            {
+                AgentLog.Write(
+                    "Applications automation: updates-ready prompt suppressed " +
+                    "(Påminnelse covers pending updates in this Main UI session).");
+                return;
+            }
+
             try { _balloon?.Invoke("Update Express – Application updates", balloonText); }
             catch { }
 
