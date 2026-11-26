@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.61",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.61/UpdateExpress_v0.7.2.61.exe",
-  "sha256": "b11a95a2d14ab6c428efd97d0ec788d8cf93fd7dd54b7aa91d8ed5d34243ef6f",
-  "publishedAt": "2026-11-25T23:22:45Z",
-  "releaseNotes": "Scheduled restart still found after the queue files are cleared (pending-reboot.json in shared-directory discovery); failed OEM install ends as one History row (#148 507b95e) on 0.7.2.60. Tip 6803102. Keep 0.7.2.60 for rollback."
+  "version": "0.7.2.62",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.62/UpdateExpress_v0.7.2.62.exe",
+  "sha256": "deb12d347f1488a2cc82f593dd865e5d10a51e0fdf00ca8942694736ce937cbd",
+  "publishedAt": "2026-11-26T08:28:38Z",
+  "releaseNotes": "Automation state in its own ProgramData subfolder (State); only an administrator or SYSTEM can create or change fleet-policy.json; reminder dialog without duplicates and with auto-close after 30 minutes away; faster Defender header refresh; PC network details (#151, #152, #56, #58, #59, #153, #154) on 0.7.2.61. Tip c375906. Keep 0.7.2.61 for rollback."
 }
