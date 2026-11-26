@@ -13,6 +13,7 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 using UpdateExpress.Models;
 using UpdateExpress.Services;
+using UpdateExpress.Services.OemDrivers;
 namespace UpdateExpress;
 public partial class MainWindow : Window
 {
@@ -60,10 +61,17 @@ public partial class MainWindow : Window
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
         !string.IsNullOrWhiteSpace(e.DriverHardwareId);
 
+    private static bool IsOemDownloadable(UpdateEntry e) =>
+        e.Category == "Driver / firmware" && e.OpensExternalUrl;
+
     private bool IsEligiblePending(UpdateEntry e) =>
         !_showingHistory &&
         !string.IsNullOrWhiteSpace(e.UpdateId) &&
         (e.Category == "Driver / firmware" ? IsManuallyInstallableDriver(e) : e.SafeDefault);
+
+    /// <summary>WUA-installable rows plus OEM catalog rows (both handled by Install Selected).</summary>
+    private bool IsSelectablePending(UpdateEntry e) =>
+        IsEligiblePending(e) || (!_showingHistory && IsOemDownloadable(e));
 
     private const string WinGetSource = "WinGet";
 
@@ -101,7 +109,7 @@ public partial class MainWindow : Window
         SyncWingetSelectionFromAllEntries();
         var visible = Entries.Where(e => VisibleInTab(e)).ToList();
         // On All, WinGet rows share the grid but selection is counted via _appEntries (avoid double-count).
-        var eligibleWindows = visible.Where(e => !IsWinGetRow(e) && IsEligiblePending(e)).ToList();
+        var eligibleWindows = visible.Where(e => !IsWinGetRow(e) && IsSelectablePending(e)).ToList();
         var selected = eligibleWindows.Count(e => e.IsSelected);
         int appCount = _appEntries.Count(a => a.IsSelected);
         bool includeApps = _activeTab is "apps" or "all";
@@ -114,9 +122,10 @@ public partial class MainWindow : Window
         SelectAllUpdates.IsChecked = totalEligible > 0 && totalSelected == totalEligible;
         SelectedCountText.Text = _schedule.Language == "no" ? $"{totalSelected} valgt" : $"{totalSelected} selected";
         InstallButton.IsEnabled = !_busy && !_showingHistory &&
-            (_pendingSnapshot.Any(e => e.IsSelected && !string.IsNullOrWhiteSpace(e.UpdateId)) || appCount > 0);
+            (_pendingSnapshot.Any(e => e.IsSelected && (!string.IsNullOrWhiteSpace(e.UpdateId) || IsOemDownloadable(e))) || appCount > 0);
         UpdateInstallSelectionBlink();
     }
+
     private void UpdateCheckbox_Click(object sender, RoutedEventArgs e)
     {
         SyncWingetSelectionFromAllEntries();
@@ -128,7 +137,7 @@ public partial class MainWindow : Window
         if (_activeTab is "apps" or "all")
             foreach (var app in _appEntries) app.IsSelected = value;
         if (_activeTab is not "apps")
-            foreach (var item in Entries.Where(e => VisibleInTab(e) && IsEligiblePending(e))) item.IsSelected = value;
+            foreach (var item in Entries.Where(e => VisibleInTab(e) && IsSelectablePending(e))) item.IsSelected = value;
         if (_activeTab == "all")
             SyncWingetSelectionFromAllEntries();
         UpdatesGrid.Items.Refresh(); AppsGrid.Items.Refresh();
@@ -187,6 +196,9 @@ public partial class MainWindow : Window
         SelectAllUpdates.Visibility = Visibility.Visible;
         SelectedCountText.Visibility = Visibility.Visible;
         HistoryPdfButton.Visibility = tab == "history" ? Visibility.Visible : Visibility.Collapsed;
+        // History must not expose the OEM DOC download (even if a row still has URLs).
+        if (OemDocColumn != null)
+            OemDocColumn.Visibility = tab == "history" ? Visibility.Collapsed : Visibility.Visible;
         UpdatesGrid.Items.Refresh();
         UpdateSelectionControls();
         if (_languageReady) ApplyLanguage();
@@ -265,9 +277,542 @@ public partial class MainWindow : Window
     }
     private void DriverMode_Changed(object sender, RoutedEventArgs e)
     {
-        // The mode changes the WUA query, not just the UI. A fresh scan is required.
+        // Mode changes the WUA / OEM query, not just the UI. A fresh scan is required.
         if (!IsLoaded || StatusText is null) return;
-        StatusText.Text = "Driver mode changed. Click Check for Updates to refresh WUA results.";
+        StatusText.Text = _schedule.Language == "no"
+            ? "Drivermodus endret. Klikk Se etter oppdateringer for å oppdatere WUA-/OEM-resultater."
+            : "Driver mode changed. Click Check for Updates to refresh WUA / OEM results.";
+    }
+
+    private static bool IsMissingIdentity(string value) =>
+        string.IsNullOrWhiteSpace(value) || value is "—" or "…" or "-" or "N/A" or "n/a";
+
+    private void OpenOemDriverEntry(UpdateEntry entry) =>
+        _ = DownloadOemEntryAsync(entry, package: true, quiet: false);
+
+    private void OpenOemReadmeEntry(UpdateEntry entry) =>
+        _ = DownloadOemEntryAsync(entry, package: false, quiet: false);
+
+    /// <summary>
+    /// OEM part of Install Selected. Each package takes the same path as a double-clicked OEM row
+    /// (download, then run its installer and wait for it), one at a time, without per-package questions.
+    /// </summary>
+    /// <param name="confirm">False when the combined Install Selected dialog already asked.</param>
+    private async Task InstallSelectedOemAsync(IReadOnlyList<UpdateEntry> selected, bool confirm)
+    {
+        if (selected.Count == 0 || _busy) return;
+        bool norwegian = _schedule.Language == "no";
+        string title = norwegian ? "OEM-installasjon" : "OEM install";
+        static string Bullets(IReadOnlyList<UpdateEntry> items, bool norwegian)
+        {
+            const int max = 12;
+            string list = string.Join("\n", items.Take(max).Select(x => "• " + x.DisplayTitle));
+            if (items.Count > max)
+                list += norwegian ? $"\n… og {items.Count - max} til" : $"\n… and {items.Count - max} more";
+            return list;
+        }
+        if (confirm)
+        {
+            string question = selected.Count == 1
+                ? (norwegian ? "Laste ned og installere 1 valgt OEM-pakke?" : "Download and install 1 selected OEM package?")
+                : (norwegian
+                    ? $"Laste ned og installere {selected.Count} valgte OEM-pakker?"
+                    : $"Download and install {selected.Count} selected OEM packages?");
+            var answer = MessageBox.Show(this,
+                question + "\n\n" + Bullets(selected, norwegian) + (norwegian
+                    ? "\n\nHver pakke lastes ned til Nedlastinger\\UpdateExpress-OEM, og installasjonsprogrammet kjøres, én om gangen. Følg vinduet til hvert installasjonsprogram. Pakker uten installasjonsprogram (f.eks. zip) blir bare lagret.\n\nEt OEM-installasjonsprogram kan selv kreve eller utføre omstart.\n\nJA: start.\nNEI: avbryt."
+                    : "\n\nEach package is downloaded to Downloads\\UpdateExpress-OEM and its installer is run, one at a time. Follow each installer's own window. Packages without an installer (e.g. zip) are only saved.\n\nAn OEM installer may require or perform a restart itself.\n\nYES: start.\nNO: cancel."),
+                title, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+            if (answer != MessageBoxResult.Yes) return;
+        }
+
+        _busy = true;
+        InstallButtonActive = true;
+        InstallButton.Content = norwegian ? "Installerer OEM-pakker…" : "Installing OEM packages…";
+        UpdateSelectionControls();
+        int ran = 0;
+        var savedOnly = new List<UpdateEntry>();
+        var notDownloaded = new List<UpdateEntry>();
+        var installerFailed = new List<UpdateEntry>();
+        try
+        {
+            for (int i = 0; i < selected.Count; i++)
+            {
+                var entry = selected[i];
+                StatusText.Text = $"OEM {i + 1}/{selected.Count}: {entry.DisplayTitle}";
+                switch (await DownloadOemEntryAsync(entry, package: true, quiet: true).ConfigureAwait(true))
+                {
+                    case OemPackageOutcome.InstallerRan: ran++; break;
+                    case OemPackageOutcome.Saved: savedOnly.Add(entry); break;
+                    case OemPackageOutcome.InstallerFailed: installerFailed.Add(entry); break;
+                    default: notDownloaded.Add(entry); break;
+                }
+            }
+            int failed = notDownloaded.Count + installerFailed.Count;
+            StatusText.Text = norwegian
+                ? $"OEM ferdig: {ran} installasjonsprogram kjørt, {savedOnly.Count} bare lagret, {failed} feilet."
+                : $"OEM finished: {ran} installer(s) run, {savedOnly.Count} saved only, {failed} failed.";
+            if (savedOnly.Count + failed > 0)
+            {
+                if (savedOnly.Count > 0)
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = OemPackageDownload.DownloadsRoot,
+                            UseShellExecute = true
+                        });
+                    }
+                    catch { /* folder open is best-effort */ }
+                }
+
+                // One summary instead of the per-package dialogs of the per-row flow.
+                var summary = new StringBuilder(StatusText.Text);
+                void Section(string heading, IReadOnlyList<UpdateEntry> items)
+                {
+                    if (items.Count > 0)
+                        summary.Append("\n\n").Append(heading).Append('\n').Append(Bullets(items, norwegian));
+                }
+                Section(norwegian
+                    ? "Lagret uten installasjonsprogram – installer fra Nedlastinger\\UpdateExpress-OEM (åpnet):"
+                    : "Saved without an installer to run – install from Downloads\\UpdateExpress-OEM (opened):", savedOnly);
+                Section(norwegian ? "Nedlasting feilet:" : "Download failed:", notDownloaded);
+                Section(norwegian
+                    ? "Installasjonsprogrammet feilet eller ble ikke startet:"
+                    : "Installer failed or did not start:", installerFailed);
+                summary.Append(norwegian
+                    ? "\n\nDisse oppføringene forblir tilgjengelige under Drivere / fastvare."
+                    : "\n\nThese entries stay available under Drivers / Firmware.");
+                MessageBox.Show(this, summary.ToString(), title, MessageBoxButton.OK,
+                    failed > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+            }
+        }
+        finally
+        {
+            _busy = false;
+            InstallButtonActive = false;
+            ResetInstallButtonLabel();
+            UpdateSelectionControls();
+            RefreshHealthSummary();
+        }
+    }
+
+    private enum OemPackageOutcome { NotDownloaded, Saved, InstallerRan, InstallerFailed }
+
+    private static bool LooksLikeOemInstaller(string path) =>
+        path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".msi", StringComparison.OrdinalIgnoreCase);
+
+    /// <param name="quiet">
+    /// True from Install Selected, which asked once for the whole selection: nothing is asked
+    /// per package, and a saved installer is run straight away.
+    /// </param>
+    private async Task<OemPackageOutcome> DownloadOemEntryAsync(UpdateEntry entry, bool package, bool quiet)
+    {
+        bool norwegian = _schedule.Language == "no";
+        string url = package ? entry.ExternalUrl : entry.ReadmeUrl;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            if (!quiet)
+            {
+                MessageBox.Show(this,
+                    package
+                        ? (norwegian ? "Ingen pakke-/nedlastingslenke for denne OEM-oppføringen." : "No package download link for this OEM entry.")
+                        : (norwegian ? "Ingen TXT/readme-lenke for denne OEM-oppføringen." : "No TXT/readme link for this OEM entry."),
+                    norwegian ? "OEM-driver" : "OEM driver",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            return OemPackageOutcome.NotDownloaded;
+        }
+
+        string brand = entry.Source.StartsWith("OEM / ", StringComparison.OrdinalIgnoreCase)
+            ? entry.Source["OEM / ".Length..].Trim()
+            : "OEM";
+        if (!quiet)
+        {
+            string kindNo = package ? "pakken (exe/zip/…)" : "TXT/readme-filen";
+            string kindEn = package ? "the package (exe/zip/…)" : "the TXT/readme file";
+            string details =
+                $"{(norwegian ? "Driver" : "Driver")}: {entry.DisplayTitle}\n" +
+                $"{(norwegian ? "Versjon" : "Version")}: {entry.UnifiedVersion}\n" +
+                $"{(norwegian ? "Kategori" : "Category")}: {entry.DriverClass}\n" +
+                $"{(norwegian ? "Kilde" : "Source")}: {entry.Source}\n" +
+                $"{(norwegian ? "Status" : "Status")}: {entry.DriverStatus}\n\n" +
+                $"{entry.DriverReason}\n\n" +
+                (norwegian
+                    ? $"JA: last ned {kindNo} i Update Express (uten nettleser).\nNEI: lukk."
+                    : $"YES: download {kindEn} in Update Express (no browser).\nNO: close.");
+            var answer = MessageBox.Show(this, details,
+                norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
+                MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes);
+            if (answer != MessageBoxResult.Yes) return OemPackageOutcome.NotDownloaded;
+        }
+
+        string? path = null;
+        try
+        {
+            if (!quiet && StatusText is not null)
+                StatusText.Text = norwegian ? "Laster ned OEM-pakke…" : "Downloading OEM package…";
+            path = await OemPackageDownload.DownloadAsync(
+                url,
+                preferredFileName: null,
+                allowTextReadme: !package,
+                progress: msg => Dispatcher.Invoke(() =>
+                {
+                    if (StatusText is not null) StatusText.Text = msg;
+                })).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            ActivityLog.TryWrite("OemDownload", "Failed", new
+            {
+                Package = package,
+                Title = entry.DisplayTitle,
+                Url = url,
+                Exception = ex.ToString()
+            });
+            if (!quiet)
+            {
+                var fallback = MessageBox.Show(this,
+                    norwegian
+                        ? $"Nedlasting i appen feilet:\n{ex.Message}\n\nÅpne lenken i nettleseren i stedet?"
+                        : $"In-app download failed:\n{ex.Message}\n\nOpen the link in the browser instead?",
+                    norwegian ? "OEM-nedlasting" : "OEM download",
+                    MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+                if (fallback == MessageBoxResult.Yes)
+                {
+                    try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+                    catch (Exception openEx)
+                    {
+                        MessageBox.Show(this, openEx.Message,
+                            norwegian ? "Kunne ikke åpne lenke" : "Could not open link",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                }
+            }
+            return OemPackageOutcome.NotDownloaded;
+        }
+
+        ActivityLog.TryWrite("OemDownload", "Saved", new
+        {
+            Package = package,
+            Title = entry.DisplayTitle,
+            Path = path,
+            OemPackageId = entry.OemPackageId
+        });
+
+        string note = package
+            ? (norwegian
+                ? $"OEM-pakke lastet ned til {path}"
+                : $"OEM package downloaded to {path}")
+            : (norwegian
+                ? $"OEM TXT/readme lastet ned til {path}"
+                : $"OEM TXT/readme downloaded to {path}");
+
+        var outcome = OemPackageOutcome.Saved;
+        if (package)
+        {
+            // Track download without hiding — reboot-pending can promote Chipset/Graphics
+            // that were run from Downloads outside TryRunOemInstallerAsync.
+            OemHandledStore.RememberDownloadPending(entry, path);
+            if (StatusText != null) StatusText.Text = note;
+
+            bool looksExe = LooksLikeOemInstaller(path);
+            if (quiet && looksExe)
+                outcome = await TryRunOemInstallerAsync(entry, path, norwegian, quiet: true).ConfigureAwait(true)
+                    ? OemPackageOutcome.InstallerRan
+                    : OemPackageOutcome.InstallerFailed;
+            if (!quiet)
+            {
+                if (looksExe)
+                {
+                    var run = MessageBox.Show(this,
+                        norwegian
+                            ? $"Lagret:\n{path}\n\nJA: kjør installasjonsprogrammet nå.\nNEI: behold filen — du kan installere fra mappen (merk deretter som installert)."
+                            : $"Saved:\n{path}\n\nYES: run the installer now.\nNO: keep the file — you can install from the folder (then mark as installed).",
+                        norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
+                        MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+                    if (run == MessageBoxResult.Yes)
+                    {
+                        outcome = await TryRunOemInstallerAsync(entry, path, norwegian).ConfigureAwait(true)
+                            ? OemPackageOutcome.InstallerRan
+                            : OemPackageOutcome.InstallerFailed;
+                    }
+                    else
+                    {
+                        var mark = MessageBox.Show(this,
+                            norwegian
+                                ? "Installerer du denne OEM-pakken nå (f.eks. fra Nedlastinger), eller er den allerede installert / krever omstart?\n\nJA: skjul fra Drivers/Firmware og merk som Vellykket.\nNEI: behold tilgjengelig (omstart med ventende reboot kan fortsatt promotere den)."
+                                : "Are you installing this OEM package now (e.g. from Downloads), or is it already installed / reboot-required?\n\nYES: hide from Drivers/Firmware and mark as Successful.\nNO: keep available (a pending reboot can still promote it).",
+                            norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
+                            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+                        if (mark == MessageBoxResult.Yes)
+                            ConfirmOemInstalled(entry, path, norwegian);
+                    }
+                }
+                else
+                {
+                    MessageBox.Show(this,
+                        norwegian
+                            ? $"Lagret:\n{path}\n\nOppføringen forblir tilgjengelig til du bekrefter installasjon."
+                            : $"Saved:\n{path}\n\nThe entry stays available until you confirm install.",
+                        norwegian ? $"OEM-driver ({brand})" : $"OEM driver ({brand})",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+        }
+        else if (!quiet)
+        {
+            MessageBox.Show(this,
+                norwegian ? $"Lagret:\n{path}" : $"Saved:\n{path}",
+                norwegian ? "OEM TXT/readme" : "OEM TXT/readme",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        if (!quiet)
+            RefreshHealthSummary();
+        return outcome;
+    }
+
+    /// <returns>
+    /// False when the installer did not start or exited with a failure code, so the entry stays
+    /// available. True otherwise, including a wait cut short by a restart (hold kept).
+    /// </returns>
+    /// <param name="quiet">True from Install Selected: failures go to its one summary, not a dialog each.</param>
+    private async Task<bool> TryRunOemInstallerAsync(UpdateEntry entry, string path, bool norwegian, bool quiet = false)
+    {
+        bool holdRecorded = false;
+        List<UpdateEntry> removedPending = new();
+        UpdateEntry? startedRow = null;
+        try
+        {
+            var start = new ProcessStartInfo(path) { UseShellExecute = true };
+            using var process = Process.Start(start);
+            if (process is null)
+            {
+                ActivityLog.TryWrite("OemInstall", "NotStarted", new { Title = entry.DisplayTitle, Path = path });
+                if (!quiet)
+                    MessageBox.Show(this,
+                        norwegian ? "Kunne ikke starte installasjonsprogrammet." : "Could not start the installer.",
+                        norwegian ? "OEM-installasjon" : "OEM install",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
+            // Persist hold + History as soon as the installer is running. Chipset/Graphics
+            // often reboot before WaitForExit returns — without this, OemInstall never logged
+            // and the next Search re-offered (+ re-downloaded) the same Id+Version.
+            string startedNote = norwegian
+                ? $"OEM-installasjon startet. Fil: {path}"
+                : $"OEM installer started. File: {path}";
+            OemHandledStore.RememberRebootHold(entry, path);
+            holdRecorded = true;
+            removedPending = RemoveOemPending(entry);
+            startedRow = HistoryArchive.RecordOemOutcome(entry, "Vellykket", startedNote);
+            RememberOemHistory(startedRow);
+            ActivityLog.TryWrite("OemInstall", "RebootHold", new
+            {
+                Title = entry.DisplayTitle,
+                Path = path,
+                OemPackageId = entry.OemPackageId,
+                Version = entry.UnifiedVersion
+            });
+
+            StatusText.Text = norwegian
+                ? "Venter på OEM-installasjonsprogram…"
+                : "Waiting for OEM installer…";
+            await process.WaitForExitAsync().ConfigureAwait(true);
+            // 0 = success; 3010 = reboot required; 1641 = reboot initiated.
+            if (process.ExitCode is 0 or 3010 or 1641)
+            {
+                // History already written at start — upgrade hold to Installed only.
+                OemHandledStore.RememberInstalled(entry, path);
+                ActivityLog.TryWrite("OemInstall", "Installert", new
+                {
+                    Title = entry.DisplayTitle,
+                    ExitCode = process.ExitCode,
+                    Path = path,
+                    OemPackageId = entry.OemPackageId
+                });
+                if (process.ExitCode is 3010 or 1641 || RebootPendingReader.IsRebootPending())
+                    RefreshRebootNeededBanner();
+                return true;
+            }
+            else
+            {
+                string note = norwegian
+                    ? $"OEM-installasjon avsluttet med kode {process.ExitCode}. Fil: {path}"
+                    : $"OEM installer exited with code {process.ExitCode}. File: {path}";
+                // The row written at start was provisional: this attempt ends as one failed row.
+                var failedRow = HistoryArchive.RecordOemOutcome(entry, "Mislykket", note, replaces: startedRow);
+                ForgetOemHistory(startedRow);
+                RememberOemHistory(failedRow);
+                OemHandledStore.Forget(entry);
+                holdRecorded = false;
+                // Early RemoveOemPending cleared the Drivers row — put it back for retry.
+                RestoreOemPending(removedPending);
+                removedPending = new();
+                ActivityLog.TryWrite("OemInstall", "Failed", new
+                {
+                    Title = entry.DisplayTitle,
+                    ExitCode = process.ExitCode,
+                    Path = path,
+                    OemPackageId = entry.OemPackageId
+                });
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Keep RebootHold if the process was interrupted (common when reboot starts).
+            if (holdRecorded && RebootPendingReader.IsRebootPending())
+            {
+                RefreshRebootNeededBanner();
+                ActivityLog.TryWrite("OemInstall", "RebootHold", new
+                {
+                    Title = entry.DisplayTitle,
+                    Path = path,
+                    OemPackageId = entry.OemPackageId,
+                    Note = "Installer wait interrupted with reboot pending — hold kept."
+                });
+            }
+            else if (holdRecorded)
+            {
+                // Still keep the hold: Search must not resurrect solely because wait failed.
+                ActivityLog.TryWrite("OemInstall", "RebootHold", new
+                {
+                    Title = entry.DisplayTitle,
+                    Path = path,
+                    OemPackageId = entry.OemPackageId,
+                    Note = "Installer wait interrupted — hold kept until confirmed or forgotten.",
+                    Exception = ex.Message
+                });
+            }
+            else
+            {
+                ActivityLog.TryWrite("OemInstall", "NotStarted", new
+                {
+                    Title = entry.DisplayTitle,
+                    Path = path,
+                    Exception = ex.Message
+                });
+            }
+            if (!quiet)
+                MessageBox.Show(this, ex.Message,
+                    norwegian ? "OEM-installasjon" : "OEM install",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            return holdRecorded;
+        }
+    }
+
+    private void ConfirmOemInstalled(
+        UpdateEntry entry,
+        string? path,
+        bool norwegian,
+        string? note = null,
+        int? exitCode = null)
+    {
+        note ??= norwegian
+            ? $"OEM-installasjon bekreftet. Fil: {path}"
+            : $"OEM install confirmed. File: {path}";
+        RememberOemHistory(HistoryArchive.RecordOemOutcome(entry, "Vellykket", note));
+        OemHandledStore.RememberInstalled(entry, path);
+        RemoveOemPending(entry);
+        ActivityLog.TryWrite("OemInstall", "Installert", new
+        {
+            Title = entry.DisplayTitle,
+            ExitCode = exitCode,
+            Path = path,
+            OemPackageId = entry.OemPackageId
+        });
+    }
+
+    private void RememberOemHistory(UpdateEntry? historyRow)
+    {
+        if (historyRow is null) return;
+        historyRow.DateDisplay = _schedule.FormatDateValue(historyRow.Date);
+        _historySnapshot.Insert(0, historyRow);
+        if (_showingHistory)
+        {
+            Entries.Insert(0, historyRow);
+            _entriesView.Refresh();
+        }
+        RefreshHealthSummary();
+    }
+
+    /// <summary>
+    /// Drop a row from the loaded History. Matched by event, not by reference: History may
+    /// have been reloaded from the archive while the installer ran.
+    /// </summary>
+    private void ForgetOemHistory(UpdateEntry? historyRow)
+    {
+        if (historyRow is null) return;
+        HistoryArchive.RemoveEvent(_historySnapshot, historyRow);
+        if (!_showingHistory) return;
+        string key = HistoryArchive.EventKey(historyRow);
+        foreach (var row in Entries
+                     .Where(row => string.Equals(HistoryArchive.EventKey(row), key, StringComparison.OrdinalIgnoreCase))
+                     .ToList())
+            Entries.Remove(row);
+    }
+
+    /// <returns>Removed pending OEM rows (so a failed installer can restore them).</returns>
+    private List<UpdateEntry> RemoveOemPending(UpdateEntry entry)
+    {
+        var remove = _pendingSnapshot
+            .Where(e => IsOemDownloadable(e) && MatchesOemIdentity(e, entry))
+            .ToList();
+        if (remove.Count == 0) return remove;
+        foreach (var item in remove) _pendingSnapshot.Remove(item);
+        RefreshPendingGrid();
+        return remove;
+    }
+
+    private void RestoreOemPending(IReadOnlyList<UpdateEntry> rows)
+    {
+        if (rows.Count == 0) return;
+        foreach (var item in rows)
+        {
+            if (_pendingSnapshot.Any(e => IsOemDownloadable(e) && MatchesOemIdentity(e, item)))
+                continue;
+            _pendingSnapshot.Insert(0, item);
+        }
+        RefreshPendingGrid();
+    }
+
+    private void RefreshPendingGrid()
+    {
+        if (_showingHistory) return;
+        Entries.Clear();
+        foreach (var item in _pendingSnapshot) Entries.Add(item);
+        if (_activeTab == "all")
+        {
+            foreach (var app in _appEntries)
+                Entries.Add(ToAllListAppEntry(app));
+        }
+        _entriesView.Refresh();
+        UpdateSelectionControls();
+    }
+
+    private static bool MatchesOemIdentity(UpdateEntry pending, UpdateEntry reference)
+    {
+        if (!string.IsNullOrWhiteSpace(reference.OemPackageId) &&
+            string.Equals(pending.OemPackageId, reference.OemPackageId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(pending.UnifiedVersion, reference.UnifiedVersion, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (!string.IsNullOrWhiteSpace(reference.ExternalUrl) &&
+            string.Equals(pending.ExternalUrl, reference.ExternalUrl, StringComparison.OrdinalIgnoreCase))
+            return true;
+        // History dismiss may have cleared URLs; match title+version for OEM rows.
+        return string.Equals((pending.Title ?? "").Trim(), (reference.Title ?? "").Trim(), StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(pending.UnifiedVersion, reference.UnifiedVersion, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void OpenOemReadme_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: UpdateEntry entry })
+            OpenOemReadmeEntry(entry);
     }
     private async void PmeControl_Click(object sender, RoutedEventArgs e)
     {
@@ -512,7 +1057,7 @@ public partial class MainWindow : Window
         }
         if (!int.TryParse(WindowsMonitorHours.Text.Trim(), out int monitorHours) || monitorHours < 1)
         {
-            MessageBox.Show(this, "Windows monitor interval must be at least 1 hour.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Windows updates interval must be at least 1 hour.", "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -767,9 +1312,15 @@ public partial class MainWindow : Window
     {
         int windows = _pendingSnapshot.Count(x => x.Category != "Driver / firmware" &&
             (!string.IsNullOrEmpty(x.UpdateId) || x.Source == FeatureUpdateOfferReader.Source));
+        // OEM catalog rows are listed in Drivers but are not WUA "available" installs.
         int drivers = _pendingSnapshot.Count(x => x.Category == "Driver / firmware" && !string.IsNullOrEmpty(x.UpdateId));
-        return _schedule.Language == "no"
-            ? $"Windows: {windows} tilgjengelig  |  Drivere: {drivers} tilgjengelig  |  Programmer: {_appEntries.Count} tilgjengelig"
+        int oem = _pendingSnapshot.Count(x => x.Category == "Driver / firmware" && x.OpensExternalUrl);
+        if (_schedule.Language == "no")
+            return oem > 0
+                ? $"Windows: {windows} tilgjengelig  |  Drivere: {drivers} tilgjengelig (+{oem} OEM)  |  Programmer: {_appEntries.Count} tilgjengelig"
+                : $"Windows: {windows} tilgjengelig  |  Drivere: {drivers} tilgjengelig  |  Programmer: {_appEntries.Count} tilgjengelig";
+        return oem > 0
+            ? $"Windows: {windows} available  |  Drivers: {drivers} available (+{oem} OEM)  |  Applications: {_appEntries.Count} available"
             : $"Windows: {windows} available  |  Drivers: {drivers} available  |  Applications: {_appEntries.Count} available";
     }
 
@@ -827,10 +1378,14 @@ public partial class MainWindow : Window
         AppendOutcomeLink(fixedLabel, fixedEntries.Count, "fixed", blink: false, highlightRed: false);
         HealthSummary.Inlines.Add(new Run("  |  "));
         AppendOutcomeLink(resolvedLabel, laterSuccess, "resolved", blink: false, highlightRed: false);
-        HealthSummary.Inlines.Add(new Run($"  |  {unresolvedLabel}: {unresolved}"));
+        HealthSummary.Inlines.Add(new Run("  |  "));
+        if (unresolved > 0)
+            AppendOutcomeLink(unresolvedLabel, unresolved, "unresolved", blink: false, highlightRed: true);
+        else
+            HealthSummary.Inlines.Add(new Run($"{unresolvedLabel}: {unresolved}"));
         HealthSummary.ToolTip = norwegian
-            ? "Klikk Feil / Vellykket / Fikset / Løst KB for oversikt. Fikset = senere suksess for samme KB, eller at den feilede oppdateringen ikke lenger tilbys. Matching KB beviser ikke at den opprinnelige feilen er reparert."
-            : "Click Failures / Success / Fixed / Resolved KB for a list. Fixed means a later success for the same KB, or the failed update is no longer offered. Matching KB numbers do not prove the original error was repaired.";
+            ? "Klikk Feil / Vellykket / Fikset / Løst KB / Uløst for oversikt. Uløst: Nullstill telleren eller Skjul inkompatible OEM-pakker. Fikset = senere suksess for samme KB, eller at den feilede oppdateringen ikke lenger tilbys."
+            : "Click Failures / Success / Fixed / Resolved KB / Unresolved for a list. Unresolved: clear the counter or hide incompatible OEM packages. Fixed means a later success for the same KB, or the failed update is no longer offered.";
     }
 
     private void AppendOutcomeLink(string label, int count, string kind, bool blink, bool highlightRed)
@@ -876,21 +1431,29 @@ public partial class MainWindow : Window
         var fixedEntries = _historySnapshot.Where(x => x.IsHistoryFixed).ToList();
         var pendingKbs = _pendingSnapshot.SelectMany(x => SplitKbs(x.KB)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var resolvedEntries = new List<UpdateEntry>();
+        var unresolvedEntries = new List<UpdateEntry>();
         foreach (var failure in failures.Where(x => !string.Equals(x.StatusNote, "install-outcome", StringComparison.OrdinalIgnoreCase)))
         {
             var keys = SplitKbs(failure.KB).ToArray();
-            if (keys.Length == 0) continue;
+            if (keys.Length == 0)
+            {
+                unresolvedEntries.Add(failure);
+                continue;
+            }
             var failureDate = ReminderSchedule.TryParseDate(failure.Date) ?? DateTime.MinValue;
             if (keys.Any(k => pendingKbs.Contains(k))) continue;
             if (success.Any(x => (ReminderSchedule.TryParseDate(x.Date) ?? DateTime.MinValue) > failureDate &&
                                  SplitKbs(x.KB).Intersect(keys, StringComparer.OrdinalIgnoreCase).Any()))
                 resolvedEntries.Add(failure);
+            else
+                unresolvedEntries.Add(failure);
         }
 
         string heading;
         string subtitle;
         IReadOnlyList<UpdateEntry> entries;
         bool showFixIt = false;
+        bool showUnresolvedActions = false;
         switch (kind)
         {
             case "failures":
@@ -922,27 +1485,74 @@ public partial class MainWindow : Window
                     : "Earlier failures where the same KB later installed successfully.";
                 entries = resolvedEntries;
                 break;
+            case "unresolved":
+                heading = norwegian ? "Uløst" : "Unresolved";
+                subtitle = norwegian
+                    ? "Feil uten senere suksess for samme KB (inkl. OEM uten KB). Nullstill Unresolved fjerner telleren (merker Fixed). Skjul fra fremtidige oppdateringer skjuler pakken i Historikk og OEM-katalog (f.eks. Seagate-firmware uten komponent)."
+                    : "Failures without a later success for the same KB (including OEM with no KB). Clear Unresolved resets the counter (marks Fixed). Hide from future updates removes the package from History and the OEM catalog (e.g. Seagate firmware when the PC lacks the component).";
+                entries = unresolvedEntries;
+                showUnresolvedActions = true;
+                break;
             default:
                 return;
         }
 
-        var dlg = new OutcomeOverviewWindow(kind, heading, subtitle, entries, showFixIt, norwegian) { Owner = this };
-        if (dlg.ShowDialog() == true && dlg.FixRequestedEntry is UpdateEntry fixEntry)
+        var dlg = new OutcomeOverviewWindow(kind, heading, subtitle, entries, showFixIt, norwegian, showUnresolvedActions) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        if (dlg.FixRequestedEntry is UpdateEntry fixEntry)
             OpenOutcomeFix(fixEntry, norwegian);
+        else if (dlg.ClearUnresolvedEntry is UpdateEntry clearEntry)
+            ClearUnresolvedEntry(clearEntry, norwegian);
+        else if (dlg.HideFromFutureEntry is UpdateEntry hideEntry)
+            HideUnresolvedFromFuture(hideEntry, norwegian);
     }
 
-    private static List<UpdateEntry> MergeOutcomeEntries(IEnumerable<UpdateEntry> history, IReadOnlyList<UpdateEntry> recent)
+    private void ClearUnresolvedEntry(UpdateEntry entry, bool norwegian)
     {
-        var merged = new List<UpdateEntry>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in recent.Concat(history))
+        string note = norwegian
+            ? "Merket Fixed fordi Uløst ble nullstilt av brukeren. Opprinnelig feilkode er uendret."
+            : "Marked Fixed because Unresolved was cleared by the user. The original error code is unchanged.";
+        HistoryArchive.MarkClearedUnresolved(entry, note);
+        entry.Status = "Fixed";
+        entry.StatusNote = note;
+        entry.ExternalUrl = "";
+        entry.ReadmeUrl = "";
+        foreach (var row in _historySnapshot.Where(r =>
+                     string.Equals(HistoryArchive.DisplayIdentityKey(r), HistoryArchive.DisplayIdentityKey(entry), StringComparison.OrdinalIgnoreCase) &&
+                     r.IsHistoryFailed))
         {
-            string key = $"{entry.Source}|{entry.UpdateId}|{entry.Title}|{entry.ErrorCode}|{entry.Date}";
-            if (!seen.Add(key)) continue;
-            merged.Add(entry);
+            row.Status = "Fixed";
+            row.StatusNote = note;
+            row.ExternalUrl = "";
+            row.ReadmeUrl = "";
         }
-        return merged;
+        if (_showingHistory) SetTab("history");
+        RefreshHealthSummary();
+        StatusText.Text = norwegian ? "Uløst nullstilt." : "Unresolved cleared.";
     }
+
+    private void HideUnresolvedFromFuture(UpdateEntry entry, bool norwegian)
+    {
+        HistoryArchive.HideFromDisplay(entry);
+        OemHandledStore.RememberDismissed(entry);
+        RemoveOemPending(entry);
+        _historySnapshot.RemoveAll(row => OutcomeIdentity.SameUpdate(row, entry));
+        if (_showingHistory) SetTab("history");
+        else if (_activeTab is "drivers" or "all" or "software") SetTab(_activeTab);
+        RefreshHealthSummary();
+        StatusText.Text = norwegian
+            ? "Skjult fra fremtidige oppdateringer."
+            : "Hidden from future updates.";
+        ActivityLog.TryWrite("OemHandled", "Dismissed", new
+        {
+            Title = entry.DisplayTitle,
+            OemPackageId = entry.OemPackageId,
+            Source = entry.Source
+        });
+    }
+
+    private static List<UpdateEntry> MergeOutcomeEntries(IEnumerable<UpdateEntry> history, IReadOnlyList<UpdateEntry> recent) =>
+        OutcomeIdentity.MergeRecentWithHistory(history, recent, ReminderSchedule.TryParseDate);
 
     private void OpenOutcomeFix(UpdateEntry entry, bool norwegian)
     {
@@ -971,7 +1581,7 @@ public partial class MainWindow : Window
         ShowErrorFix(entry);
     }
 
-    private static UpdateEntry ToInstallOutcomeEntry(InstallationQueueItem item)
+    internal static UpdateEntry ToInstallOutcomeEntry(InstallationQueueItem item)
     {
         string blob = item.State + " " + (item.Tip ?? "");
         var hr = System.Text.RegularExpressions.Regex.Match(blob, @"0x[0-9A-Fa-f]{8}");
@@ -993,13 +1603,16 @@ public partial class MainWindow : Window
         return new UpdateEntry
         {
             Title = item.Name,
+            // KB and UpdateId as Windows Update history records them, so this row and the
+            // history row for the same install are recognised as one.
+            KB = string.Join(", ", SplitKbs(item.Name)),
             Category = category,
             Source = item.Source,
             Status = failed ? "Failed" : completed ? "Successful" : item.State,
             ErrorCode = error,
             StatusNote = string.IsNullOrWhiteSpace(item.Tip) ? "install-outcome" : item.Tip,
             Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-            UpdateId = "",
+            UpdateId = item.UpdateId,
             SafeDefault = false
         };
     }
@@ -1020,6 +1633,9 @@ public partial class MainWindow : Window
                 else if (InstallationManagerWindow.IsCompletedState(item.State))
                     _installOutcomeSuccessEntries.Add(ToInstallOutcomeEntry(item));
             }
+            // Persist Completed/Failed into Historikk's archive (WinGet never appears in WUA history).
+            try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+            catch (Exception ex) { ActivityLog.TryWrite("InstallationManager", "HistoryRecordFailed", ex.Message); }
         }
         _installOutcomeBlinkOn = true;
         if (!_installOutcomeBlinkTimer.IsEnabled)
@@ -1060,6 +1676,51 @@ public partial class MainWindow : Window
         RefreshFeatureUpdateButton();
     }
 
+    /// <summary>
+    /// After install: keep the last search results, minus rows that completed successfully.
+    /// Failed / cancelled / not-verified rows stay listed.
+    /// </summary>
+    private void PruneSuccessfullyInstalledFromPending(
+        IReadOnlyList<UpdateEntry> software,
+        IReadOnlyList<UpdateEntry> drivers,
+        IReadOnlyList<InstallationQueueItem> queue)
+    {
+        if (queue.Count == 0 || (software.Count == 0 && drivers.Count == 0)) return;
+        var removeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var removeTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < software.Count; i++)
+        {
+            if (i >= queue.Count || !InstallationManagerWindow.IsCompletedState(queue[i].State)) continue;
+            if (!string.IsNullOrWhiteSpace(software[i].UpdateId))
+                removeIds.Add(software[i].UpdateId);
+            else if (!string.IsNullOrWhiteSpace(software[i].Title))
+                removeTitles.Add(software[i].Title.Trim());
+        }
+        for (int i = 0; i < drivers.Count; i++)
+        {
+            int qi = software.Count + i;
+            if (qi >= queue.Count || !InstallationManagerWindow.IsCompletedState(queue[qi].State)) continue;
+            if (!string.IsNullOrWhiteSpace(drivers[i].UpdateId))
+                removeIds.Add(drivers[i].UpdateId);
+            else if (!string.IsNullOrWhiteSpace(drivers[i].Title))
+                removeTitles.Add(drivers[i].Title.Trim());
+        }
+        if (removeIds.Count == 0 && removeTitles.Count == 0) return;
+
+        for (int i = _pendingSnapshot.Count - 1; i >= 0; i--)
+        {
+            var entry = _pendingSnapshot[i];
+            bool byId = !string.IsNullOrWhiteSpace(entry.UpdateId) && removeIds.Contains(entry.UpdateId);
+            bool byTitle = !string.IsNullOrWhiteSpace(entry.Title) && removeTitles.Contains(entry.Title.Trim());
+            if (byId || byTitle)
+            {
+                entry.IsSelected = false;
+                _pendingSnapshot.RemoveAt(i);
+            }
+        }
+        RefreshFeatureUpdateButton();
+    }
+
     private void RefreshFeatureUpdateButton()
     {
         if (OpenWindowsUpdateButton is null) return;
@@ -1067,8 +1728,20 @@ public partial class MainWindow : Window
         OpenWindowsUpdateButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void IncludeOptionalUpdates_Changed(object sender, RoutedEventArgs e) => RefreshOptionalParityHint();
+
+    private void RefreshOptionalParityHint()
+    {
+        bool optionalOn = IncludeOptionalUpdates?.IsChecked == true;
+        if (OptionalParityInfo is not null)
+            OptionalParityInfo.Visibility = optionalOn ? Visibility.Visible : Visibility.Collapsed;
+        if (OptionalOpenWindowsUpdateButton is not null)
+            OptionalOpenWindowsUpdateButton.Visibility = optionalOn ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void OpenWindowsUpdate_Click(object sender, RoutedEventArgs e)
     {
+        // Opens Settings only (ms-settings:windowsupdate). No scan/download/install.
         try { FeatureUpdateOfferReader.OpenWindowsUpdate(); }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Update Express", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
@@ -1358,18 +2031,19 @@ public partial class MainWindow : Window
         Lamp(PrivateLamp, PrivateLampText, "Private"); Lamp(PublicLamp, PublicLampText, "Public"); Lamp(DomainLamp, DomainLampText, "Domain");
     }
     private readonly DispatcherTimer _reminderTimer = new() { Interval = TimeSpan.FromSeconds(30) };
+    /// <summary>True while a ReminderDialog Present callback is queued or modal — prevents stacking.</summary>
+    private bool _reminderPresentQueued;
+    private (bool IsTest, DateTime Occurrence, bool Norwegian, bool ShowMissed, string ReasonKey, IReadOnlyList<string>? PendingLines)? _pendingReminder;
     private readonly DispatcherTimer _monitorUiTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _uptimeTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DateTime _bootedAt = DateTime.Now - TimeSpan.FromMilliseconds(Environment.TickCount64);
     private static readonly TimeSpan LongUptimeThreshold = TimeSpan.FromDays(7);
     private readonly DispatcherTimer _rebootBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(1600) };
     private DispatcherTimer? _confirmedRebootTimer;
-    /// <summary>True while a ReminderDialog Present callback is queued or modal — prevents stacking.</summary>
-    private bool _reminderPresentQueued;
-    /// <summary>Latest reminder args for a queued Present (test↔real refresh before ShowDialog).</summary>
-    private (bool IsTest, DateTime Occurrence, bool Norwegian, bool ShowMissed, string ReasonKey, IReadOnlyList<string>? PendingLines)? _pendingReminder;
     private bool _rebootPrompt;
     private bool _windowsRebootPending;
+    /// <summary>One session prompt for DownloadPending without installed-version evidence.</summary>
+    private bool _oemDownloadPromotePromptShown;
     private readonly DispatcherTimer _installOutcomeBlinkTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
     private int? _installOutcomeSuccess;
     private int? _installOutcomeFailures;
@@ -1390,6 +2064,7 @@ public partial class MainWindow : Window
     {
         if (RebootNeededBanner is null) return;
         bool needed = RebootPendingReader.IsRebootPending();
+        bool becamePending = needed && !_windowsRebootPending;
         _windowsRebootPending = needed;
         RebootNeededBanner.Visibility = needed ? Visibility.Visible : Visibility.Collapsed;
         bool norwegian = _schedule.Language == "no";
@@ -1403,6 +2078,9 @@ public partial class MainWindow : Window
             RebootNeededBanner.Text = RebootBannerText();
             RebootNeededBanner.Opacity = 1;
             if (!_rebootBlinkTimer.IsEnabled) _rebootBlinkTimer.Start();
+            // Evidence-gated promote only — never Installed solely because reboot is pending.
+            if (becamePending)
+                PromoteOemDownloads(norwegian, previousBootOnly: false, allowConfirmPrompt: true);
         }
         else
         {
@@ -1411,8 +2089,65 @@ public partial class MainWindow : Window
             RebootNeededBanner.Opacity = 1;
             RebootNeededBanner.Text = RebootBannerText();
         }
+        // After reboot (flags often cleared): evidence-first; one session confirm if still ambiguous.
+        PromoteOemDownloads(norwegian, previousBootOnly: true, allowConfirmPrompt: true);
         RefreshLongUptimeHint();
         RefreshPatchConflictBanner();
+    }
+
+    /// <summary>
+    /// Promote DownloadPending → Installed/Vellykket only with installed-version evidence,
+    /// or (once per session, when allowed) explicit user confirmation.
+    /// Never auto-mark solely because a download predates boot / reboot-pending (Codex P1).
+    /// </summary>
+    private void PromoteOemDownloads(bool norwegian, bool previousBootOnly, bool allowConfirmPrompt)
+    {
+        var pending = previousBootOnly
+            ? OemHandledStore.ListDownloadPendingFromPreviousBoot()
+            : OemHandledStore.ListDownloadPending(TimeSpan.FromDays(2));
+        if (pending.Count == 0) return;
+
+        var evidenced = new List<UpdateEntry>();
+        var needsConfirm = new List<UpdateEntry>();
+        foreach (var entry in pending)
+        {
+            if (OemHandledStore.IsHandled(entry)) continue;
+            if (OemInstalledVersionFilter.IsOfferSatisfiedByInstalled(entry))
+                evidenced.Add(entry);
+            else
+                needsConfirm.Add(entry);
+        }
+
+        string evidenceNote = norwegian
+            ? "OEM-pakke merket: installert versjon ≥ tilbud (etter nedlasting)."
+            : "OEM package marked: installed version ≥ offer (after download).";
+        foreach (var entry in evidenced)
+            ConfirmOemInstalled(entry, null, norwegian, evidenceNote);
+
+        if (!allowConfirmPrompt || needsConfirm.Count == 0 || _oemDownloadPromotePromptShown)
+            return;
+        if (!IsLoaded || !IsVisible) return;
+
+        _oemDownloadPromotePromptShown = true;
+        var titles = string.Join("\n", needsConfirm.Select(e => "• " + e.DisplayTitle).Take(8));
+        if (needsConfirm.Count > 8)
+            titles += norwegian ? $"\n… (+{needsConfirm.Count - 8} til)" : $"\n… (+{needsConfirm.Count - 8} more)";
+        var answer = MessageBox.Show(this,
+            norwegian
+                ? $"Disse OEM-pakkene er lastet ned, men installasjon er ikke bekreftet via Update Express:\n\n{titles}\n\nJA: merk som Vellykket / skjult (du har installert dem).\nNEI: behold dem tilgjengelige i Drivers."
+                : $"These OEM packages were downloaded, but install was not confirmed through Update Express:\n\n{titles}\n\nYES: mark as Successful / hidden (you installed them).\nNO: keep them available in Drivers.",
+            norwegian ? "OEM-nedlastinger" : "OEM downloads",
+            MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+        if (answer != MessageBoxResult.Yes) return;
+
+        string confirmNote = norwegian
+            ? "OEM-pakke merket etter brukerbekreftelse (nedlasting uten WaitForExit)."
+            : "OEM package marked after user confirmation (download without WaitForExit).";
+        foreach (var entry in needsConfirm)
+        {
+            if (OemHandledStore.IsHandled(entry)) continue;
+            ConfirmOemInstalled(entry, null, norwegian, confirmNote);
+        }
     }
 
     private void RefreshPatchConflictBanner()
@@ -1549,7 +2284,8 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Results expander title: “Søke resultater” / “Search results” plus three spaces and
-    /// “Sist sjekket: HH:mm - neste sjekk: HH:mm” (language-aware).
+    /// “Sist sjekket: HH:mm - neste sjekk: HH:mm - Sist omstart: dd.MM.yyyy HH:mm
+    /// Siste planlagte vedlikehold: vellykket/feil” (language-aware).
     /// </summary>
     private void RefreshResultsHeading()
     {
@@ -1562,10 +2298,28 @@ public partial class MainWindow : Window
         string next = status is not null && status.NextScheduled != default
             ? status.NextScheduled.ToString("HH:mm")
             : "—";
-        ListHeading.Text = no
-            ? $"{title}   Sist sjekket: {last} - neste sjekk: {next}"
-            : $"{title}   Last checked: {last} - next check: {next}";
+        string restart = _bootedAt.ToString("dd.MM.yyyy HH:mm");
+        string maintenance = LastScheduledMaintenanceResult(no);
+        string text = no
+            ? $"{title}   Sist sjekket: {last} - neste sjekk: {next} - Sist omstart: {restart} Siste planlagte vedlikehold: {maintenance}"
+            : $"{title}   Last checked: {last} - next check: {next} - Last restart: {restart} Last scheduled maintenance: {maintenance}";
+        ListHeading.Text = text;
+        // The heading trims with an ellipsis in a narrow window; keep the full line reachable.
+        ListHeading.ToolTip = text;
     }
+
+    /// <summary>
+    /// Outcome of the last finished unattended «install at HH:mm» run (unattended-until-clear.json):
+    /// failed when any item failed or the run was stopped, “—” when no run has finished yet.
+    /// Stays on the previous run's outcome while the next run is armed or running.
+    /// </summary>
+    private static string LastScheduledMaintenanceResult(bool norwegian) =>
+        UnattendedUntilClear.LastFinishedFailed(UnattendedUntilClear.Load()) switch
+        {
+            null => "—",
+            true => norwegian ? "feil" : "failed",
+            false => norwegian ? "vellykket" : "successful"
+        };
 
     public void ShowProxySettings()
     {
@@ -1644,6 +2398,7 @@ public partial class MainWindow : Window
             FitIdentityBox(box);
         }
         RefreshUptime();
+        RefreshManufacturerSupportButton();
     }
     private static void FitIdentityBox(System.Windows.Controls.TextBox box)
     {
@@ -1695,8 +2450,9 @@ public partial class MainWindow : Window
     private void FlashCopied(Button button)
     {
         bool norwegian = _schedule.Language == "no";
-        button.ToolTip = norwegian ? "Kopiert" : "Copied";
-        var iconTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        button.ToolTip = norwegian ? "Kopiert!" : "Copied!";
+        CopiedToast.Show(button, norwegian);
+        var iconTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
         iconTimer.Tick += (_, _) =>
         {
             iconTimer.Stop();
@@ -1709,7 +2465,9 @@ public partial class MainWindow : Window
         InitializeComponent();
         // First paint: Results starts collapsed — force Auto row (Collapsed event does not run at init).
         ApplyResultsRowLayout();
+        HeaderGrid.LayoutUpdated += (_, _) => UpdateThisPcLabelVisibility();
         AppIcon.Apply(this);
+        // Tray skips Påminnelse while this Main UI session is open.
         MaintenanceReminderPromptGate.RegisterMainUiSession();
         Closed += (_, _) =>
         {
@@ -1730,6 +2488,7 @@ public partial class MainWindow : Window
         DayChoice.SelectedIndex = _schedule.Weekday == 7 ? 0 : Math.Clamp(_schedule.Weekday, 0, 6) + 1;
         TimeChoice.Text = _schedule.Time;
         ApplyLanguage(); // sets AppSubtitle / Title from language + version
+        RefreshOptionalParityHint();
         RemindersEnabled.IsChecked = _schedule.Enabled;
         LoadAutomationPolicyIntoUi();
         BuildInstallDayChips();
@@ -1895,9 +2654,8 @@ public partial class MainWindow : Window
     }
     private void OsSupportInfo_Click(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show(this, _osSupportDetails +
-            "\n\nReference: https://learn.microsoft.com/windows/release-health/supported-versions-windows-client",
-            "Windows Security Support", MessageBoxButton.OK, MessageBoxImage.Information);
+        var dlg = new OsSupportInfoDialog(_osSupportDetails, _schedule.Language == "no") { Owner = this };
+        dlg.ShowDialog();
     }
 
     private void ProductOverviewInfo_Click(object sender, RoutedEventArgs e)
@@ -1935,6 +2693,10 @@ public partial class MainWindow : Window
         ["Check for Updates"] = "Se etter oppdateringer",
         ["Check for updates"] = "Se etter oppdateringer",
         ["Open Windows Update"] = "Åpne Windows Update", ["Open Windows Update to install"] = "Åpne Windows Update for å installere",
+        ["Some optional and preview updates may be available directly in Windows Update without appearing in UpdateExpress."] =
+            "Enkelte valgfrie oppdateringer og forhåndsvisningsoppdateringer (Preview) kan være tilgjengelige direkte i Windows Update uten å vises i UpdateExpress.",
+        ["Opens Windows Update in Settings (ms-settings:windowsupdate). Does not scan, download, or install."] =
+            "Åpner Windows Update i Innstillinger (ms-settings:windowsupdate). Starter ikke skanning, nedlasting eller installasjon.",
         ["Manufacturer"] = "Produsent", ["Model"] = "Modell/nr", ["Product no."] = "Produktnr.", ["Serial no."] = "Serienr.", ["Device name"] = "Enhetsnavn", ["Uptime"] = "Oppetid",
         ["Copy"] = "Kopier",
         ["Install Selected Updates"] = "Installer valgte oppdateringer", ["Installation History"] = "Installasjonshistorikk",
@@ -1942,7 +2704,7 @@ public partial class MainWindow : Window
         ["WUA status report"] = "WUA statusrapport", ["Error report"] = "Feilrapport",
         ["Reboot needed"] = "Omstart nødvendig",
         ["Export CSV"] = "Eksporter CSV", ["Diagnostics"] = "Diagnostikk", ["Check Status"] = "Kontroller status",
-        ["Refresh"] = "Oppdater", ["This PC"] = "Denne pcen",
+        ["Refresh"] = "Oppdater", ["This PC"] = "Denne PCen",
         ["Private"] = "Privat", ["Public"] = "Offentlig", ["Domain"] = "Domene",
         ["Search results"] = "Søke resultater", ["Check for Updates & Results"] = "Søke resultater", ["Application Updates (WinGet)"] = "Programoppdateringer (WinGet)",
         ["All"] = "Alle",
@@ -1966,11 +2728,11 @@ public partial class MainWindow : Window
         ["Application automatic"] = "Programmer automatisk",
         ["Firmware: manual only"] = "Fastvare: kun manuelt", ["Save Policy"] = "Lagre policy",
         ["Automatic check intervals"] = "Automatiske sjekkintervaller",
-        ["How often the background agent looks for updates. Applications default to 4 hours; drivers to 24 hours; Windows pending-update monitor to 6 hours. Firmware stays manual."] =
-            "Hvor ofte bakgrunnsagenten ser etter oppdateringer. Programmer er standard 4 timer; drivere 24 timer; Windows-overvåking 6 timer. Fastvare forblir manuell.",
+        ["How often the background agent looks for updates. Applications default to 4 hours; drivers to 24 hours; Windows updates to 6 hours. Firmware stays manual."] =
+            "Hvor ofte bakgrunnsagenten ser etter oppdateringer. Programmer er standard 4 timer; drivere 24 timer; Windows-oppdateringer 6 timer. Fastvare forblir manuell.",
         ["Applications (hours)"] = "Programmer (timer)",
         ["Drivers (hours)"] = "Drivere (timer)",
-        ["Windows monitor (hours)"] = "Windows-overvåking (timer)",
+        ["Windows updates (hours)"] = "Windows-oppdateringer (timer)",
         ["Advanced categories (intervals)"] = "Avanserte kategorier (intervaller)",
         ["Interval (minutes)"] = "Intervall (minutter)", ["Preferred time"] = "Foretrukket tid",
         ["Mode: Auto-install (K1)"] = "Modus: Auto-installasjon (K1)",
@@ -2005,6 +2767,12 @@ public partial class MainWindow : Window
         ["Checking Windows…"] = "Sjekker Windows…",
         ["Include optional"] = "Inkluder valgfrie",
         ["All WUA drivers"] = "Alle WUA-drivere",
+        ["OEM drivers"] = "OEM-drivere",
+        ["TXT file download"] = "Last ned TXT-fil",
+        ["DOC ↓"] = "DOC ↓",
+        ["Download the OEM TXT/README companion when available."] =
+            "Last ned OEM TXT/README-filen når den finnes.",
+        ["Downloaded"] = "Lastet ned",
         ["Change setup…"] = "Endre oppsett…",
         ["About Update Express vs Windows Update"] = "Om Update Express vs Windows Update",
         ["Maintenance window"] = "Vedlikeholdsvindu",
@@ -2029,6 +2797,7 @@ public partial class MainWindow : Window
     };
     private void ApplyLanguage()
     {
+        HistoryStatusDisplay.NorwegianUi = _schedule.Language == "no";
         _languageReady = true;
         bool norwegian = _schedule.Language == "no";
         void Translate(object? element)
@@ -2046,7 +2815,7 @@ public partial class MainWindow : Window
                     or "DefenderAutomationStatus" or "CriticalAutomationStatus" or "GeneralAutomationStatus"
                     or "FooterSafetyText" or "RebootNeededBanner" or "LongUptimeHint" or "UpdateUntilCurrentStatus"
                     or "UpdateStatusTitle" or "UpdateStatusChecked" or "AppSubtitle" or "ListHeading"
-                    or "WindowsHelpHeading" or "WindowsHelpBody" or "MonitorDetailsText"
+                    or "MonitorDetailsText"
                     or "MonitorUpdatesText" or "InternetStatusText" or "UpdateServerStatusText"
                     or "WuaStatusText" or "ProxyStatusText" or "OsVersionLabel" or "OsSupportIcon"
                     or "MaintenanceSummaryText")
@@ -2079,22 +2848,28 @@ public partial class MainWindow : Window
         MachineProductCopy.ToolTip = copyTip;
         MachineSerialCopy.ToolTip = copyTip;
         MachineDeviceCopy.ToolTip = copyTip;
+        const string optionalParityEn = "Some optional and preview updates may be available directly in Windows Update without appearing in UpdateExpress.";
+        string optionalParityTip = norwegian && Norwegian.TryGetValue(optionalParityEn, out var optionalNo) ? optionalNo : optionalParityEn;
+        if (IncludeOptionalUpdates is not null) IncludeOptionalUpdates.ToolTip = optionalParityTip;
+        if (OptionalParityInfo is not null) OptionalParityInfo.ToolTip = optionalParityTip;
+        const string openWuEn = "Opens Windows Update in Settings (ms-settings:windowsupdate). Does not scan, download, or install.";
+        if (OptionalOpenWindowsUpdateButton is not null)
+            OptionalOpenWindowsUpdateButton.ToolTip = norwegian && Norwegian.TryGetValue(openWuEn, out var openWuNo) ? openWuNo : openWuEn;
         if (RebootNeededBanner is not null) RebootNeededBanner.Text = RebootBannerText();
         RefreshLongUptimeHint();
         RefreshAppChromeLanguage();
-        if (WindowsHelpHeading is not null)
-            WindowsHelpHeading.Text = norwegian
-                ? "Fiks Windows Update-problemene dine her...."
-                : "Fix your Windows update issues here....";
-        if (WindowsHelpBody is not null)
-            WindowsHelpBody.Text = norwegian
-                ? "Reparer fastlåste oppdateringer, åpne Windows-innstillinger, eller se installasjonshjelp."
-                : "Repair stuck updates, open Windows Settings, or review installation help.";
+        // StatusFixItCta label stays English ("Fix Update issues here") per SVHA.
+        if (StatusFixItCta is not null)
+            StatusFixItCta.ToolTip = norwegian
+                ? "Reparer og diagnostiser Windows Update-problemer"
+                : "Repair and diagnose Windows Update problems";
+        RefreshOptionalParityHint();
         RefreshScheduleStatus();
         RefreshUpdateUntilCurrentUi();
         RefreshMonitorPanel(); // also refreshes Results heading times
         RefreshResultsHeading();
         RefreshThisPcButton();
+        RefreshManufacturerSupportButton();
         RefreshMaintenanceSummary();
         BuildInstallDayChips();
         RefreshAutomationStatusTexts();
@@ -2143,7 +2918,9 @@ public partial class MainWindow : Window
     {
         bool no = _schedule.Language == "no";
         ScheduleStatus.Text = _schedule.Enabled
-            ? (no ? $"Påminnelser aktivert. Neste: {FormatTime(_schedule.NextOccurrence(DateTime.Now))}. Hold programmet åpent." : $"Reminders enabled. Next: {FormatTime(_schedule.NextOccurrence(DateTime.Now))}. Keep the application running.")
+            ? (no
+                ? $"Påminnelser aktivert. Neste: {FormatTime(_schedule.NextOccurrence(DateTime.Now))}. Vises også fra bakgrunnsagenten når hovedvinduet er lukket."
+                : $"Reminders enabled. Next: {FormatTime(_schedule.NextOccurrence(DateTime.Now))}. Also shown from the background agent when the main window is closed.")
             : (no ? "Påminnelser deaktivert. Du kan teste varsler uten å endre Windows." : "Reminders disabled. You can test notifications without modifying Windows.");
     }
     private void SaveSchedule_Click(object sender, RoutedEventArgs e)
@@ -2191,7 +2968,12 @@ public partial class MainWindow : Window
     }
     private void CheckReminder()
     {
+        // Tray may have snoozed/confirmed/prompted while Main was closed or while a tray
+        // dialog was still open after Main opened — honor schedule.json, not a stale cache.
+        SyncReminderPromptStateFromDisk();
         if (!_schedule.Enabled) return;
+        // Another process (tray) already owns the live Påminnelse — do not stack a second one.
+        if (MaintenanceReminderPromptGate.IsReminderPromptHeldElsewhere()) return;
         var now = DateTime.Now;
         if (_schedule.SnoozedUntil is DateTime snooze && now < snooze) return;
         var todayIndex = ((int)now.DayOfWeek + 6) % 7;
@@ -2227,6 +3009,29 @@ public partial class MainWindow : Window
         if (!TryGetMaintenanceReminderReason(out _))
             return;
         ShowReminder(false, slot.Value);
+    }
+
+    /// <summary>
+    /// Pull prompt-related fields from schedule.json so tray decisions (snooze / confirm /
+    /// LastPrompted) are visible to Main's timer without requiring a display-settings change.
+    /// </summary>
+    private void SyncReminderPromptStateFromDisk()
+    {
+        try
+        {
+            var fresh = ReminderSchedule.Load();
+            _schedule.Enabled = fresh.Enabled;
+            _schedule.Weekday = fresh.Weekday;
+            _schedule.Time = fresh.Time;
+            _schedule.LastPromptedOccurrence = fresh.LastPromptedOccurrence;
+            _schedule.ConfirmedOccurrence = fresh.ConfirmedOccurrence;
+            _schedule.SnoozedUntil = fresh.SnoozedUntil;
+            _schedule.MissedUnconfirmedDate = fresh.MissedUnconfirmedDate;
+        }
+        catch
+        {
+            /* keep in-memory schedule */
+        }
     }
 
     /// <summary>
@@ -2379,65 +3184,81 @@ public partial class MainWindow : Window
                     WindowState = WindowState.Normal;
                 if (IsLoaded) Activate();
 
-                bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
-                var dialog = new ReminderDialog(
-                    args.IsTest, args.Occurrence, args.Norwegian, args.ShowMissed,
-                    args.ReasonKey, args.PendingLines)
+                // Tray may still own an open Påminnelse in another process.
+                if (!MaintenanceReminderPromptGate.TryEnterReminderPrompt())
                 {
-                    Owner = ownerOk ? this : null,
-                    WindowStartupLocation = ownerOk
-                        ? WindowStartupLocation.CenterOwner
-                        : WindowStartupLocation.CenterScreen
-                };
-                dialog.ShowDialog();
-                // Use dialog mode/occurrence after possible ApplyContent refresh (test↔real).
-                bool decidedIsTest = dialog.IsTest;
-                var decidedOccurrence = dialog.Occurrence;
-                string reasonForLog = "";
-                if (!decidedIsTest)
-                {
-                    string key = args.ReasonKey;
-                    if (_pendingReminder is { } latest && !latest.IsTest)
-                        key = latest.ReasonKey;
-                    if (!string.IsNullOrEmpty(key))
-                        reasonForLog = "|" + key;
+                    ReminderSchedule.Log(
+                        args.IsTest ? "test_reminder_skipped_tray_owns" : "reminder_skipped_tray_owns",
+                        args.Occurrence.ToString("o"));
+                    return;
                 }
 
-                ReminderSchedule.Log(
-                    decidedIsTest ? "test_reminder" : "reminder",
-                    dialog.Decision + reasonForLog);
-                if (!decidedIsTest)
+                try
                 {
-                    if (dialog.ShowMissedPreviousDay)
-                        _schedule.MissedUnconfirmedDate = null;
+                    bool ownerOk = IsLoaded && IsVisible && WindowState != WindowState.Minimized;
+                    var dialog = new ReminderDialog(
+                        args.IsTest, args.Occurrence, args.Norwegian, args.ShowMissed,
+                        args.ReasonKey, args.PendingLines)
+                    {
+                        Owner = ownerOk ? this : null,
+                        WindowStartupLocation = ownerOk
+                            ? WindowStartupLocation.CenterOwner
+                            : WindowStartupLocation.CenterScreen
+                    };
+                    dialog.ShowDialog();
+                    // Use dialog mode/occurrence after possible ApplyContent refresh (test↔real).
+                    bool decidedIsTest = dialog.IsTest;
+                    var decidedOccurrence = dialog.Occurrence;
+                    string reasonForLog = "";
+                    if (!decidedIsTest)
+                    {
+                        string key = args.ReasonKey;
+                        if (_pendingReminder is { } latest && !latest.IsTest)
+                            key = latest.ReasonKey;
+                        if (!string.IsNullOrEmpty(key))
+                            reasonForLog = "|" + key;
+                    }
 
-                    if (dialog.Decision == "confirmed")
+                    ReminderSchedule.Log(
+                        decidedIsTest ? "test_reminder" : "reminder",
+                        dialog.Decision + reasonForLog);
+                    if (!decidedIsTest)
                     {
-                        _schedule.ConfirmedOccurrence = decidedOccurrence;
-                        _schedule.SnoozedUntil = null;
-                        ScheduleConfirmedReboot(decidedOccurrence);
-                    }
-                    else if (dialog.Decision == "snoozed")
-                    {
-                        _schedule.SnoozedUntil = DateTime.Now.AddMinutes(30);
-                    }
-                    else
-                    {
-                        // Lukk / AFK auto-close (30 min): soft dismiss — roll forward; never confirm restart.
-                        var next = ReminderSchedule.NextHalfHourSlot(DateTime.Now);
-                        if (next is DateTime rolled)
+                        if (dialog.ShowMissedPreviousDay)
+                            _schedule.MissedUnconfirmedDate = null;
+
+                        if (dialog.Decision == "confirmed")
                         {
-                            _schedule.SnoozedUntil = rolled;
-                            ReminderSchedule.Log("reminder_rolled", rolled.ToString("o"));
+                            _schedule.ConfirmedOccurrence = decidedOccurrence;
+                            _schedule.SnoozedUntil = null;
+                            ScheduleConfirmedReboot(decidedOccurrence);
+                        }
+                        else if (dialog.Decision == "snoozed")
+                        {
+                            _schedule.SnoozedUntil = DateTime.Now.AddMinutes(30);
                         }
                         else
                         {
-                            MarkMissedUnconfirmedDay(decidedOccurrence.Date);
+                            // Lukk / AFK auto-close (30 min): soft dismiss — roll forward; never confirm restart.
+                            var next = ReminderSchedule.NextHalfHourSlot(DateTime.Now);
+                            if (next is DateTime rolled)
+                            {
+                                _schedule.SnoozedUntil = rolled;
+                                ReminderSchedule.Log("reminder_rolled", rolled.ToString("o"));
+                            }
+                            else
+                            {
+                                MarkMissedUnconfirmedDay(decidedOccurrence.Date);
+                            }
                         }
+                        _schedule.Save();
                     }
-                    _schedule.Save();
+                    RefreshScheduleStatus();
                 }
-                RefreshScheduleStatus();
+                finally
+                {
+                    MaintenanceReminderPromptGate.ReleaseReminderPrompt();
+                }
             }
             catch (Exception ex)
             {
@@ -2495,7 +3316,8 @@ public partial class MainWindow : Window
         {
             _confirmedRebootTimer?.Stop();
             _confirmedRebootTimer = null;
-            RebootCoordinator.RunDueJob(allowUiPrompt: false);
+            // Show the countdown notice; without it the user sees only the Windows sign-out notice.
+            RebootCoordinator.RunDueJob(allowUiPrompt: true);
         };
         _confirmedRebootTimer.Start();
     }
@@ -2583,20 +3405,56 @@ public partial class MainWindow : Window
             // Accessing IncludeOptionalUpdates from the worker throws InvalidOperationException.
             bool includeOptional = IncludeOptionalUpdates.IsChecked == true;
             bool allDrivers = ShowAllDrivers.IsChecked == true;
+            bool oemDrivers = ShowOemDrivers.IsChecked == true;
             var windows = await WindowsUpdateReader.RunStaAsync(() => WindowsUpdateReader.AdvancedPending(includeOptional, allDrivers));
+            int oemCount = 0;
+            if (oemDrivers)
+            {
+                try
+                {
+                    // Evidence-first before catalog merge; one session confirm if still ambiguous.
+                    PromoteOemDownloads(_schedule.Language == "no", previousBootOnly: true, allowConfirmPrompt: true);
+                    var identity = _machineIdentity;
+                    if (IsMissingIdentity(identity.Manufacturer) || IsMissingIdentity(identity.Product) && IsMissingIdentity(identity.Model))
+                        identity = await Task.Run(MachineIdentityReader.Read).ConfigureAwait(true);
+                    var oem = await OemDriverSearch.SearchAsync(
+                        identity,
+                        msg => Dispatcher.Invoke(() =>
+                        {
+                            if (StatusText is not null) StatusText.Text = msg;
+                        })).ConfigureAwait(true);
+                    oemCount = oem.Count;
+                    if (oemCount > 0)
+                    {
+                        // Keep WUA rows first, then OEM with Critical already grouped at the top of that block.
+                        var merged = new List<UpdateEntry>(windows.Count + oem.Count);
+                        merged.AddRange(windows);
+                        merged.AddRange(oem);
+                        windows = merged;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ActivityLog.TryWrite("OemDriverSearch", "Failed", new { Exception = ex.ToString() });
+                    StatusText.Text = (_schedule.Language == "no" ? "OEM-drivernsøk feilet: " : "OEM driver search failed: ") + ex.Message;
+                }
+            }
             ReplacePendingSnapshot(windows);
             _lastSuccessfulScan = DateTime.Now;
             // Keep the user's current results tab (All is the startup default).
             SetTab(_activeTab);
             SyncResultsExpandedForPending(windows.Count);
             int driverCount = windows.Count(e => e.Category == "Driver / firmware");
+            int wuaDriverCount = windows.Count(e => e.Category == "Driver / firmware" && !e.OpensExternalUrl);
             try
             {
                 var apps = await WingetReader.ScanAsync();
                 WingetAvailableCache.Write(apps.Updates, apps.Raw);
                 ApplyAppScanResult(apps.Updates, apps.Raw);
                 ReconcileApplicationsPromptWithScan(apps.Updates);
-                StatusText.Text = $"Windows: {windows.Count - driverCount}, drivers: {driverCount}, applications: {apps.Updates.Count}.";
+                StatusText.Text = oemCount > 0
+                    ? $"Windows: {windows.Count - driverCount}, drivers: {wuaDriverCount} WUA + {oemCount} OEM, applications: {apps.Updates.Count}."
+                    : $"Windows: {windows.Count - driverCount}, drivers: {driverCount}, applications: {apps.Updates.Count}.";
             }
             catch (Exception ex)
             {
@@ -2623,6 +3481,13 @@ public partial class MainWindow : Window
         }
     }
     private async void WindowsUpdateFix_Click(object sender, RoutedEventArgs e) => await RunWindowsUpdateFixAsync();
+
+    private void StatusFixItCta_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        // Keep the Vedlikehold / Maintenance Expander from toggling when opening FIX IT from the header CTA.
+        e.Handled = true;
+        FixItOpen_Click(sender, e);
+    }
 
     private void FixItOpen_Click(object sender, RoutedEventArgs e)
     {
@@ -2910,9 +3775,7 @@ public partial class MainWindow : Window
         dlg.ShowDialog();
         if (dlg.Hidden)
         {
-            string hiddenIdentity = HistoryArchive.DisplayIdentityKey(entry);
-            _historySnapshot.RemoveAll(row =>
-                string.Equals(HistoryArchive.DisplayIdentityKey(row), hiddenIdentity, StringComparison.OrdinalIgnoreCase));
+            _historySnapshot.RemoveAll(row => OutcomeIdentity.SameUpdate(row, entry));
             if (_showingHistory) SetTab("history");
             RefreshHealthSummary();
         }
@@ -2947,6 +3810,11 @@ public partial class MainWindow : Window
             OpenWindowsUpdate_Click(sender, e);
             return;
         }
+        if (entry.OpensExternalUrl)
+        {
+            OpenOemDriverEntry(entry);
+            return;
+        }
         if (entry.HasFixableErrorCode)
         {
             ShowErrorFix(entry);
@@ -2968,7 +3836,7 @@ public partial class MainWindow : Window
             return;
         }
         string note = string.IsNullOrWhiteSpace(entry.StatusNote) ? "" : entry.StatusNote + "\n\n";
-        MessageBox.Show(this, $"Update: {entry.Title}\nKB: {entry.KB}\nCategory: {entry.Category}\nPriority: {entry.PriorityDisplay}\nStatus: {entry.Status}\nDate: {entry.DateShown}\nError: {entry.ErrorCode}\n\n{note}{assessment}\n\nUninstall is not implemented.", "Update Details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show(this, $"Update: {entry.Title}\nKB: {entry.KB}\nCategory: {entry.Category}\nPriority: {entry.PriorityDisplay}\nStatus: {HistoryStatusDisplay.Format(entry.Status)}\nDate: {entry.DateShown}\nError: {entry.ErrorCode}\n\n{note}{assessment}\n\nUninstall is not implemented.", "Update Details (read-only)", MessageBoxButton.OK, MessageBoxImage.Information);
     }
     private void Export_Click(object sender, RoutedEventArgs e)
     {
@@ -3016,9 +3884,24 @@ public partial class MainWindow : Window
         if (_busy) return;
         // Pending snapshots persist when switching tabs. History is never installable.
         var software = _pendingSnapshot.Where(x => x.IsSelected && x.Category != "Driver / firmware" && x.SafeDefault && !string.IsNullOrWhiteSpace(x.UpdateId)).ToList();
-        var drivers = _pendingSnapshot.Where(x => x.IsSelected && x.Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(x.UpdateId)).ToList();
+        // Distinct by UpdateId — Search already collapses Title+Version lookalikes, but a stale
+        // snapshot can still hold two selected rows for the same WUA package.
+        var drivers = _pendingSnapshot
+            .Where(x => x.IsSelected && x.Category == "Driver / firmware" && !string.IsNullOrWhiteSpace(x.UpdateId))
+            .GroupBy(x => x.UpdateId.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.OrderByDescending(x => x.DriverAssigned).First())
+            .ToList();
         var apps = _appEntries.Where(x => x.IsSelected).ToList();
-        if (software.Count + drivers.Count + apps.Count == 0) return;
+        // OEM catalog rows never go through WUA (empty UpdateId): each package is downloaded
+        // and its own installer is run.
+        var oem = _pendingSnapshot.Where(x => x.IsSelected && IsOemDownloadable(x)).ToList();
+        if (software.Count + drivers.Count + apps.Count == 0)
+        {
+            // No restart-as-administrator step, like the per-row button: the installer is
+            // shell-started, so Windows asks for elevation itself if this process lacks it.
+            await InstallSelectedOemAsync(oem, confirm: true);
+            return;
+        }
         // Only installation requires elevation; scanning and diagnostics remain available.
         // WUA may return 0x80240044 when a non-elevated process attempts a download.
         if (!UpdateExpress.Services.ElevationHelper.IsElevated)
@@ -3060,14 +3943,22 @@ public partial class MainWindow : Window
         }
         bool norwegian = _schedule.Language == "no";
         var queue = new List<InstallationQueueItem>();
-        queue.AddRange(software.Select(x => new InstallationQueueItem("Windows Update", x.Title)));
-        queue.AddRange(drivers.Select(x => new InstallationQueueItem("Driver", x.Title)));
+        queue.AddRange(software.Select(x => new InstallationQueueItem("Windows Update", x.Title) { UpdateId = x.UpdateId }));
+        queue.AddRange(drivers.Select(x => new InstallationQueueItem("Driver", x.Title) { UpdateId = x.UpdateId }));
         queue.AddRange(apps.Select(x => new InstallationQueueItem("WinGet", x.DisplayName)));
         var manager = new InstallationManagerWindow(queue, norwegian: norwegian) { Owner = this };
+        string oemLines = oem.Count == 0 ? "" : norwegian
+            ? $"\nOEM-pakker: {oem.Count}\n\nEtter de andre installasjonene lastes hver OEM-pakke ned, og installasjonsprogrammet kjøres, én om gangen. Pakker uten installasjonsprogram (f.eks. zip) blir bare lagret."
+            : $"\nOEM packages: {oem.Count}\n\nAfter the other installations, each OEM package is downloaded and its installer is run, one at a time. Packages without an installer (e.g. zip) are only saved.";
+        string restartLine = oem.Count == 0
+            ? (norwegian ? "Ingen automatisk omstart." : "No automatic restart will be performed.")
+            : (norwegian
+                ? "Update Express starter ikke på nytt automatisk, men et OEM-installasjonsprogram kan selv kreve eller utføre omstart."
+                : "Update Express does not restart automatically, but an OEM installer may require or perform a restart itself.");
         if (AppDialog.Show(this,
                 norwegian
-                    ? $"Installere {queue.Count} valgte oppdateringer fra alle faner?\n\nWindows-oppdateringer: {software.Count}\nDrivere: {drivers.Count}\nWinGet: {apps.Count}\n\nIngen automatisk omstart."
-                    : $"Install {queue.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}\n\nNo automatic restart will be performed.",
+                    ? $"Installere {queue.Count + oem.Count} valgte oppdateringer fra alle faner?\n\nWindows-oppdateringer: {software.Count}\nDrivere: {drivers.Count}\nWinGet: {apps.Count}{oemLines}\n\n{restartLine}"
+                    : $"Install {queue.Count + oem.Count} selected updates from all tabs?\n\nWindows Updates: {software.Count}\nDrivers: {drivers.Count}\nWinGet: {apps.Count}{oemLines}\n\n{restartLine}",
                 norwegian ? "Bekreft kombinert installasjon" : "Confirm combined installation",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         _busy = true;
@@ -3174,9 +4065,17 @@ public partial class MainWindow : Window
                     acceptUiProgress = false;
                     foreach (var entry in results) Log("Driver", entry.Status, new { entry.Title, entry.UpdateId, entry.ErrorCode });
                     var driverResult = results.FirstOrDefault();
+                    // Only hold after a successful install — failed/partial must stay retryable.
+                    if (driverResult is not null &&
+                        driverResult.Status == "Installert" &&
+                        (driverResult.Source ?? "").Contains("Restart required", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Hold this UpdateId until Windows reboot indicators clear (avoids Realtek-style second install).
+                        DriverRebootHoldStore.Remember(d, "Restart required after WUA driver install");
+                    }
                     string driverState = driverResult == null ? notVerifiedLabel :
-                        driverResult.Status == "Installert" ? verifyingLabel :
-                        driverResult.Status == "Delvis fullført" ? notVerifiedLabel :
+                        driverResult.Status is "Installert" or "Already up to date" ? verifyingLabel :
+                        driverResult.Status is "Delvis fullført" or "Verification unavailable" ? notVerifiedLabel :
                         "Failed" + (string.IsNullOrWhiteSpace(driverResult.ErrorCode) ? "" : " " + driverResult.ErrorCode);
                     string? driverTip = null;
                     if (driverState.StartsWith("Failed", StringComparison.Ordinal) && driverResult is not null && !string.IsNullOrWhiteSpace(driverResult.ErrorCode))
@@ -3264,7 +4163,8 @@ public partial class MainWindow : Window
                         timeoutMessage: norwegian ? "Verifisering (WUA-rescan) tidsavbrutt." : "Verification (WUA rescan) timed out.",
                         abandonOnTimeout: true);
                     outstandingWork.Remove(pendingTask);
-                    ReplacePendingSnapshot(pending);
+                    // Keep last search results for display; rescan is only for verification.
+                    // Successfully installed rows are pruned below after queue states are resolved.
                     var historyTask = WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
                     outstandingWork.Add(historyTask);
                     _historySnapshot = await AwaitInstallationTaskAsync(
@@ -3300,7 +4200,8 @@ public partial class MainWindow : Window
                         manager.CompleteItem(driverIndex, next, InstallationManagerWindow.IsUnverifiedState(next));
                         Log("Driver", next, new { drivers[i].UpdateId, drivers[i].Title, remains, historyOk });
                     }
-                    Log("WUA", "Rescan completed", new { Count = pending.Count });
+                    PruneSuccessfullyInstalledFromPending(software, drivers, queue);
+                    Log("WUA", "Rescan completed", new { Count = pending.Count, PendingKept = _pendingSnapshot.Count });
                 }
                 catch (TimeoutException tex)
                 {
@@ -3310,8 +4211,14 @@ public partial class MainWindow : Window
                     for (int i = 0; i < software.Count + drivers.Count; i++)
                         if (InstallationManagerWindow.IsVerifyingState(queue[i].State))
                             manager.CompleteItem(i, completedLabel, false);
+                    PruneSuccessfullyInstalledFromPending(software, drivers, queue);
                 }
-                catch (Exception ex) { Log("WUA", "Rescan failed", ex.Message); manager.SetStage((norwegian ? "Ny skanning av Windows Update feilet: " : "Windows Update rescan failed: ") + ex.Message); }
+                catch (Exception ex)
+                {
+                    Log("WUA", "Rescan failed", ex.Message);
+                    manager.SetStage((norwegian ? "Ny skanning av Windows Update feilet: " : "Windows Update rescan failed: ") + ex.Message);
+                    PruneSuccessfullyInstalledFromPending(software, drivers, queue);
+                }
             }
 
             if (needWingetVerify)
@@ -3362,6 +4269,8 @@ public partial class MainWindow : Window
                 ScheduleBackgroundWingetRefresh();
             }
 
+            // Always prune completed WUA rows from the last search (even if verify was skipped).
+            PruneSuccessfullyInstalledFromPending(software, drivers, queue);
             SetTab(_activeTab);
             RefreshHealthSummary();
             Log("InstallationManager", "Finished", new { Total = queue.Count, verifyTimedOut, stillOfferedAfterSuccess, needWuaVerify, needWingetVerify, allWingetFailed });
@@ -3409,6 +4318,9 @@ public partial class MainWindow : Window
             UpdateSelectionControls();
             RefreshRebootNeededBanner();
         }
+        // Already confirmed in the combined dialog. Runs after the installs so OEM installer
+        // windows (and any restart they trigger) do not interrupt Installation Manager.
+        await InstallSelectedOemAsync(oem, confirm: false);
     }
 
     private void ScheduleBackgroundWingetRefresh()
@@ -3545,6 +4457,51 @@ public partial class MainWindow : Window
     private void ResultsExpander_Collapsed(object sender, RoutedEventArgs e) => ApplyResultsRowLayout();
 
     private void ResultsExpander_SizeChanged(object sender, SizeChangedEventArgs e) => StretchResultsHeader();
+
+    /// <summary>
+    /// On expand, scroll MainScroll so «Vedlikehold og varsler» sits near the top of the viewport.
+    /// Collapse leaves scroll position unchanged.
+    /// </summary>
+    private void MaintenanceExpander_Expanded(object sender, RoutedEventArgs e)
+    {
+        // Nested expanders (e.g. Advanced categories) also bubble Expanded here — ignore those.
+        if (!ReferenceEquals(e.OriginalSource, MaintenanceExpander))
+            return;
+
+        // Wait until expanded content has measured/arranged, then scroll.
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, ScrollMaintenanceSectionToTop);
+        });
+    }
+
+    private void ScrollMaintenanceSectionToTop()
+    {
+        if (MainScroll is null || MaintenanceExpander is null || !MaintenanceExpander.IsExpanded)
+            return;
+
+        FrameworkElement target = MaintenanceSection ?? (FrameworkElement)MaintenanceExpander;
+        target.UpdateLayout();
+        MainScroll.UpdateLayout();
+
+        if (!ReferenceEquals(target, MainScroll) && !IsAncestor(MainScroll, target))
+            return;
+
+        System.Windows.Point relative = target.TransformToAncestor(MainScroll).Transform(new System.Windows.Point(0, 0));
+        double offset = MainScroll.VerticalOffset + relative.Y;
+        if (offset < 0) offset = 0;
+        MainScroll.ScrollToVerticalOffset(offset);
+    }
+
+    private static bool IsAncestor(DependencyObject ancestor, DependencyObject? node)
+    {
+        while (node is not null)
+        {
+            if (ReferenceEquals(node, ancestor)) return true;
+            node = VisualTreeHelper.GetParent(node);
+        }
+        return false;
+    }
 
     private void RefreshUpdateUntilCurrentUi()
     {
@@ -3721,7 +4678,7 @@ public partial class MainWindow : Window
                 UpdateUntilCurrent.Save(state);
                 RefreshUpdateUntilCurrentUi();
 
-                var queue = matches.Select(entry => new InstallationQueueItem("Windows Update", entry.Title)).ToList();
+                var queue = matches.Select(entry => new InstallationQueueItem("Windows Update", entry.Title) { UpdateId = entry.UpdateId }).ToList();
                 string subtitle = norwegian
                     ? "Oppdater til ferdig. Windows starter på nytt når en runde krever det, og søket kjøres på nytt etterpå."
                     : "Update until current. Windows restarts when a round requires it, then the search runs again.";
@@ -3820,9 +4777,9 @@ public partial class MainWindow : Window
             UpdateUntilCurrent.RebootCountdownSeconds,
             norwegian
                 ? "Update Express fortsetter oppdateringsrunden etter omstart."
-                : "Update Express continues the update cycle after restart.");
-        MessageBox.Show(this, state.Message, norwegian ? "Oppdater til ferdig" : "Update until current",
-            MessageBoxButton.OK, MessageBoxImage.Information);
+                : "Update Express continues the update cycle after restart.",
+            showUi: true,
+            owner: this);
     }
 
     private void StretchResultsHeader()
@@ -3859,26 +4816,163 @@ public partial class MainWindow : Window
 
     private void ThisPc_Click(object sender, RoutedEventArgs e)
     {
-        if (MachineIdentityPanel is null) return;
-        bool open = MachineIdentityPanel.Visibility != Visibility.Visible;
-        MachineIdentityPanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        // Keep the inline strip collapsed; open the detailed PC window instead.
+        if (MachineIdentityPanel is not null)
+            MachineIdentityPanel.Visibility = Visibility.Collapsed;
+
+        bool norwegian = _schedule.Language == "no";
+        RefreshUptime();
+        var os = WindowsSupportReader.Read();
+        string build = WindowsBuildNumber();
+        var network = LocalNetworkReader.Read();
+        var dlg = new PcInfoWindow(
+            norwegian,
+            _machineIdentity,
+            os.Name,
+            build,
+            UptimeValue?.Text ?? "—",
+            UptimeValue?.ToolTip as string ?? UptimeCopyText(),
+            network)
+        {
+            Owner = this
+        };
+        dlg.ShowDialog();
         RefreshThisPcButton();
+    }
+
+    private static string WindowsBuildNumber()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            int build = Environment.OSVersion.Version.Build;
+            string ubr = key?.GetValue("UBR")?.ToString()?.Trim() ?? "";
+            string current = key?.GetValue("CurrentBuildNumber")?.ToString()?.Trim()
+                             ?? key?.GetValue("CurrentBuild")?.ToString()?.Trim()
+                             ?? build.ToString();
+            return string.IsNullOrWhiteSpace(ubr) ? current : $"{current}.{ubr}";
+        }
+        catch
+        {
+            return Environment.OSVersion.Version.Build.ToString();
+        }
     }
 
     private void RefreshThisPcButton()
     {
         if (ThisPcButton is null) return;
         bool no = _schedule.Language == "no";
-        bool open = MachineIdentityPanel?.Visibility == Visibility.Visible;
-        ThisPcButton.Content = no ? "Denne pcen" : "This PC";
-        ThisPcButton.ToolTip = open
-            ? (no
-                ? "Skjul produsent, modell, serienummer, enhetsnavn og oppetid"
-                : "Hide manufacturer, model, serial, device name, and uptime")
-            : (no
-                ? "Vis produsent, modell, serienummer, enhetsnavn og oppetid"
-                : "Show manufacturer, model, serial, device name, and uptime");
-        ThisPcButton.Tag = "This PC";
+        const string english = "This PC";
+        string label = no && Norwegian.TryGetValue(english, out var translated) ? translated : english;
+        if (ThisPcLabel is not null)
+        {
+            // Tag keeps the English key so Translate() resolves the same text.
+            ThisPcLabel.Tag = english;
+            ThisPcLabel.Text = label;
+        }
+        ThisPcButton.Tag = english;
+        ThisPcButton.ToolTip = label;
+        System.Windows.Automation.AutomationProperties.SetName(ThisPcButton, label);
+    }
+
+    private double _thisPcLabelWidth;
+    private string _thisPcLabelMeasuredText = "";
+
+    /// <summary>
+    /// Header columns are brand (*) | status (Auto) | actions (Auto), so the brand is what clips
+    /// when the row is too narrow. Drop the "This PC" label (the icon stays) whenever it would
+    /// cut into the logo + "Update Express" title, e.g. near the minimum window width.
+    /// The result does not depend on whether the label is currently shown, so it cannot oscillate.
+    /// </summary>
+    private void UpdateThisPcLabelVisibility()
+    {
+        if (ThisPcLabel is null || HeaderGrid is null || BrandLogo is null || BrandTitleRow is null) return;
+        if (HeaderGrid.ActualWidth <= 0) return;
+        bool shown = ThisPcLabel.Visibility == Visibility.Visible;
+        if (shown)
+        {
+            if (ThisPcLabel.DesiredSize.Width <= 0) return; // not measured yet
+            _thisPcLabelWidth = ThisPcLabel.DesiredSize.Width;
+            _thisPcLabelMeasuredText = ThisPcLabel.Text;
+        }
+        else if (_thisPcLabelMeasuredText != ThisPcLabel.Text)
+        {
+            // Language changed while hidden: show once so the new text gets measured.
+            ThisPcLabel.Visibility = Visibility.Visible;
+            return;
+        }
+
+        var columns = HeaderGrid.ColumnDefinitions;
+        double brandRoomWithLabel = HeaderGrid.ActualWidth - columns[1].ActualWidth - columns[2].ActualWidth
+            - (shown ? 0 : _thisPcLabelWidth);
+        double brandNeeds = BrandLogo.DesiredSize.Width + BrandTitleRow.DesiredSize.Width;
+        // Half a pixel of hysteresis so rounding at the exact boundary cannot flip the label back and forth.
+        bool fits = brandRoomWithLabel >= brandNeeds - (shown ? 0.5 : 0);
+        if (fits != shown)
+            ThisPcLabel.Visibility = fits ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private ManufacturerSupportLinks.SupportLink? _manufacturerSupport;
+
+    private void RefreshManufacturerSupportButton()
+    {
+        if (ManufacturerSupportButton is null) return;
+        bool norwegian = _schedule.Language == "no";
+        if (!ManufacturerSupportLinks.TryResolve(
+                _machineIdentity.Manufacturer,
+                _machineIdentity.Product,
+                _machineIdentity.Model,
+                _machineIdentity.Serial,
+                out var link) || link is null)
+        {
+            _manufacturerSupport = null;
+            ManufacturerSupportButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        _manufacturerSupport = link;
+        // Brand + "support" kept in both languages (matches SVHA wording / OEM site language).
+        string label = $"{link.Brand} support";
+        ManufacturerSupportButton.Content = label;
+        ManufacturerSupportButton.Tag = label;
+        ManufacturerSupportButton.ToolTip = norwegian
+            ? $"Åpne {link.Brand}-støtte i nettleseren"
+            : $"Open {link.Brand} support in your browser";
+        System.Windows.Automation.AutomationProperties.SetName(ManufacturerSupportButton, label);
+        ManufacturerSupportButton.Visibility = Visibility.Visible;
+    }
+
+    private void ManufacturerSupport_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var link = _manufacturerSupport;
+        if (link is null &&
+            !ManufacturerSupportLinks.TryResolve(
+                _machineIdentity.Manufacturer,
+                _machineIdentity.Product,
+                _machineIdentity.Model,
+                _machineIdentity.Serial,
+                out link))
+            return;
+        if (link is null || string.IsNullOrWhiteSpace(link.Url)) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = link.Url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            bool norwegian = _schedule.Language == "no";
+            MessageBox.Show(
+                this,
+                ex.Message,
+                norwegian ? "Åpne støtte" : "Open support",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
     }
 
     private void BrandSiteLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

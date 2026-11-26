@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using UpdateExpress.Models;
 
@@ -57,7 +57,7 @@ internal static class InstalledDriverReader
                 entry.DriverReason = "Installed driver inventory unavailable: " + ex.Message;
             return;
         }
-        foreach (var entry in entries.Where(e => e.Category == "Driver / firmware" && e.DriverStatus != "Firmware"))
+        foreach (var entry in entries.Where(e => e.Category == "Driver / firmware"))
         {
             if (!Version.TryParse(entry.DriverVersion, out var offered)) continue;
             var hardware = Normalize(entry.DriverHardwareId);
@@ -76,6 +76,8 @@ internal static class InstalledDriverReader
             entry.InstalledDriverVersion = match.Version;
             var comparison = offered.CompareTo(current);
             // Preserve explicit WUA recommendation as status; still report version relationship.
+            // Do not hard-hide Older/Same: Extension INF packages share a hardware ID with the
+            // base driver but are versioned independently, so HWID-only compare can false-positive.
             var relation = comparison > 0 ? "higher" : comparison < 0 ? "lower" : "equal";
             entry.DriverReason = $"Installed PnP device: {match.Name} ({match.DeviceId}). Offered version is {relation} than installed {match.Version}. WUA assigned: {entry.DriverAssigned}.";
             if (!entry.DriverAssigned) entry.DriverStatus = comparison > 0 ? "Newer" : comparison < 0 ? "Older" : "Same version";

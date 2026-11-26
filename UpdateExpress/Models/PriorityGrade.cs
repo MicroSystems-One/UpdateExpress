@@ -46,6 +46,17 @@ public static class PriorityGrade
 
     public static (string Display, string ColorHex) ForDriver(UpdateEntry entry)
     {
+        // OEM catalog rows are informational downloads — never WUA-assigned.
+        if (entry.DriverClassification.Equals("OEM", StringComparison.OrdinalIgnoreCase) ||
+            entry.OpensExternalUrl)
+        {
+            if (entry.Priority.Equals("Critical", StringComparison.OrdinalIgnoreCase))
+                return (Critical, ColorCritical);
+            if (entry.DriverStatus.Equals("Firmware", StringComparison.OrdinalIgnoreCase) ||
+                entry.Priority.Equals("Important", StringComparison.OrdinalIgnoreCase))
+                return (Moderate, ColorModerate);
+            return (Optional, ColorOptional);
+        }
         if (entry.DriverStatus.Equals("Firmware", StringComparison.OrdinalIgnoreCase) ||
             entry.DriverClassification.Equals("Firmware", StringComparison.OrdinalIgnoreCase))
         {
@@ -57,7 +68,8 @@ public static class PriorityGrade
         }
         if (entry.DriverAssigned || entry.DriverStatus.Equals("Recommended", StringComparison.OrdinalIgnoreCase))
             return (Moderate, ColorModerate);
-        if (entry.DriverStatus.Equals("Newer", StringComparison.OrdinalIgnoreCase))
+        if (entry.DriverStatus.Equals("Newer", StringComparison.OrdinalIgnoreCase) ||
+            entry.DriverStatus.Equals("Available", StringComparison.OrdinalIgnoreCase))
             return (Optional, ColorOptional);
         if (entry.Priority.Equals("Critical", StringComparison.OrdinalIgnoreCase))
             return (Critical, ColorCritical);
