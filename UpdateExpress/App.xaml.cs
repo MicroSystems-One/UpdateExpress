@@ -14,6 +14,9 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
         var args = e.Args;
+        // Every elevated start (installer, helper, main window run as administrator) puts the
+        // folder that holds fleet-policy.json under the administrator's control.
+        PolicyFolderGuard.RunIfPrivileged();
         if (args.Contains("--apply-maintenance", StringComparer.OrdinalIgnoreCase))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;

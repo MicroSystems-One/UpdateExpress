@@ -167,7 +167,7 @@ internal static class StateFolderAcl
     /// Open <paramref name="path"/> itself, never what a link at that path points to, and make
     /// sure no folder between <paramref name="trustedRoot"/> and it is a link either.
     /// </summary>
-    private static SafeFileHandle? OpenVerified(string path, string trustedRoot, uint access, bool wantDirectory, out string failure)
+    internal static SafeFileHandle? OpenVerified(string path, string trustedRoot, uint access, bool wantDirectory, out string failure)
     {
         failure = "";
         string relative = Path.GetRelativePath(trustedRoot, path);
@@ -228,10 +228,16 @@ internal static class StateFolderAcl
     }
 
     /// <summary>The access rules of an open file or folder, read and written through its handle.</summary>
-    private sealed class HandleSecurity : ObjectSecurity<FileSystemRights>
+    internal sealed class HandleSecurity : ObjectSecurity<FileSystemRights>
     {
-        internal HandleSecurity(bool isContainer, SafeFileHandle handle)
-            : base(isContainer, ResourceType.FileObject, handle, AccessControlSections.Access)
+        internal HandleSecurity(bool isContainer, SafeFileHandle handle, AccessControlSections sections = AccessControlSections.Access)
+            : base(isContainer, ResourceType.FileObject, handle, sections)
+        {
+        }
+
+        /// <summary>An empty descriptor, to set one part without having the right to read the rest.</summary>
+        internal HandleSecurity(bool isContainer)
+            : base(isContainer, ResourceType.FileObject)
         {
         }
 
