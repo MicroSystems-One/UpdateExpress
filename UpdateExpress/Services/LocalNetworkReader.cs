@@ -122,7 +122,8 @@ internal static class LocalNetworkReader
         {
             if (dns.AddressFamily is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6))
                 continue;
-            if (IPAddress.IsLoopback(dns) || IsPlaceholderDns(dns)) continue;
+            // 127.0.0.1 / ::1 stay: a local resolver is a server the user configured.
+            if (IsPlaceholderDns(dns)) continue;
             if (primary is null) primary = dns.ToString();
             else return (primary, dns.ToString());
         }

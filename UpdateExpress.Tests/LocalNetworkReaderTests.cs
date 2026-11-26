@@ -173,6 +173,35 @@ public class LocalNetworkReaderTests
         Assert.Equal("fec0::5", result.SecondaryDns);
     }
 
+    [Theory]
+    [InlineData("127.0.0.1")]
+    [InlineData("::1")]
+    public void Pick_LoopbackDns_IsShownAsConfigured(string loopback)
+    {
+        var result = LocalNetworkReader.Pick(new[]
+        {
+            Adapter(
+                new[] { "192.168.1.50/255.255.255.0" },
+                new[] { "192.168.1.1" },
+                new[] { loopback, "192.168.1.1" })
+        });
+
+        Assert.Equal(loopback, result.PrimaryDns);
+        Assert.Equal("192.168.1.1", result.SecondaryDns);
+    }
+
+    [Fact]
+    public void Pick_LoopbackIsTheOnlyDns_IsShown()
+    {
+        var result = LocalNetworkReader.Pick(new[]
+        {
+            Adapter(new[] { "192.168.1.50/255.255.255.0" }, new[] { "192.168.1.1" }, new[] { "127.0.0.1" })
+        });
+
+        Assert.Equal("127.0.0.1", result.PrimaryDns);
+        Assert.Equal(None, result.SecondaryDns);
+    }
+
     /// <param name="unicast">"address" or "address/mask".</param>
     private static LocalNetworkReader.Adapter Adapter(string[] unicast, string[]? gateways = null, string[]? dns = null) =>
         new(
