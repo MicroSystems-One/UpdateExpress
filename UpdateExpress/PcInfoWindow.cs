@@ -25,18 +25,20 @@ internal sealed class PcInfoWindow : Window
         string windowsBuild,
         string uptimeText,
         string uptimeTooltip,
-        LocalNetworkReader.Info network)
+        LocalNetworkReader.Info network,
+        Func<PcHardwareReader.Snapshot>? hardwareReader = null)
     {
         _norwegian = norwegian;
         Title = norwegian ? "Denne PCen" : "This PC";
         AppIcon.Apply(this);
         Width = 560;
-        // Tall enough that default content + Lukk fit without a scrollbar (match desired-size screenshot).
-        Height = 720;
+        // Tall enough that default content + Lukk fit without a scrollbar (match desired-size screenshot),
+        // but never taller than the screen; the content scrolls when it does not fit.
         MinWidth = 480;
         MaxWidth = 640;
         MinHeight = 520;
-        MaxHeight = 900;
+        MaxHeight = 1040;
+        Height = Math.Max(MinHeight, Math.Min(920, SystemParameters.WorkArea.Height - 24));
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ResizeMode = ResizeMode.CanResizeWithGrip;
         ShowInTaskbar = false;
@@ -96,6 +98,36 @@ internal sealed class PcInfoWindow : Window
 
         body.Children.Add(Divider());
 
+        // Hardware above Network. The rows start as "…" and are filled when the read, which
+        // runs off the UI thread, is done.
+        body.Children.Add(SectionLabel(norwegian ? "Maskinvare" : "Hardware"));
+        var processor = AddHardwareRow(body, norwegian ? "Prosessor" : "Processor", copy: true);
+        var memory = AddHardwareRow(body, norwegian ? "Minne" : "Memory", copy: true);
+        var storage = AddHardwareRow(body, norwegian ? "Lokal lagring" : "Local storage", copy: true);
+        var cpuTemperature = AddHardwareRow(body, norwegian ? "CPU-temperatur" : "CPU temperature", copy: false);
+        var gpuTemperature = AddHardwareRow(body, norwegian ? "GPU-temperatur" : "GPU temperature", copy: false);
+        Loaded += async (_, _) =>
+        {
+            PcHardwareReader.Display display;
+            try
+            {
+                var snapshot = await System.Threading.Tasks.Task.Run(hardwareReader ?? PcHardwareReader.Read);
+                display = PcHardwareReader.Describe(snapshot, norwegian);
+            }
+            catch
+            {
+                display = PcHardwareReader.Describe(new PcHardwareReader.Snapshot(), norwegian);
+            }
+            processor.Show(display.Processor);
+            memory.Show(display.Memory);
+            storage.Show(display.Storage);
+            cpuTemperature.Show(display.CpuTemperature);
+            gpuTemperature.Show(display.GpuTemperature);
+            HardwareLoaded = true;
+        };
+
+        body.Children.Add(Divider());
+
         body.Children.Add(SectionLabel(norwegian ? "Nettverk" : "Network"));
         body.Children.Add(Field(norwegian ? "Lokal IP" : "Local IP", network.LocalIp, copy: true));
         body.Children.Add(Field(norwegian ? "Subnettmaske" : "Subnet mask", network.SubnetMask, copy: false));
@@ -125,6 +157,30 @@ internal sealed class PcInfoWindow : Window
         if (hasModel)
             return model.Trim();
         return "";
+    }
+
+    /// <summary>True once the hardware rows show what was read (or "unavailable").</summary>
+    internal bool HardwareLoaded { get; private set; }
+
+    private sealed class HardwareRow(TextBlock value, Button? copy)
+    {
+        public void Show(PcHardwareReader.Row row)
+        {
+            value.Text = row.Value;
+            value.ToolTip = row.Tooltip;
+            if (copy is null) return;
+            // Nothing to copy from a row that has no reading.
+            copy.Tag = row.Available ? row.Value : "";
+            copy.Visibility = row.Available ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private HardwareRow AddHardwareRow(StackPanel body, string label, bool copy)
+    {
+        var field = Field(label, "…", copy);
+        var row = (StackPanel)field.Child;
+        body.Children.Add(field);
+        return new HardwareRow((TextBlock)row.Children[1], copy ? (Button)row.Children[2] : null);
     }
 
     private Border Field(string label, string value, bool copy, string? valueTooltip = null, string? copyText = null)

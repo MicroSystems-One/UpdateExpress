@@ -2555,6 +2555,7 @@ public partial class MainWindow : Window
             RmmStatusExport.WriteBestEffort("mainwindow-loaded", force: true);
             CheckReminder();
             _ = LoadMachineIdentityAsync();
+            _ = LoadWindows11EligibilityAsync();
             // Read Historikk alongside Defender so «Sjekket» can use the latest Defender success
             // without waiting for a later history load. Whichever finishes last applies both.
             var defenderTask = RefreshDefenderAsync();
@@ -2662,6 +2663,139 @@ public partial class MainWindow : Window
     {
         var dlg = new OsSupportInfoDialog(_osSupportDetails, _schedule.Language == "no") { Owner = this };
         dlg.ShowDialog();
+    }
+
+    private const string Windows11AssistantLabel = "Windows 11 Assistant";
+    private Windows11Eligibility.Decision? _windows11Decision;
+    private bool _windows11AssistantBusy;
+
+    /// <summary>
+    /// The button stays hidden until the check, which runs off the UI thread, says this is a
+    /// Windows 10 PC that meets every Windows 11 requirement. A check that fails or cannot
+    /// decide leaves it hidden.
+    /// </summary>
+    private async Task LoadWindows11EligibilityAsync()
+    {
+        try
+        {
+            var decision = await Task.Run(Windows11Eligibility.Evaluate);
+            _windows11Decision = decision;
+            AgentLog.Write("Windows 11 Assistant button " + (decision.Eligible ? "shown" : "hidden") + ". " + decision.Summary);
+        }
+        catch (Exception ex)
+        {
+            _windows11Decision = null;
+            AgentLog.Write("Windows 11 eligibility check failed; the Windows 11 Assistant button stays hidden: " + ex.Message);
+        }
+        RefreshWindows11AssistantButton();
+    }
+
+    private void RefreshWindows11AssistantButton()
+    {
+        if (Windows11AssistantButton is null || Windows11AssistantTestMark is null) return;
+        bool norwegian = _schedule.Language == "no";
+        bool test = Windows11Assistant.TestSwitchOn;
+        bool show = test || _windows11Decision?.Eligible == true;
+        Windows11AssistantButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        Windows11AssistantTestMark.Visibility = show && test ? Visibility.Visible : Visibility.Collapsed;
+        if (!show) return;
+
+        // Same label in both languages. Tag keeps Translate() from replacing a busy label.
+        Windows11AssistantButton.Tag = Windows11AssistantLabel;
+        if (!_windows11AssistantBusy) Windows11AssistantButton.Content = Windows11AssistantLabel;
+        Windows11AssistantButton.ToolTip = test
+            ? (norwegian
+                ? "TEST: knappen vises på grunn av testbryteren. Et klikk laster ned og kontrollerer Microsofts installasjonsassistent, men starter den ikke."
+                : "TEST: the button is shown because of the test switch. A click downloads and checks Microsoft's Installation Assistant but does not start it.")
+            : (norwegian
+                ? "Denne PC-en oppfyller kravene til Windows 11. Last ned og start Microsofts installasjonsassistent for Windows 11."
+                : "This PC meets the Windows 11 requirements. Download and start Microsoft's Windows 11 Installation Assistant.");
+        Windows11AssistantTestMark.ToolTip = norwegian
+            ? $"Testbryteren {Windows11Assistant.TestSwitchVariable}=1 er satt. Knappen sier ikke noe om denne PC-en kan oppgraderes."
+            : $"The test switch {Windows11Assistant.TestSwitchVariable}=1 is set. The button says nothing about whether this PC can be upgraded.";
+    }
+
+    private async void Windows11Assistant_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (_windows11AssistantBusy) return;
+        bool norwegian = _schedule.Language == "no";
+        bool test = Windows11Assistant.TestSwitchOn;
+        // The switch may have been the only reason the button was visible.
+        if (!test && _windows11Decision?.Eligible != true) { RefreshWindows11AssistantButton(); return; }
+
+        string title = test ? Windows11AssistantLabel + " (TEST)" : Windows11AssistantLabel;
+        string question = test
+            ? (norwegian
+                ? "TESTMODUS\n\nKnappen vises på grunn av testbryteren, ikke fordi denne PC-en er funnet klar for Windows 11.\n\nUpdate Express laster ned Microsofts installasjonsassistent for Windows 11 fra Microsoft og kontrollerer at filen er signert av Microsoft. Assistenten blir IKKE startet, og filen slettes etterpå.\n\nFortsette?"
+                : "TEST MODE\n\nThe button is shown because of the test switch, not because this PC was found ready for Windows 11.\n\nUpdate Express downloads Microsoft's Windows 11 Installation Assistant from Microsoft and checks that the file is signed by Microsoft. The Assistant is NOT started, and the file is deleted afterwards.\n\nContinue?")
+            : (norwegian
+                ? "Update Express laster ned Microsofts installasjonsassistent for Windows 11 fra Microsoft, kontrollerer at filen er signert av Microsoft, og starter den.\n\nAssistenten er Microsofts eget program. Den kontrollerer PC-en på nytt og spør før den oppgraderer. Selve oppgraderingen tar lang tid og starter PC-en på nytt, så lagre arbeidet ditt og ta en sikkerhetskopi først.\n\nLaste ned og starte assistenten nå?"
+                : "Update Express downloads Microsoft's Windows 11 Installation Assistant from Microsoft, checks that the file is signed by Microsoft, and starts it.\n\nThe Assistant is Microsoft's own program. It checks this PC again and asks before it upgrades. The upgrade itself takes a long time and restarts the PC, so save your work and take a backup first.\n\nDownload and start the Assistant now?");
+        if (AppDialog.Show(this, question, title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+
+        _windows11AssistantBusy = true;
+        Windows11AssistantButton.IsEnabled = false;
+        string mode = test ? "Test" : "Manual";
+        ActivityLog.TryWrite("Windows11Assistant", "Started", new { Windows11Assistant.DownloadUrl, Test = test }, mode);
+        try
+        {
+            void Progress(string step) => Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_windows11AssistantBusy) return;
+                Windows11AssistantButton.Content = step switch
+                {
+                    "download" => norwegian ? "Laster ned…" : "Downloading…",
+                    "verify" => norwegian ? "Kontrollerer…" : "Checking…",
+                    _ => norwegian ? "Starter…" : "Starting…"
+                };
+            }));
+            var outcome = await Task.Run(() => Windows11Assistant.RunAsync(start: !test, Progress));
+            ActivityLog.TryWrite("Windows11Assistant", outcome.Started ? "AssistantStarted" : "VerifiedNotStarted",
+                new { outcome.DownloadedFrom, outcome.Bytes, outcome.Signer, outcome.FilePath }, mode);
+            if (!outcome.Started)
+            {
+                AppDialog.Show(this,
+                    norwegian
+                        ? $"TESTMODUS: assistenten ble ikke startet.\n\nLastet ned fra: {outcome.DownloadedFrom}\nStørrelse: {outcome.Bytes:N0} byte\nSignert av: {outcome.Signer}\n\nFilen er slettet."
+                        : $"TEST MODE: the Assistant was not started.\n\nDownloaded from: {outcome.DownloadedFrom}\nSize: {outcome.Bytes:N0} bytes\nSigned by: {outcome.Signer}\n\nThe file has been deleted.",
+                    title, MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            ActivityLog.TryWrite("Windows11Assistant", "Failed", new { ex.Message }, mode);
+            var open = AppDialog.Show(this,
+                (norwegian
+                    ? "Installasjonsassistenten ble ikke startet.\n\n"
+                    : "The Installation Assistant was not started.\n\n")
+                + ex.Message
+                + (norwegian
+                    ? "\n\nVil du åpne Microsofts nedlastingsside for Windows 11 i nettleseren i stedet?"
+                    : "\n\nOpen Microsoft's Windows 11 download page in your browser instead?"),
+                title, MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (open == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = Windows11Assistant.DownloadPageUrl,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception openEx)
+                {
+                    AppDialog.Show(this, openEx.Message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+        }
+        finally
+        {
+            _windows11AssistantBusy = false;
+            Windows11AssistantButton.IsEnabled = true;
+            RefreshWindows11AssistantButton();
+        }
     }
 
     private void ProductOverviewInfo_Click(object sender, RoutedEventArgs e)
@@ -2876,6 +3010,7 @@ public partial class MainWindow : Window
         RefreshResultsHeading();
         RefreshThisPcButton();
         RefreshManufacturerSupportButton();
+        RefreshWindows11AssistantButton();
         RefreshMaintenanceSummary();
         BuildInstallDayChips();
         RefreshAutomationStatusTexts();
