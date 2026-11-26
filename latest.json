@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.62",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.62/UpdateExpress_v0.7.2.62.exe",
-  "sha256": "deb12d347f1488a2cc82f593dd865e5d10a51e0fdf00ca8942694736ce937cbd",
-  "publishedAt": "2026-11-26T08:28:38Z",
-  "releaseNotes": "Automation state in its own ProgramData subfolder (State); only an administrator or SYSTEM can create or change fleet-policy.json; reminder dialog without duplicates and with auto-close after 30 minutes away; faster Defender header refresh; PC network details (#151, #152, #56, #58, #59, #153, #154) on 0.7.2.61. Tip c375906. Keep 0.7.2.61 for rollback."
+  "version": "0.7.2.63",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.63/UpdateExpress_v0.7.2.63.exe",
+  "sha256": "924b33652dbc45293d792125b88190360caf6c4f2b1c62d293bad3f9bc52b3e9",
+  "publishedAt": "2026-11-26T20:13:11Z",
+  "releaseNotes": "Windows 11 Assistant button on Windows 10 PCs that meet the Windows 11 requirements; hardware section in This PC; Server as a setup choice with no automatic restart; Windows Server named by its release; N-able install script parses under Windows PowerShell 5.1 again (#157, #158) on 0.7.2.62. Tip 4d7378a. Keep 0.7.2.62 for rollback."
 }
