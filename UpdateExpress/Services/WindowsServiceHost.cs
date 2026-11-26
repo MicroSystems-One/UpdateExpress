@@ -66,6 +66,9 @@ internal sealed class UpdateExpressServiceWorker : BackgroundService
                 }
                 else
                 {
+                    // Before this tick writes state as SYSTEM: keep the shared folder writable
+                    // for the signed-in user's agent, or it stops using that folder.
+                    AutomationStatePaths.EnsureSharedDirectoryAccess();
                     await DefenderAutomation.RunDueJobAsync().ConfigureAwait(false);
                     // Session 0 cannot show the restart notice. The signed-in user's agent shows
                     // it; this only completes a committed restart that nobody picked up.
