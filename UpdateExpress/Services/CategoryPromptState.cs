@@ -52,6 +52,48 @@ internal sealed class CategoryPromptState
         catch { return state; }
     }
 
+    internal static readonly string[] AllCategories = { "critical", "general", "drivers", "applications" };
+
+    /// <summary>
+    /// True in the two states the tray shows the updates-ready dialog for: updates awaiting
+    /// the user's answer, or a scheduled install whose time has passed.
+    /// </summary>
+    internal bool IsWaitingForUser(DateTime now)
+    {
+        if (Updates.Count == 0) return false;
+        if (string.Equals(State, "awaitingPrompt", StringComparison.OrdinalIgnoreCase)) return true;
+        return string.Equals(State, "scheduled", StringComparison.OrdinalIgnoreCase)
+            && ScheduledInstallAt is DateTime scheduled
+            && scheduled <= now;
+    }
+
+    /// <summary>
+    /// Updates of every category that are waiting for the user. The Main UI reads this so the
+    /// Påminnelse covers updates the tray found, whose updates-ready dialog the tray skips
+    /// while the Main UI is open and a Påminnelse is due.
+    /// </summary>
+    internal static List<PromptUpdateItem> LoadUpdatesWaitingForUser(DateTime now) =>
+        UpdatesWaitingForUser(AllCategories.Select(Load), now);
+
+    internal static List<PromptUpdateItem> UpdatesWaitingForUser(IEnumerable<CategoryPromptState> prompts, DateTime now) =>
+        prompts.Where(p => p.IsWaitingForUser(now)).SelectMany(p => p.Updates).ToList();
+
+    /// <summary>
+    /// The waiting updates the caller does not already list, each update ID once.
+    /// An item without an update ID cannot be matched, so it is kept.
+    /// </summary>
+    internal static List<PromptUpdateItem> NotAlreadyListed(
+        IEnumerable<PromptUpdateItem> waiting,
+        IEnumerable<string> listedUpdateIds)
+    {
+        var seen = new HashSet<string>(
+            listedUpdateIds.Where(id => !string.IsNullOrWhiteSpace(id)),
+            StringComparer.OrdinalIgnoreCase);
+        return waiting
+            .Where(item => string.IsNullOrWhiteSpace(item.UpdateId) || seen.Add(item.UpdateId))
+            .ToList();
+    }
+
     /// <summary>
     /// Load prompt state and recover abandoned "installing" after helper crash / reboot.
     /// Applications keep an installing + remaining-queue marker so resume can relaunch

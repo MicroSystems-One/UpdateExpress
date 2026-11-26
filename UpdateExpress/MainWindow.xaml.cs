@@ -3038,7 +3038,9 @@ public partial class MainWindow : Window
     {
         reasonKey = "";
         int pending = CountAvailableUpdates();
-        if (pending > 0)
+        // The tray skips its updates-ready dialogs while this window is open and a Påminnelse
+        // is due, so the updates it found must count here even before this window has scanned.
+        if (pending > 0 || CategoryPromptState.LoadUpdatesWaitingForUser(DateTime.Now).Count > 0)
         {
             reasonKey = "pending";
             return true;
@@ -3098,7 +3100,20 @@ public partial class MainWindow : Window
                 : "•  " + name + "  ·  " + ver);
         }
 
-        int total = CountAvailableUpdates();
+        var trayOnly = CategoryPromptState.NotAlreadyListed(
+            CategoryPromptState.LoadUpdatesWaitingForUser(DateTime.Now),
+            _pendingSnapshot.Select(e => e.UpdateId ?? "").Concat(_appEntries.Select(a => a.Id ?? "")));
+        foreach (var item in trayOnly)
+        {
+            if (lines.Count >= maxLines) break;
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(item.KB)) parts.Add(item.KB.Trim());
+            if (!string.IsNullOrWhiteSpace(item.Title)) parts.Add(item.Title.Trim());
+            if (parts.Count == 0) continue;
+            lines.Add("•  " + string.Join("  ·  ", parts));
+        }
+
+        int total = CountAvailableUpdates() + trayOnly.Count;
         if (total > lines.Count)
         {
             bool norwegian = _schedule.Language == "no";
