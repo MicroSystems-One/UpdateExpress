@@ -238,24 +238,18 @@ internal static class StateFolderAcl
         internal void Save(SafeFileHandle handle) => Persist(handle);
     }
 
-    private const uint ReadControl = 0x00020000;
-    private const uint WriteDac = 0x00040000;
-    private const uint FileReadAttributes = 0x0080;
-    private const uint ShareAll = 0x7;
-    private const uint OpenExisting = 3;
-    private const uint FlagBackupSemantics = 0x02000000;
-    private const uint FlagOpenReparsePoint = 0x00200000;
-    private const int ErrorAccessDenied = 5;
+    private const uint ReadControl = LinkSafeFile.ReadControl;
+    private const uint WriteDac = LinkSafeFile.WriteDac;
+    private const uint FileReadAttributes = LinkSafeFile.FileReadAttributes;
+    private const uint ShareAll = LinkSafeFile.ShareAll;
+    private const uint OpenExisting = LinkSafeFile.OpenExisting;
+    private const uint FlagBackupSemantics = LinkSafeFile.FlagBackupSemantics;
+    private const uint FlagOpenReparsePoint = LinkSafeFile.FlagOpenReparsePoint;
+    private const int ErrorAccessDenied = LinkSafeFile.ErrorAccessDenied;
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern SafeFileHandle CreateFileW(
-        string lpFileName,
-        uint dwDesiredAccess,
-        uint dwShareMode,
-        IntPtr lpSecurityAttributes,
-        uint dwCreationDisposition,
-        uint dwFlagsAndAttributes,
-        IntPtr hTemplateFile);
+    private static SafeFileHandle CreateFileW(
+        string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template) =>
+        LinkSafeFile.CreateFileW(path, access, share, security, disposition, flags, template);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern uint GetFinalPathNameByHandleW(

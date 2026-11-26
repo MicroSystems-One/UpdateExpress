@@ -264,22 +264,30 @@ internal static class AutomationStatePaths
 
     private const string ClaimSuffix = ".migrating";
     private const string ImportedSuffix = ".imported";
+    private const string MigrationLockName = ".migration.lock";
 
     /// <summary>
     /// Bring every state file from <paramref name="legacy"/> into <paramref name="shared"/>
     /// and return how many arrived. Other files (fleet-policy.json, update-policy.json,
     /// rmm-status.*) stay where they are.
     /// <para>
-    /// A file this identity may remove is moved: renamed in place first, so that no other
-    /// process picks it up meanwhile, then copied and deleted. A file it may only read (written
-    /// by an elevated helper or the service, in a folder this user does not own) is copied, and
-    /// a marker beside the copy records which version of the old file that was. The marker
-    /// keeps the old file from being brought in a second time, so an install or restart that
-    /// was cleared afterwards does not come back; whoever can remove the old file later (the
-    /// service, an elevated helper) removes it together with the marker.
+    /// A file this identity may remove is moved: renamed in place first, then copied and
+    /// deleted. A file it may only read (written by an elevated helper or the service, in a
+    /// folder this user does not own) is copied, and a marker beside the copy records which
+    /// version of the old file that was. The marker keeps the old file from being brought in a
+    /// second time, so an install or restart that was cleared afterwards does not come back;
+    /// whoever can remove the old file later (the service, an elevated helper) removes it
+    /// together with the marker.
+    /// </para>
+    /// <para>
+    /// One process does this at a time (a lock file in the shared folder), so a file that is
+    /// being moved is never taken for one a crashed process left behind, and no process
+    /// publishes a copy that another has published and the user has cleared since.
     /// </para>
     /// The copy is a new file, so it takes the rights of the shared folder instead of keeping
-    /// those of the old one. When both folders hold the file, the newer one wins.
+    /// those of the old one. When both folders hold the file, the newer one wins. Both folders
+    /// are places where users may plant links and this also runs as SYSTEM, so files are read
+    /// and written through <see cref="LinkSafeFile"/>.
     /// </summary>
     internal static int MigrateLegacyState(string legacy, string shared)
     {
@@ -289,26 +297,25 @@ internal static class AutomationStatePaths
             if (!System.IO.Directory.Exists(legacy)) return 0;
             if (string.Equals(Path.GetFullPath(legacy), Path.GetFullPath(shared), StringComparison.OrdinalIgnoreCase))
                 return 0;
-            // This also runs as SYSTEM: never through a junction a user planted.
             if (StateFolderAcl.IsLink(legacy) ||
                 StateFolderAcl.IsLink(shared) ||
                 StateFolderAcl.IsLink(Path.GetDirectoryName(Path.GetFullPath(legacy)) ?? legacy))
                 return 0;
+            if (LegacyStateNames(legacy).Count == 0) return 0;
 
-            // Includes claims left by a process that died between the rename and the delete.
-            var names = System.IO.Directory.EnumerateFiles(legacy, "*" + ClaimSuffix)
-                .Select(path => Path.GetFileName(path)[..^ClaimSuffix.Length])
-                .Where(IsStateFileName)
-                .Concat(EnumerateStateFiles(legacy).Select(path => Path.GetFileName(path)))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            EnsureSharedDirectory(shared);
+            if (StateFolderAcl.IsLink(shared)) return 0;
+            using var pass = LinkSafeFile.TryLock(Path.Combine(shared, MigrationLockName));
+            if (pass is null) return 0;
 
-            foreach (string name in names)
+            foreach (string name in LegacyStateNames(legacy))
             {
                 string source = Path.Combine(legacy, name);
                 string claim = source + ClaimSuffix;
                 try
                 {
+                    // A claim found here was left by a process that died between the rename
+                    // and the delete: the lock says nobody is working on it now.
                     if (File.Exists(claim) && MoveClaimed(claim, shared, name)) arrived++;
                     if (!File.Exists(source)) continue;
 
@@ -320,6 +327,10 @@ internal static class AutomationStatePaths
                     // In use right now, or not readable for this identity: the next pass retries.
                 }
             }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // This identity cannot create the shared folder; one that can will do the move.
         }
         catch (Exception ex)
         {
@@ -333,6 +344,14 @@ internal static class AutomationStatePaths
         }
         return arrived;
     }
+
+    private static System.Collections.Generic.List<string> LegacyStateNames(string legacy) =>
+        System.IO.Directory.EnumerateFiles(legacy, "*" + ClaimSuffix)
+            .Select(path => Path.GetFileName(path)[..^ClaimSuffix.Length])
+            .Where(IsStateFileName)
+            .Concat(EnumerateStateFiles(legacy).Select(path => Path.GetFileName(path)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     /// <summary>
     /// Rename the file in place. False when this identity may not remove it; throws when
@@ -376,7 +395,7 @@ internal static class AutomationStatePaths
 
         try
         {
-            try { File.SetAttributes(claim, FileAttributes.Normal); } catch { /* best effort */ }
+            try { LinkSafeFile.ClearReadOnly(claim); } catch { /* best effort */ }
             File.Delete(claim);
         }
         catch
@@ -384,7 +403,14 @@ internal static class AutomationStatePaths
             // Never leave a claim that a later pass would copy again.
             try { File.Move(claim, claim + ".done", overwrite: true); } catch { /* best effort */ }
         }
-        try { if (File.Exists(marker)) File.Delete(marker); } catch { /* best effort */ }
+        try
+        {
+            // A claim that could be neither deleted nor set aside is seen again on the next
+            // pass; the marker then says it has been brought in already.
+            if (File.Exists(claim)) WriteMarker(marker, Stamp(claim));
+            else if (File.Exists(marker)) File.Delete(marker);
+        }
+        catch { /* best effort */ }
         return copied;
     }
 
@@ -395,52 +421,48 @@ internal static class AutomationStatePaths
         if (AlreadyImported(marker, source)) return false;
         string stamp = Stamp(source);
         bool copied = CopyIfNewer(source, shared, name);
-        File.WriteAllText(marker, stamp);
+        WriteMarker(marker, stamp);
         return copied;
     }
 
     private static bool CopyIfNewer(string source, string shared, string name)
     {
-        EnsureSharedDirectory(shared);
-        if (StateFolderAcl.IsLink(shared)) throw new IOException("The state folder is a link: " + shared);
         string target = Path.Combine(shared, name);
-        if (File.Exists(target) && File.GetLastWriteTimeUtc(source) <= File.GetLastWriteTimeUtc(target))
+        using FileStream input = LinkSafeFile.OpenRead(source);
+        DateTime writtenUtc = File.GetLastWriteTimeUtc(input.SafeFileHandle);
+        if (File.Exists(target) && writtenUtc <= File.GetLastWriteTimeUtc(target))
             return false;
-
-        string temp = target + "." + Environment.ProcessId + ".tmp";
-        try
-        {
-            File.Copy(source, temp, overwrite: true);
-            File.SetAttributes(temp, FileAttributes.Normal);
-            File.Move(temp, target, overwrite: true);
-            return true;
-        }
-        catch
-        {
-            try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best effort */ }
-            throw;
-        }
+        LinkSafeFile.Replace(target, input.CopyTo, writtenUtc);
+        return true;
     }
 
     private static string Stamp(string path)
     {
-        var info = new FileInfo(path);
-        return info.LastWriteTimeUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
-               info.Length.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        using FileStream file = LinkSafeFile.OpenRead(path);
+        return File.GetLastWriteTimeUtc(file.SafeFileHandle).Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
+               file.Length.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    private static void WriteMarker(string marker, string stamp) =>
+        LinkSafeFile.Replace(marker, output => output.Write(System.Text.Encoding.ASCII.GetBytes(stamp)));
 
     private static bool AlreadyImported(string marker, string source)
     {
         try
         {
-            return File.Exists(marker) &&
-                   string.Equals(File.ReadAllText(marker).Trim(), Stamp(source), StringComparison.Ordinal);
+            if (!File.Exists(marker)) return false;
+            using FileStream file = LinkSafeFile.OpenRead(marker);
+            if (file.Length > 64) return false;
+            var bytes = new byte[(int)file.Length];
+            file.ReadExactly(bytes);
+            return string.Equals(System.Text.Encoding.ASCII.GetString(bytes).Trim(), Stamp(source), StringComparison.Ordinal);
         }
         catch
         {
             return false;
         }
     }
+
 
     private static bool IsStateFileName(string name) =>
         name.EndsWith("-prompt.json", StringComparison.OrdinalIgnoreCase) ||
@@ -811,7 +833,7 @@ internal static class AutomationStatePaths
                 return;
         }
         catch { return; }
-        if (!System.IO.Directory.Exists(userDir)) return;
+        if (!System.IO.Directory.Exists(userDir) || StateFolderAcl.IsLink(shared)) return;
 
         string[] names =
         {
@@ -841,7 +863,10 @@ internal static class AutomationStatePaths
                         continue;
                     }
                 }
-                File.Copy(src, dst, overwrite: true);
+                // The elevated helper runs this on a folder users can write to: never through a
+                // link, neither when reading the user's file nor when writing the shared one.
+                using (FileStream input = LinkSafeFile.OpenRead(src))
+                    LinkSafeFile.Replace(dst, input.CopyTo, File.GetLastWriteTimeUtc(input.SafeFileHandle));
                 try { File.Delete(src); } catch { /* best effort */ }
             }
             catch { /* best effort */ }

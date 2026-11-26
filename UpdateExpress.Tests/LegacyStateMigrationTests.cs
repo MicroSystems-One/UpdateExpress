@@ -447,6 +447,68 @@ public sealed class LegacyStateMigrationTests : IDisposable
         Assert.Equal(new[] { "victim.txt" }, Directory.GetFiles(target).Select(Path.GetFileName));
     }
 
+    [Fact]
+    public void A_pass_is_left_to_the_process_that_is_already_moving_the_files()
+    {
+        string pending = PutLegacy("pending-reboot.json", "restart");
+        Directory.CreateDirectory(_shared);
+        string lockPath = Path.Combine(_shared, ".migration.lock");
+
+        using (new FileStream(lockPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.Equal(0, Migrate());
+            Assert.Equal("restart", File.ReadAllText(pending));
+            Assert.Empty(Directory.GetFiles(_legacy, "*.migrating"));
+            Assert.False(File.Exists(Path.Combine(_shared, "pending-reboot.json")));
+        }
+
+        // The lock file of a process that is gone does not hold anyone back.
+        Assert.True(File.Exists(lockPath));
+        Assert.Equal(1, Migrate());
+        Assert.Equal(new[] { "pending-reboot.json" }, Directory.GetFiles(_shared).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void A_file_is_written_under_a_new_name_and_replaces_what_waits_at_the_target()
+    {
+        string target = PutShared("pending-reboot.json", "planted");
+        File.SetAttributes(target, FileAttributes.Hidden);
+        var written = new DateTime(2026, 11, 20, 8, 0, 0, DateTimeKind.Utc);
+
+        LinkSafeFile.Replace(target, output => output.Write("fresh"u8), written);
+
+        Assert.Equal("fresh", File.ReadAllText(target));
+        Assert.Equal(written, File.GetLastWriteTimeUtc(target));
+        Assert.False(File.GetAttributes(target).HasFlag(FileAttributes.Hidden));
+        Assert.Single(Directory.GetFiles(_shared));
+    }
+
+    [Fact]
+    public void Reading_refuses_a_link_and_a_folder()
+    {
+        string target = Outside("target");
+        string link = Junction(Path.Combine(_legacy, "pending-reboot.json"), target);
+
+        // Windows itself refuses to open a folder, or a junction that is not followed, as a file.
+        Assert.Throws<UnauthorizedAccessException>(() => LinkSafeFile.OpenRead(link).Dispose());
+        Assert.Throws<UnauthorizedAccessException>(() => LinkSafeFile.OpenRead(target).Dispose());
+        Assert.Throws<FileNotFoundException>(() => LinkSafeFile.OpenRead(Path.Combine(_legacy, "missing.json")).Dispose());
+        Assert.Equal(0, Migrate());
+    }
+
+    [Fact]
+    public void A_read_only_old_file_is_moved_too()
+    {
+        string queue = PutLegacy("drivers-install-queue.json", "queue");
+        File.SetAttributes(queue, FileAttributes.ReadOnly);
+
+        Assert.Equal(1, Migrate());
+
+        Assert.False(File.Exists(queue));
+        Assert.Empty(Directory.GetFiles(_legacy));
+        Assert.Equal("queue", File.ReadAllText(Path.Combine(_shared, "drivers-install-queue.json")));
+    }
+
     /// <summary>A folder outside the tested tree, the way a planted junction would point at one.</summary>
     private string Outside(string name)
     {
