@@ -140,6 +140,7 @@ internal static class RebootCoordinator
         };
         try
         {
+            PreferMachineWideState();
             Directory.CreateDirectory(Path.GetDirectoryName(PendingPath)!);
             File.WriteAllText(PendingPath, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
             if (!log) return;
@@ -148,6 +149,48 @@ internal static class RebootCoordinator
         }
         catch (Exception ex) { AgentLog.Write("Could not save pending reboot: " + ex.Message); }
     }
+
+    /// <summary>
+    /// A restart request has to outlive the session that made it: once the user signs out only
+    /// the session-0 service is left, and it cannot read a file in that user's profile. While
+    /// this process still keeps its state per user, move it to the ProgramData directory, which
+    /// every session and the service resolve to as soon as it holds the request. When this user
+    /// cannot write there, the request stays per user and the tray agent runs the restart.
+    /// </summary>
+    private static void PreferMachineWideState()
+    {
+        try
+        {
+            if (!SamePath(AutomationStatePaths.Directory, InstallationManager.InstallDir)) return;
+            string shared = AutomationStatePaths.SharedDirectory;
+            if (SamePath(shared, InstallationManager.InstallDir)) return;
+            Directory.CreateDirectory(shared);
+            if (!CanCreateFileIn(shared)) return;
+            AutomationStatePaths.EnsureSharedDirectoryForElevate();
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Pending reboot stays in the per-user state directory: " + ex.Message);
+        }
+    }
+
+    internal static bool CanCreateFileIn(string directory)
+    {
+        try
+        {
+            string probe = Path.Combine(directory, "pending-reboot." + Guid.NewGuid().ToString("N") + ".probe");
+            File.WriteAllText(probe, "");
+            File.Delete(probe);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private static bool SamePath(string left, string right) =>
+        string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// A restart the user has already been told about: a confirmed maintenance reminder, or a
