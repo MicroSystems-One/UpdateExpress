@@ -69,7 +69,7 @@ public sealed class UpdatePolicy
 
     /// <summary>First-run / setup wizard completed.</summary>
     public bool SetupCompleted { get; set; }
-    /// <summary>private | business | both</summary>
+    /// <summary>private | business | both | server</summary>
     public string SetupProfile { get; set; } = "";
     /// <summary>Mon=bit0 … Sun=bit6. Shared install days for Critical/General.</summary>
     public int InstallDaysMask { get; set; }

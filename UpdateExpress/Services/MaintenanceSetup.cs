@@ -19,6 +19,38 @@ internal static class MaintenanceSetup
     internal static bool IsNorwegian() =>
         string.Equals(ReminderSchedule.Load().Language, "no", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The fourth setup choice, beside private, business and both.</summary>
+    internal const string ServerProfile = "server";
+
+    /// <summary>
+    /// Test switch: with this environment variable set to 1 the setup choice treats this PC as
+    /// a Windows Server, so the Server choice and its defaults can be seen on a client. The
+    /// dialogs mark it in red. Nothing else in the app reads it.
+    /// </summary>
+    internal const string ServerTestSwitchVariable = "UE_TEST_SERVER";
+
+    internal static bool ServerTestSwitchOn =>
+        string.Equals(Environment.GetEnvironmentVariable(ServerTestSwitchVariable)?.Trim(), "1", StringComparison.Ordinal);
+
+    internal static bool SetupTreatsThisMachineAsServer => ServerTestSwitchOn || WindowsProductType.IsServerOs;
+
+    /// <summary>
+    /// The choice a setup dialog starts on. A saved choice always wins; only a machine with
+    /// none saved starts on Server when it runs Windows Server.
+    /// </summary>
+    internal static string InitialProfile(string? savedProfile, bool serverOs, string clientDefault) =>
+        !string.IsNullOrWhiteSpace(savedProfile) ? savedProfile
+        : serverOs ? ServerProfile
+        : clientDefault;
+
+    internal static string ServerProfileTip(bool norwegian) => norwegian
+        ? "Windows Server – man–fre 17:00, ingen automatisk omstart. En person starter serveren på nytt."
+        : "Windows Server — weekdays at 17:00, no automatic restart. A person restarts the server.";
+
+    internal static string ServerTestSwitchNote(bool norwegian) => norwegian
+        ? $"TEST – testbryteren {ServerTestSwitchVariable}=1 er satt. Denne PC-en behandles som en Windows Server i dette valget."
+        : $"TEST — the test switch {ServerTestSwitchVariable}=1 is set. This PC is treated as a Windows Server in this choice.";
+
     internal static int ClampMask(int mask) => mask & AllDaysMask;
 
     internal static bool HasDay(int mask, int mondayBasedIndex) =>
@@ -143,6 +175,15 @@ internal static class MaintenanceSetup
                 policy.WindowsAutomation.AutoReboot.Mode = "outsideActiveHours";
                 ApplyToPolicy(policy, 0b0011111, "17:00"); // Mon..Fri
                 break;
+            case ServerProfile:
+                // A server restarts only when a person restarts it. Install window as "both".
+                policy.WindowsAutomation.AutoReboot.ActiveHoursStart = 8;
+                policy.WindowsAutomation.AutoReboot.ActiveHoursEnd = 16;
+                policy.WindowsAutomation.AutoReboot.Enabled = false;
+                policy.WindowsAutomation.AutoReboot.Mode = "confirm";
+                policy.WindowsAutomation.NeverAutoReboot = true;
+                ApplyToPolicy(policy, 0b0011111, "17:00"); // Mon..Fri
+                break;
             default: // private
                 policy.WindowsAutomation.AutoReboot.ActiveHoursStart = 8;
                 policy.WindowsAutomation.AutoReboot.ActiveHoursEnd = 22;
@@ -151,6 +192,19 @@ internal static class MaintenanceSetup
                 ApplyToPolicy(policy, AllDaysMask, "20:00");
                 break;
         }
+    }
+
+    /// <summary>
+    /// Skip in the setup wizard: a policy with a saved choice keeps it and everything set under
+    /// it; one without gets the defaults of the choice the wizard started on.
+    /// </summary>
+    internal static void ApplySkipChoice(UpdatePolicy policy, bool serverOs)
+    {
+        if (string.IsNullOrWhiteSpace(policy.SetupProfile))
+            ApplyProfileDefaults(policy, InitialProfile(null, serverOs, "private"));
+        else
+            ApplyToPolicy(policy, policy.InstallDaysMask, policy.InstallTime);
+        policy.SetupCompleted = true;
     }
 
     /// <summary>

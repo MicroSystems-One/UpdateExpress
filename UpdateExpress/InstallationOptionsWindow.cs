@@ -24,7 +24,8 @@ public sealed class InstallationOptionsWindow : Window
     private readonly System.Windows.Controls.RadioButton _all = new() { Margin = new Thickness(0, 0, 0, 8) };
     private readonly System.Windows.Controls.RadioButton _profilePrivate = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 2) };
     private readonly System.Windows.Controls.RadioButton _profileBusiness = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 2) };
-    private readonly System.Windows.Controls.RadioButton _profileBoth = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 8) };
+    private readonly System.Windows.Controls.RadioButton _profileBoth = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 2) };
+    private readonly System.Windows.Controls.RadioButton _profileServer = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 8) };
     private readonly System.Windows.Controls.TextBox _activeStart = new() { Width = 48, Height = 28, Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 0, 12, 0) };
     private readonly System.Windows.Controls.TextBox _activeEnd = new() { Width = 48, Height = 28, Padding = new Thickness(6, 3, 6, 3) };
     private readonly System.Windows.Controls.CheckBox[] _dayBoxes = new System.Windows.Controls.CheckBox[7];
@@ -66,6 +67,9 @@ public sealed class InstallationOptionsWindow : Window
     private string _profile = "both";
     private string _rebootChoice = "outsideActiveHours";
     private int _daysMask = WeekdaysMask;
+    private readonly bool _server;
+    private readonly bool _serverTestSwitch;
+    private readonly UpdatePolicy? _saved;
 
     public bool AllUsers => _all.IsChecked == true;
     public bool DesktopShortcut => _desktop.IsChecked == true;
@@ -81,9 +85,19 @@ public sealed class InstallationOptionsWindow : Window
     public string RebootChoice => _rebootChoice;
 
     public InstallationOptionsWindow(bool repair)
+        : this(repair, MaintenanceSetup.SetupTreatsThisMachineAsServer, MaintenanceSetup.ServerTestSwitchOn)
     {
+    }
+
+    /// <param name="saved">For Repair: the policy to start from; what is saved on this machine when left out.</param>
+    internal InstallationOptionsWindow(
+        bool repair, bool serverOs, bool serverTestSwitch, UpdatePolicy? saved = null, bool? norwegian = null)
+    {
+        _server = serverOs;
+        _serverTestSwitch = serverTestSwitch;
+        _saved = saved;
         _repair = repair;
-        _norwegian = MaintenanceSetup.IsNorwegian();
+        _norwegian = norwegian ?? MaintenanceSetup.IsNorwegian();
         Title = repair
             ? (_norwegian ? "Update Express – Reparasjon" : "Update Express – Repair options")
             : (_norwegian ? "Update Express – Installasjonsvalg" : "Update Express – Installation options");
@@ -260,6 +274,18 @@ public sealed class InstallationOptionsWindow : Window
                     _norwegian
                         ? "Blanding – man–fre 17:00, omstart utenom arbeidstid."
                         : "Mixed — weekdays at 17:00, restart outside active hours."));
+                _pageHost.Children.Add(ProfileTip(_profileServer, MaintenanceSetup.ServerProfile,
+                    "Server", MaintenanceSetup.ServerProfileTip(_norwegian)));
+                if (_serverTestSwitch)
+                    _pageHost.Children.Add(new TextBlock
+                    {
+                        Text = MaintenanceSetup.ServerTestSwitchNote(_norwegian),
+                        TextWrapping = TextWrapping.Wrap,
+                        FontSize = 12,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = new SolidColorBrush(Color.FromRgb(198, 40, 40)),
+                        Margin = new Thickness(0, 4, 0, 8)
+                    });
                 break;
             case 1:
                 _pageHost.Children.Add(Section("Active hours", "Arbeidstid"));
@@ -394,6 +420,7 @@ public sealed class InstallationOptionsWindow : Window
         _profileBoth.IsChecked = true;
         _profilePrivate.IsChecked = false;
         _profileBusiness.IsChecked = false;
+        _profileServer.IsChecked = false;
         _activeStart.Text = "8";
         _activeEnd.Text = "16";
         _daysMask = WeekdaysMask;
@@ -409,12 +436,20 @@ public sealed class InstallationOptionsWindow : Window
         _taskbar.IsChecked = true;
         _agent.IsChecked = true;
         _service.IsChecked = true;
+
+        if (_server)
+        {
+            _profile = MaintenanceSetup.ServerProfile;
+            _profileBoth.IsChecked = false;
+            _profileServer.IsChecked = true;
+            ApplyProfileDefaultsToFields(_profile);
+        }
     }
 
     private void SeedFromPolicy()
     {
         ApplyFreshInstallDefaults();
-        var policy = UpdatePolicy.Load();
+        var policy = _saved ?? UpdatePolicy.Load();
         policy.Normalize();
         if (!policy.SetupCompleted) return;
 
@@ -432,7 +467,9 @@ public sealed class InstallationOptionsWindow : Window
         _profilePrivate.IsChecked = _profile == "private";
         _profileBusiness.IsChecked = _profile == "business";
         _profileBoth.IsChecked = _profile == "both";
-        if (_profilePrivate.IsChecked != true && _profileBusiness.IsChecked != true && _profileBoth.IsChecked != true)
+        _profileServer.IsChecked = _profile == MaintenanceSetup.ServerProfile;
+        if (_profilePrivate.IsChecked != true && _profileBusiness.IsChecked != true && _profileBoth.IsChecked != true &&
+            _profileServer.IsChecked != true)
             _profileBoth.IsChecked = true;
 
         for (int i = 0; i < 7; i++)

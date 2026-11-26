@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Silent Update Express install for N-able RMM, with business maintenance policy
-  matching the Pilot UI (profile business, active hours 07–17, install daily 17:00,
+  matching the Pilot UI (profile business, active hours 07-17, install daily 17:00,
   reboot outside active hours) and local N-able PME service disabled.
 
 .NOTES
@@ -11,6 +11,8 @@
     the device in the N-able console / patch profile, or RMM may re-enable PME.
   - Policy files are written BEFORE shortcuts/tray so SetupCompleted is true on first UI.
   - Self-elevates when not already admin; otherwise prints a clear message and exits 2.
+  - Automatic restart (-AutoReboot) is on by default on a Windows client only. On Windows
+    Server it is off unless -AutoReboot is passed, so a server is not restarted unasked.
 
 .EXAMPLE
   .\Install-UpdateExpress-Nable.ps1 -Version 0.7.2.28
@@ -59,7 +61,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 function Write-UeLog([string]$Message) {
-    # Use the information stream — never Write-Output — so helpers that return
+    # Use the information stream - never Write-Output - so helpers that return
     # exit codes are not polluted into Object[] arrays.
     $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
     Write-Information $line -InformationAction Continue
@@ -75,13 +77,13 @@ function Test-UeIsAdmin {
 # interactive users) and then register that path in every user's Run key. Force machine.
 $runningAsSystem = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -eq 'S-1-5-18'
 if ($runningAsSystem -and $Scope -eq 'user') {
-    Write-UeLog 'Running as SYSTEM with Scope=user — forcing Scope=machine so the EXE lands under Program Files (accessible to interactive users).'
+    Write-UeLog 'Running as SYSTEM with Scope=user - forcing Scope=machine so the EXE lands under Program Files (accessible to interactive users).'
     $Scope = 'machine'
 }
 
 # Self-elevate or fail with a clear message (no silent hang as a limited user).
 if (-not (Test-UeIsAdmin)) {
-    Write-UeLog 'Not elevated — requesting Administrator (UAC)...'
+    Write-UeLog 'Not elevated - requesting Administrator (UAC)...'
     try {
         $relaunch = [System.Collections.Generic.List[string]]::new()
         $relaunch.Add('-NoProfile')
@@ -102,10 +104,39 @@ if (-not (Test-UeIsAdmin)) {
         if ($null -eq $p) { throw 'UAC relaunch returned no process.' }
         exit $p.ExitCode
     } catch {
-        Write-UeLog 'ERROR: Administrator rights are required. Right-click PowerShell → Run as administrator, or deploy via N-able Automation (SYSTEM).'
+        Write-UeLog 'ERROR: Administrator rights are required. Right-click PowerShell -> Run as administrator, or deploy via N-able Automation (SYSTEM).'
         Write-UeLog $_.Exception.Message
         exit 2
     }
+}
+
+function Get-UeOsProductType {
+    # WinNT = Windows client, ServerNT = Windows Server, LanmanNT = domain controller.
+    # Empty when Windows does not say.
+    try {
+        $value = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\ProductOptions' -Name ProductType -ErrorAction Stop).ProductType
+        if ($value) { return [string]$value }
+    } catch { }
+    try {
+        switch ([int](Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop).ProductType) {
+            1 { return 'WinNT' }
+            2 { return 'LanmanNT' }
+            3 { return 'ServerNT' }
+        }
+    } catch { }
+    return ''
+}
+
+function Resolve-UeAutoReboot {
+    # What the caller passed always wins. Left out, automatic restart is on for a Windows
+    # client only: off on Windows Server, and off when the kind of Windows cannot be read.
+    param(
+        [bool]$Explicit,
+        [bool]$Requested,
+        [string]$ProductType
+    )
+    if ($Explicit) { return $Requested }
+    return ($ProductType -eq 'WinNT')
 }
 
 function Get-InteractiveUserProfiles {
@@ -299,6 +330,20 @@ Write-UeLog "Using EXE: $ExePath"
 # --- Optional: disable N-able PME locally before install ---
 if ($DisablePme) {
     Disable-NablePme -ServiceName $PmeServiceName
+}
+
+# Automatic restart: on by default on a client, off on Windows Server unless -AutoReboot was passed.
+$osProductType = Get-UeOsProductType
+$autoRebootExplicit = $PSBoundParameters.ContainsKey('AutoReboot')
+$AutoReboot = Resolve-UeAutoReboot -Explicit $autoRebootExplicit -Requested ([bool]$AutoReboot) -ProductType $osProductType
+if ($autoRebootExplicit) {
+    Write-UeLog "Automatic restart: $([bool]$AutoReboot) (passed by the caller; Windows product type '$osProductType')."
+}
+elseif ($AutoReboot) {
+    Write-UeLog "Automatic restart: on (default on a Windows client; product type '$osProductType')."
+}
+else {
+    Write-UeLog "Automatic restart: off (Windows product type '$osProductType' is not a client). Pass -AutoReboot to turn it on."
 }
 
 # Seed SetupCompleted BEFORE install so any early UI never shows the wizard.
