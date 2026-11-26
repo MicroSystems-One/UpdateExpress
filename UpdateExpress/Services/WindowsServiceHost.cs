@@ -50,6 +50,9 @@ internal sealed class UpdateExpressServiceWorker : BackgroundService
     {
         AgentLog.WriteInstall("Windows service worker started (LocalSystem/NetworkService host).");
         _log.LogInformation("Update Express service worker started.");
+        // Right away, not after the stagger: state an older version left beside
+        // fleet-policy.json moves to its own subfolder before the user's agent looks for it.
+        AutomationStatePaths.MaintainSharedState(force: true);
         // Stagger first tick so boot is not blocked by WUA.
         try { await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken).ConfigureAwait(false); }
         catch (OperationCanceledException) { return; }

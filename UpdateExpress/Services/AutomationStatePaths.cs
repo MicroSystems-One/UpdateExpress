@@ -11,20 +11,32 @@ namespace UpdateExpress.Services;
 /// so elevated launches pass --automation-state-dir explicitly.
 /// Prefer ProgramData (machine-wide) when available so any user session can see
 /// scheduled Install-at / unattended notices and complete the same queues.
+/// The state lives in its own <c>State</c> subfolder, which every user may modify. The folder
+/// above it holds fleet-policy.json and stays under the administrator's control.
 /// </summary>
 internal static class AutomationStatePaths
 {
     private static string? _overrideDirectory;
 
-    /// <summary>Machine-wide automation state (any interactive user / elevated helper).</summary>
-    internal static string SharedDirectory => Path.Combine(
+    /// <summary>
+    /// %ProgramData%\MicroSystems\Update Express: fleet-policy.json, the policy mirror and the
+    /// RMM status files. Automation state lived here up to 0.7.2.61 and is moved out of it by
+    /// <see cref="MigrateLegacyState"/>. Update Express grants nobody rights on this folder.
+    /// </summary>
+    internal static string LegacySharedDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "MicroSystems", "Update Express");
+
+    /// <summary>Machine-wide automation state (any interactive user / elevated helper).</summary>
+    internal static string SharedDirectory => Path.Combine(LegacySharedDirectory, "State");
 
     internal static string Directory
     {
         get
         {
+            // First, so that no process reads state before what an older version left in the
+            // folder above has been brought here.
+            MaintainSharedState();
             if (!string.IsNullOrWhiteSpace(_overrideDirectory))
                 return _overrideDirectory!;
             return ResolveDirectory(SharedDirectory, InstallationManager.InstallDir);
@@ -135,12 +147,12 @@ internal static class AutomationStatePaths
         // Always point the elevated helper at the machine shared dir. The helper
         // creates it (admin) and migrates prompt/queue files from this user's dir.
         // Also pass the source user dir so migration works across admin identities.
+        MaintainSharedState();
         string shared = SharedDirectory;
         string userDir = InstallationManager.InstallDir;
         try
         {
-            System.IO.Directory.CreateDirectory(shared);
-            TryGrantUsersModify(shared);
+            EnsureSharedDirectory(shared);
             // Move state over only where this user can keep writing it. Otherwise it stays
             // here, where Directory still finds it, and the helper migrates it from the source dir.
             if (IsDirectoryWritable(shared))
@@ -156,10 +168,10 @@ internal static class AutomationStatePaths
     /// </summary>
     internal static string EnsureSharedDirectoryForElevate()
     {
+        MaintainSharedState();
         try
         {
-            System.IO.Directory.CreateDirectory(SharedDirectory);
-            TryGrantUsersModify(SharedDirectory);
+            EnsureSharedDirectory(SharedDirectory);
             if (!IsDirectoryWritable(SharedDirectory))
             {
                 AgentLog.Write("Shared automation state dir is not writable for this user; state stays in " + Directory);
@@ -177,11 +189,13 @@ internal static class AutomationStatePaths
     }
 
     /// <summary>
-    /// Grant on the shared folder if it exists. For the session-0 service: the files it
-    /// creates there as SYSTEM must stay writable for the signed-in user's agent.
+    /// For the session-0 service: bring over state an older version left in the folder above,
+    /// and grant on the shared folder if it exists, so the files the service creates there as
+    /// SYSTEM stay writable for the signed-in user's agent.
     /// </summary>
     internal static void EnsureSharedDirectoryAccess()
     {
+        MaintainSharedState(force: true);
         try
         {
             if (System.IO.Directory.Exists(SharedDirectory))
@@ -190,17 +204,302 @@ internal static class AutomationStatePaths
         catch { /* best effort */ }
     }
 
+    /// <summary>Every place that creates the shared folder also grants Users modify on it.</summary>
+    private static void EnsureSharedDirectory(string shared)
+    {
+        System.IO.Directory.CreateDirectory(shared);
+        TryGrantUsersModify(shared);
+    }
+
+    private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromSeconds(60);
+    private static readonly object MaintenanceLock = new();
+    private static bool _maintaining;
+    private static bool _maintainedOnce;
+    private static long _maintainedTicks;
+    private static bool _legacyGrantHandled;
+
+    /// <summary>
+    /// Housekeeping every process does before it reads state, at most once a minute: bring the
+    /// state files an older version left in <see cref="LegacySharedDirectory"/> into
+    /// <see cref="SharedDirectory"/>, and once per process take back the Users modify grant
+    /// that builds after 0.7.2.61 put on that folder. The lock makes a second thread wait for
+    /// the first pass to finish.
+    /// </summary>
+    internal static void MaintainSharedState(bool force = false)
+    {
+        lock (MaintenanceLock)
+        {
+            if (_maintaining) return;
+            long now = Environment.TickCount64;
+            if (!force && _maintainedOnce && now - _maintainedTicks < (long)MaintenanceInterval.TotalMilliseconds)
+                return;
+            _maintaining = true;
+            try
+            {
+                MigrateLegacyState(LegacySharedDirectory, SharedDirectory);
+                if (!_legacyGrantHandled)
+                {
+                    // An identity that may not change the rights now cannot later either; the
+                    // service and every elevated helper are processes that can.
+                    _legacyGrantHandled = true;
+                    TryRevokeUsersModify(LegacySharedDirectory, SharedDirectory);
+                }
+            }
+            catch { /* best effort */ }
+            finally
+            {
+                _maintainedOnce = true;
+                _maintainedTicks = now;
+                _maintaining = false;
+            }
+        }
+    }
+
+    private const string ClaimSuffix = ".migrating";
+    private const string ImportedSuffix = ".imported";
+
+    /// <summary>
+    /// Bring every state file from <paramref name="legacy"/> into <paramref name="shared"/>
+    /// and return how many arrived. Other files (fleet-policy.json, update-policy.json,
+    /// rmm-status.*) stay where they are.
+    /// <para>
+    /// A file this identity may remove is moved: renamed in place first, so that no other
+    /// process picks it up meanwhile, then copied and deleted. A file it may only read (written
+    /// by an elevated helper or the service, in a folder this user does not own) is copied, and
+    /// a marker beside the copy records which version of the old file that was. The marker
+    /// keeps the old file from being brought in a second time, so an install or restart that
+    /// was cleared afterwards does not come back; whoever can remove the old file later (the
+    /// service, an elevated helper) removes it together with the marker.
+    /// </para>
+    /// The copy is a new file, so it takes the rights of the shared folder instead of keeping
+    /// those of the old one. When both folders hold the file, the newer one wins.
+    /// </summary>
+    internal static int MigrateLegacyState(string legacy, string shared)
+    {
+        int arrived = 0;
+        try
+        {
+            if (!System.IO.Directory.Exists(legacy)) return 0;
+            if (string.Equals(Path.GetFullPath(legacy), Path.GetFullPath(shared), StringComparison.OrdinalIgnoreCase))
+                return 0;
+            // This also runs as SYSTEM: never through a junction a user planted.
+            if (StateFolderAcl.IsLink(legacy) ||
+                StateFolderAcl.IsLink(shared) ||
+                StateFolderAcl.IsLink(Path.GetDirectoryName(Path.GetFullPath(legacy)) ?? legacy))
+                return 0;
+
+            // Includes claims left by a process that died between the rename and the delete.
+            var names = System.IO.Directory.EnumerateFiles(legacy, "*" + ClaimSuffix)
+                .Select(path => Path.GetFileName(path)[..^ClaimSuffix.Length])
+                .Where(IsStateFileName)
+                .Concat(EnumerateStateFiles(legacy).Select(path => Path.GetFileName(path)))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (string name in names)
+            {
+                string source = Path.Combine(legacy, name);
+                string claim = source + ClaimSuffix;
+                try
+                {
+                    if (File.Exists(claim) && MoveClaimed(claim, shared, name)) arrived++;
+                    if (!File.Exists(source)) continue;
+
+                    if (TryClaim(source, claim) ? MoveClaimed(claim, shared, name) : CopyReadOnly(source, shared, name))
+                        arrived++;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // In use right now, or not readable for this identity: the next pass retries.
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Moving automation state out of " + legacy + " failed: " + ex.Message);
+        }
+
+        if (arrived > 0)
+        {
+            ForgetWritableProbe();
+            AgentLog.Write($"Brought {arrived} automation state file(s) from {legacy} to {shared}.");
+        }
+        return arrived;
+    }
+
+    /// <summary>
+    /// Rename the file in place. False when this identity may not remove it; throws when
+    /// another process still has it open after a short wait.
+    /// </summary>
+    private static bool TryClaim(string source, string claim)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                File.Move(source, claim);
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
+            catch (IOException) when (attempt < 2 && File.Exists(source))
+            {
+                System.Threading.Thread.Sleep(40);
+            }
+        }
+    }
+
+    /// <summary>Copy a claimed file into the shared folder, then remove the claim.</summary>
+    private static bool MoveClaimed(string claim, string shared, string name)
+    {
+        string marker = Path.Combine(shared, name + ImportedSuffix);
+        bool copied;
+        try
+        {
+            copied = !AlreadyImported(marker, claim) && CopyIfNewer(claim, shared, name);
+        }
+        catch
+        {
+            // Put the original back under its own name; the next pass tries again.
+            try { File.Move(claim, claim[..^ClaimSuffix.Length]); } catch { /* stays claimed */ }
+            throw;
+        }
+
+        try
+        {
+            try { File.SetAttributes(claim, FileAttributes.Normal); } catch { /* best effort */ }
+            File.Delete(claim);
+        }
+        catch
+        {
+            // Never leave a claim that a later pass would copy again.
+            try { File.Move(claim, claim + ".done", overwrite: true); } catch { /* best effort */ }
+        }
+        try { if (File.Exists(marker)) File.Delete(marker); } catch { /* best effort */ }
+        return copied;
+    }
+
+    /// <summary>Copy a file this identity cannot remove, once per version of that file.</summary>
+    private static bool CopyReadOnly(string source, string shared, string name)
+    {
+        string marker = Path.Combine(shared, name + ImportedSuffix);
+        if (AlreadyImported(marker, source)) return false;
+        string stamp = Stamp(source);
+        bool copied = CopyIfNewer(source, shared, name);
+        File.WriteAllText(marker, stamp);
+        return copied;
+    }
+
+    private static bool CopyIfNewer(string source, string shared, string name)
+    {
+        EnsureSharedDirectory(shared);
+        if (StateFolderAcl.IsLink(shared)) throw new IOException("The state folder is a link: " + shared);
+        string target = Path.Combine(shared, name);
+        if (File.Exists(target) && File.GetLastWriteTimeUtc(source) <= File.GetLastWriteTimeUtc(target))
+            return false;
+
+        string temp = target + "." + Environment.ProcessId + ".tmp";
+        try
+        {
+            File.Copy(source, temp, overwrite: true);
+            File.SetAttributes(temp, FileAttributes.Normal);
+            File.Move(temp, target, overwrite: true);
+            return true;
+        }
+        catch
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best effort */ }
+            throw;
+        }
+    }
+
+    private static string Stamp(string path)
+    {
+        var info = new FileInfo(path);
+        return info.LastWriteTimeUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
+               info.Length.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static bool AlreadyImported(string marker, string source)
+    {
+        try
+        {
+            return File.Exists(marker) &&
+                   string.Equals(File.ReadAllText(marker).Trim(), Stamp(source), StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsStateFileName(string name) =>
+        name.EndsWith("-prompt.json", StringComparison.OrdinalIgnoreCase) ||
+        name.EndsWith("-install-queue.json", StringComparison.OrdinalIgnoreCase) ||
+        FixedStateFileNames.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Take back the Users modify grant that builds after 0.7.2.61 put on the folder holding
+    /// fleet-policy.json, before the state got its own subfolder. Only that exact grant is
+    /// changed, on the folder and on what is in it: an explicit allow rule for BUILTIN\Users
+    /// with modify becomes read and execute. Users can still read the policy, as before the
+    /// grant, and no longer change it. Every other rule stays. <paramref name="keep"/> (the
+    /// State subfolder) is left out; it has its own grant. Returns true when no such grant is
+    /// left; only an administrator, SYSTEM or the folder's owner can change it.
+    /// </summary>
+    internal static bool TryRevokeUsersModify(string dir, string? keep = null)
+    {
+        try
+        {
+            if (!OperatingSystem.IsWindows() || !System.IO.Directory.Exists(dir)) return true;
+            if (keep is not null && System.IO.Directory.Exists(keep))
+                TryGrantUsersModify(keep);
+
+            bool complete = StateFolderAcl.TryRevokeUsersModify(dir, TrustedRootFor(dir), keep, out int changed, out string failure);
+            if (changed > 0)
+                AgentLog.Write($"Took back the Users modify grant on {dir} ({changed} item(s)); automation state has its own subfolder now.");
+            if (!complete && failure != "access denied")
+                AgentLog.Write("Could not take back the Users modify grant on " + dir + ": " + failure);
+            return complete;
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Could not take back the Users modify grant on " + dir + ": " + ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The folder below which a user could have planted a link. In ProgramData that is
+    /// ProgramData itself, which only administrators can change.
+    /// </summary>
+    private static string TrustedRootFor(string dir)
+    {
+        string full = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar);
+        string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)
+            .TrimEnd(Path.DirectorySeparatorChar);
+        if (programData.Length > 0 &&
+            full.StartsWith(programData + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return programData;
+        return Path.GetDirectoryName(full) ?? full;
+    }
+
+    private static readonly TimeSpan GrantRetryAfterFailure = TimeSpan.FromMinutes(10);
     private static readonly object GrantLock = new();
     private static string? _grantedDir;
     private static DateTime _grantedDirCreatedUtc;
+    private static string? _grantFailedDir;
+    private static long _grantFailedTicks;
     private static bool _grantFailureLogged;
 
     /// <summary>
     /// Best-effort ACL so interactive users can save prompts/queues after an elevated
-    /// helper creates the ProgramData folder (avoids read-only shared state).
-    /// Uses icacls to avoid an extra AccessControl package dependency. The grant is
-    /// inherited by files created later, so one success per process and folder is enough.
-    /// Succeeds only for an administrator, SYSTEM or the folder's owner.
+    /// helper or the service creates the shared state folder (avoids read-only shared state).
+    /// The grant is inherited by the files in the folder and by files created later, so one
+    /// success per process and folder is enough. Succeeds only for an administrator, SYSTEM
+    /// or the folder's owner, and never on or through a link: see <see cref="StateFolderAcl"/>.
     /// </summary>
     internal static bool TryGrantUsersModify(string dir)
     {
@@ -213,24 +512,15 @@ internal static class AutomationStatePaths
                 if (string.Equals(_grantedDir, dir, StringComparison.OrdinalIgnoreCase) &&
                     _grantedDirCreatedUtc == createdUtc)
                     return true;
+                // An identity that may not change the ACL will not be able to a minute later either.
+                if (string.Equals(_grantFailedDir, dir, StringComparison.OrdinalIgnoreCase) &&
+                    Environment.TickCount64 - _grantFailedTicks < (long)GrantRetryAfterFailure.TotalMilliseconds)
+                    return false;
             }
 
-            using var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            if (!StateFolderAcl.TryGrantUsersModify(dir, TrustedRootFor(dir), out string failure))
             {
-                FileName = Path.Combine(Environment.SystemDirectory, "icacls.exe"),
-                Arguments = $"\"{dir}\" /grant *S-1-5-32-545:(OI)(CI)M /T /C /Q",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
-            if (proc is null) return false;
-            if (!proc.WaitForExit(8000))
-            {
-                LogGrantFailure(dir, "icacls did not finish in time");
-                return false;
-            }
-            if (proc.ExitCode != 0)
-            {
-                LogGrantFailure(dir, "icacls exit code " + proc.ExitCode);
+                LogGrantFailure(dir, failure);
                 return false;
             }
 
@@ -253,6 +543,8 @@ internal static class AutomationStatePaths
     {
         lock (GrantLock)
         {
+            _grantFailedDir = dir;
+            _grantFailedTicks = Environment.TickCount64;
             if (_grantFailureLogged) return;
             _grantFailureLogged = true;
         }
@@ -280,11 +572,14 @@ internal static class AutomationStatePaths
         };
         string json = JsonSerializer.Serialize(notice, new JsonSerializerOptions { WriteIndented = true });
         bool wrote = false;
-        foreach (string dir in new[] { SharedDirectory, PublicNoticeDirectory, InstallationManager.InstallDir })
+        MaintainSharedState();
+        string shared = SharedDirectory;
+        foreach (string dir in new[] { shared, PublicNoticeDirectory, InstallationManager.InstallDir })
         {
             try
             {
-                System.IO.Directory.CreateDirectory(dir);
+                if (ReferenceEquals(dir, shared)) EnsureSharedDirectory(dir);
+                else System.IO.Directory.CreateDirectory(dir);
                 File.WriteAllText(Path.Combine(dir, "shared-schedule-notice.json"), json);
                 wrote = true;
             }
@@ -297,6 +592,7 @@ internal static class AutomationStatePaths
     internal static SharedScheduleNotice? LoadSharedScheduleNotice()
     {
         SharedScheduleNotice? best = null;
+        MaintainSharedState();
         foreach (string dir in new[] { SharedDirectory, PublicNoticeDirectory, InstallationManager.InstallDir })
         {
             try
@@ -315,6 +611,7 @@ internal static class AutomationStatePaths
 
     internal static void ClearSharedScheduleNotice()
     {
+        MaintainSharedState();
         foreach (string dir in new[] { SharedDirectory, PublicNoticeDirectory, InstallationManager.InstallDir })
         {
             try
@@ -359,6 +656,9 @@ internal static class AutomationStatePaths
         }
 
         _overrideDirectory = full;
+        // The elevated helper can remove what an older version left in the folder above, also
+        // the files the signed-in user's agent could only copy.
+        MaintainSharedState(force: true);
         string? source = TryReadArgValue(args, "--automation-state-source");
         if (!string.IsNullOrWhiteSpace(source) &&
             TryValidateStateDirectory(source, out string sourceFull, out _, createIfShared: false))
@@ -413,33 +713,31 @@ internal static class AutomationStatePaths
                 return false;
             }
 
-            fullPath = Path.GetFullPath(candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            string name = Path.GetFileName(fullPath);
-            string parent = Path.GetFileName(Path.GetDirectoryName(fullPath) ?? "");
-            if (!string.Equals(parent, "MicroSystems", StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(name, "Update Express", StringComparison.OrdinalIgnoreCase))
-            {
-                reason = "must be ...\\MicroSystems\\Update Express";
-                return false;
-            }
-
+            fullPath = RedirectLegacyShared(
+                Path.GetFullPath(candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                LegacySharedDirectory,
+                SharedDirectory);
             bool isShared = string.Equals(fullPath, Path.GetFullPath(SharedDirectory), StringComparison.OrdinalIgnoreCase);
-            if (!System.IO.Directory.Exists(fullPath))
+            if (!isShared)
             {
-                if (createIfShared && isShared)
+                string name = Path.GetFileName(fullPath);
+                string parent = Path.GetFileName(Path.GetDirectoryName(fullPath) ?? "");
+                if (!string.Equals(parent, "MicroSystems", StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(name, "Update Express", StringComparison.OrdinalIgnoreCase))
                 {
-                    System.IO.Directory.CreateDirectory(fullPath);
-                    TryGrantUsersModify(fullPath);
-                }
-                else
-                {
-                    reason = "directory does not exist";
+                    reason = "must be ...\\MicroSystems\\Update Express";
                     return false;
                 }
             }
-            else if (createIfShared && isShared)
+
+            if (createIfShared && isShared)
             {
-                TryGrantUsersModify(fullPath);
+                EnsureSharedDirectory(fullPath);
+            }
+            else if (!System.IO.Directory.Exists(fullPath))
+            {
+                reason = "directory does not exist";
+                return false;
             }
             return true;
         }
@@ -449,6 +747,18 @@ internal static class AutomationStatePaths
             return false;
         }
     }
+
+    /// <summary>
+    /// An agent started before the update still passes the folder that held the state up to
+    /// 0.7.2.61. State is never kept there again, so that path means the State subfolder.
+    /// </summary>
+    internal static string RedirectLegacyShared(string fullPath, string legacy, string shared) =>
+        string.Equals(
+            fullPath.TrimEnd(Path.DirectorySeparatorChar),
+            Path.GetFullPath(legacy).TrimEnd(Path.DirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase)
+            ? Path.GetFullPath(shared)
+            : fullPath;
 
     private static bool HasAutomationFiles(string dir)
     {
