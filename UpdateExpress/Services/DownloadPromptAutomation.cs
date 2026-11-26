@@ -330,6 +330,12 @@ internal static class DownloadPromptAutomation
                 return;
             }
 
+            if (SoftwareUpdatesDialog.IsShowing)
+            {
+                AgentLog.Write($"{displayName} automation: another updates-ready dialog is open — asking again once it has closed.");
+                return;
+            }
+
             try { _balloon?.Invoke(balloonTitle, balloonText); }
             catch { }
 

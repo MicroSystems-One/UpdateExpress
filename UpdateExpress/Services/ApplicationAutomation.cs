@@ -334,6 +334,12 @@ internal static class ApplicationAutomation
                 return;
             }
 
+            if (SoftwareUpdatesDialog.IsShowing)
+            {
+                AgentLog.Write("Applications automation: another updates-ready dialog is open — asking again once it has closed.");
+                return;
+            }
+
             try { _balloon?.Invoke("Update Express – Application updates", balloonText); }
             catch { }
 

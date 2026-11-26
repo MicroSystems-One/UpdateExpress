@@ -182,6 +182,12 @@ internal static class DriverAutomation
                 return;
             }
 
+            if (SoftwareUpdatesDialog.IsShowing)
+            {
+                AgentLog.Write("Drivers automation: another updates-ready dialog is open — asking again once it has closed.");
+                return;
+            }
+
             try { _balloon?.Invoke("Update Express – Driver updates", balloonText); }
             catch { }
 

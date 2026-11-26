@@ -11,8 +11,12 @@ public partial class SoftwareUpdatesDialog : Window
     /// <summary>AFK soft-dismiss: same as Later — does not start install.</summary>
     public static readonly TimeSpan AfkAutoClose = TimeSpan.FromMinutes(30);
 
-    public static SoftwareUpdatesDialog? Current { get; private set; }
-    public static bool IsShowing => Current is { IsLoaded: true };
+    // Claimed before the window is created and released in a finally, so a prompt queued by
+    // another category is refused however far the first dialog has come.
+    private static int _modalOpen;
+
+    /// <summary>True from the moment a modal updates-ready dialog is claimed until it has closed.</summary>
+    public static bool IsShowing => Volatile.Read(ref _modalOpen) != 0;
 
     public enum PromptDecision
     {
@@ -31,11 +35,11 @@ public partial class SoftwareUpdatesDialog : Window
         string displayName,
         IReadOnlyList<PromptUpdateItem> updates,
         string preferredTime,
-        bool downloaded)
+        bool downloaded,
+        TimeSpan? autoClose = null)
     {
         InitializeComponent();
         AppIcon.Apply(this);
-        Current = this;
 
         Title = $"Update Express – {displayName} updates";
         bool windowsCategory = displayName is "Critical" or "General";
@@ -57,22 +61,16 @@ public partial class SoftwareUpdatesDialog : Window
             })
             .ToList();
 
-        _afkTimer = new DispatcherTimer { Interval = AfkAutoClose };
+        _afkTimer = new DispatcherTimer { Interval = autoClose ?? AfkAutoClose };
         _afkTimer.Tick += (_, _) =>
         {
             _afkTimer.Stop();
             // Soft dismiss — equivalent to Later (no install).
             Decision = PromptDecision.Later;
-            try { DialogResult = false; } catch { /* already closing */ }
             Close();
         };
         Loaded += (_, _) => _afkTimer.Start();
-        Closed += (_, _) =>
-        {
-            _afkTimer.Stop();
-            if (ReferenceEquals(Current, this))
-                Current = null;
-        };
+        Closed += (_, _) => _afkTimer.Stop();
     }
 
     /// <summary>
@@ -86,16 +84,28 @@ public partial class SoftwareUpdatesDialog : Window
         IReadOnlyList<PromptUpdateItem> updates,
         string preferredTime,
         bool downloaded,
-        out PromptDecision decision)
+        out PromptDecision decision) =>
+        TryShowModal(
+            () => new SoftwareUpdatesDialog(displayName, updates, preferredTime, downloaded),
+            out decision);
+
+    internal static bool TryShowModal(Func<SoftwareUpdatesDialog> create, out PromptDecision decision)
     {
         decision = PromptDecision.Later;
-        if (IsShowing)
+        if (Interlocked.CompareExchange(ref _modalOpen, 1, 0) != 0)
             return false;
 
-        var dialog = new SoftwareUpdatesDialog(displayName, updates, preferredTime, downloaded);
-        dialog.ShowDialog();
-        decision = dialog.Decision;
-        return true;
+        try
+        {
+            var dialog = create();
+            dialog.ShowDialog();
+            decision = dialog.Decision;
+            return true;
+        }
+        finally
+        {
+            Volatile.Write(ref _modalOpen, 0);
+        }
     }
 
     private void InstallNow_Click(object sender, RoutedEventArgs e)
