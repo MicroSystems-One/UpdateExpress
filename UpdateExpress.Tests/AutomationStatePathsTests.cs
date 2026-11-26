@@ -89,6 +89,7 @@ public sealed class AutomationStatePathsTests : IDisposable
     [InlineData("fleet-policy.json")]
     [InlineData("update-policy.json")]
     [InlineData("rmm-status.json")]
+    [InlineData("pending-reboot.json.imported")]
     public void A_read_only_file_that_is_not_automation_state_does_not_count(string name)
     {
         Put("pending-reboot.json");
