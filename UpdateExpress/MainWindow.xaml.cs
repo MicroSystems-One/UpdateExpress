@@ -1916,6 +1916,12 @@ public partial class MainWindow : Window
             var status = await UpdateExpress.Services.DefenderStatusReader.ReadAsync();
             // A read started later is still running and will show a newer status than this one.
             if (read != _defenderReadSeq) return;
+            if (DefenderHeaderSync.KeepShownStatus(_lastDefender, status, quiet))
+            {
+                // Redraw: a refresh the user started may have left «Sjekker…» on screen.
+                ApplyDefenderUi(_lastDefender!);
+                return;
+            }
             status = EnrichDefenderWithHistory(status, _historySnapshot);
             if (_defenderAutomationInstallAt is DateTime trayInstall)
                 status = DefenderHeaderSync.WithNewerSignatureTime(status, trayInstall, "automation");

@@ -13,7 +13,9 @@ public sealed record DefenderState(
     string Details,
     DateTime CheckedAt,
     DateTime? SignatureLastUpdated = null,
-    string SignatureVersion = "");
+    string SignatureVersion = "",
+    // True when Defender could not be asked (timeout, PowerShell or cmdlet error), as opposed to a status Defender reported.
+    bool ReadFailed = false);
 
 public static class DefenderStatusReader
 {
@@ -46,15 +48,17 @@ public static class DefenderStatusReader
             if (!process.WaitForExit(12000))
             {
                 process.Kill(entireProcessTree: true);
-                return new("unknown", "Unknown", "Defender check timed out.", checkedAt);
+                return new("unknown", "Unknown", "Defender check timed out.", checkedAt, ReadFailed: true);
             }
             var output = stdout.GetAwaiter().GetResult();
             var error = stderr.GetAwaiter().GetResult();
             if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output))
-                return new("unknown", "Unknown", "Cannot read Defender: " + Trim(error), checkedAt);
+                return new("unknown", "Unknown", "Cannot read Defender: " + Trim(error), checkedAt, ReadFailed: true);
             using var json = JsonDocument.Parse(output);
             var envelope = json.RootElement;
-            var root = envelope.TryGetProperty("Defender", out var defender) && defender.ValueKind == JsonValueKind.Object ? defender : envelope;
+            // The script emits Defender=null when Get-MpComputerStatus itself threw.
+            bool defenderAnswered = !envelope.TryGetProperty("Defender", out var defender) || defender.ValueKind == JsonValueKind.Object;
+            var root = defender.ValueKind == JsonValueKind.Object ? defender : envelope;
             var thirdParty = new List<string>();
             if (envelope.TryGetProperty("Products", out var products))
             {
@@ -82,12 +86,12 @@ public static class DefenderStatusReader
             if (enabled == false || realtime == false || service == false)
                 return new("red", "Protection disabled", detail + "\nCheck Defender services.", checkedAt, updated, version);
             if (enabled != true || realtime != true || service != true || !ageSpan.HasValue || ageSpan.Value < TimeSpan.Zero)
-                return new("unknown", "Unknown", detail, checkedAt, updated, version);
+                return new("unknown", "Unknown", detail, checkedAt, updated, version, ReadFailed: !defenderAnswered);
             if (ageSpan.Value >= TimeSpan.FromDays(7)) return new("red", "Critical: 7+ days", detail, checkedAt, updated, version);
             if (ageSpan.Value >= TimeSpan.FromDays(2)) return new("orange", "Warning: 2–6 days", detail, checkedAt, updated, version);
             return new("green", "Updated", detail, checkedAt, updated, version);
         }
-        catch (Exception ex) { return new("unknown", "Unknown", "Check failed: " + Trim(ex.Message), checkedAt); }
+        catch (Exception ex) { return new("unknown", "Unknown", "Check failed: " + Trim(ex.Message), checkedAt, ReadFailed: true); }
     }
 
     /// <summary>

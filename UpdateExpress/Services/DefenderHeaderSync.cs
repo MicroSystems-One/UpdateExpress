@@ -23,6 +23,14 @@ internal static class DefenderHeaderSync
     }
 
     /// <summary>
+    /// True when a background read should leave the header as it is: Defender could not be
+    /// asked this time, and there is a status on screen to keep. A read the user asked for, or
+    /// the first read, shows the failure.
+    /// </summary>
+    internal static bool KeepShownStatus(DefenderState? shown, DefenderState read, bool quiet) =>
+        quiet && read.ReadFailed && shown is not null;
+
+    /// <summary>
     /// The same state with a newer signature time, or the state itself when
     /// <paramref name="when"/> is not newer than what it already shows.
     /// </summary>

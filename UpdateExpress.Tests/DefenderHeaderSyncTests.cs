@@ -34,6 +34,34 @@ public class DefenderHeaderSyncTests
         Assert.Equal(expected, DefenderHeaderSync.InstalledNewSignatures(result));
 
     [Fact]
+    public void A_failed_background_read_keeps_the_status_on_screen()
+    {
+        var shown = FromMp();
+        var failed = new DefenderState("unknown", "Unknown", "Defender check timed out.", DateTime.Now, ReadFailed: true);
+
+        Assert.True(DefenderHeaderSync.KeepShownStatus(shown, failed, quiet: true));
+    }
+
+    [Fact]
+    public void A_failed_read_is_shown_when_the_user_asked_or_nothing_is_on_screen()
+    {
+        var failed = new DefenderState("unknown", "Unknown", "Defender check timed out.", DateTime.Now, ReadFailed: true);
+
+        Assert.False(DefenderHeaderSync.KeepShownStatus(FromMp(), failed, quiet: false));
+        Assert.False(DefenderHeaderSync.KeepShownStatus(null, failed, quiet: true));
+    }
+
+    [Fact]
+    public void A_status_Defender_reported_replaces_the_shown_one_even_when_it_is_unknown_or_red()
+    {
+        var passive = new DefenderState("unknown", "Defender passive", "Third-party antivirus detected.", DateTime.Now);
+        var disabled = FromMp() with { Level = "red", Label = "Protection disabled" };
+
+        Assert.False(DefenderHeaderSync.KeepShownStatus(FromMp(), passive, quiet: true));
+        Assert.False(DefenderHeaderSync.KeepShownStatus(FromMp(), disabled, quiet: true));
+    }
+
+    [Fact]
     public void A_newer_time_replaces_the_shown_time_and_names_its_source()
     {
         var when = MpTime.AddHours(2);
