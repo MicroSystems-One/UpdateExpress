@@ -29,6 +29,7 @@ public sealed class SetupWizardWindow : Window
     private readonly Button _next;
     private readonly Button _skip;
     private readonly System.Windows.Controls.CheckBox[] _dayBoxes = new System.Windows.Controls.CheckBox[7];
+    private System.Windows.Controls.TextBox? _installTimeBox;
 
     public bool Completed { get; private set; }
 
@@ -267,18 +268,18 @@ public sealed class SetupWizardWindow : Window
                     return false;
                 }
                 _daysMask = mask;
-                if (_content.Children.OfType<System.Windows.Controls.TextBox>().FirstOrDefault(t => t.Name == "InstallTimeBox") is System.Windows.Controls.TextBox timeBox)
+                // Read from the live TextBox field — it lives inside a WrapPanel, so
+                // _content.Children.OfType<TextBox>() never found it and _installTime
+                // stayed at the profile default (e.g. 17:00) no matter what the user typed.
+                string t = (_installTimeBox?.Text ?? _installTime).Trim();
+                if (!TimeSpan.TryParseExact(t, @"hh\:mm", CultureInfo.InvariantCulture, out _))
                 {
-                    string t = timeBox.Text.Trim();
-                    if (!TimeSpan.TryParseExact(t, @"hh\:mm", CultureInfo.InvariantCulture, out _))
-                    {
-                        MessageBox.Show(this,
-                            _norwegian ? "Klokkeslett må være TT:mm, f.eks. 18:00." : "Time must be HH:mm, e.g. 18:00.",
-                            Title, MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return false;
-                    }
-                    _installTime = t;
+                    MessageBox.Show(this,
+                        _norwegian ? "Klokkeslett må være TT:mm, f.eks. 18:00." : "Time must be HH:mm, e.g. 18:00.",
+                        Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return false;
                 }
+                _installTime = t;
                 break;
             case 4:
                 // reboot radios
@@ -291,6 +292,7 @@ public sealed class SetupWizardWindow : Window
 
     private void Render()
     {
+        _installTimeBox = null;
         _content.Children.Clear();
         _back.IsEnabled = _step > 0;
         _next.Content = _step >= 6
@@ -354,6 +356,8 @@ public sealed class SetupWizardWindow : Window
                         Margin = new Thickness(0, 0, 12, 8),
                         VerticalContentAlignment = System.Windows.VerticalAlignment.Center
                     };
+                    box.Checked += (_, _) => SyncDaysMaskFromBoxes();
+                    box.Unchecked += (_, _) => SyncDaysMaskFromBoxes();
                     _dayBoxes[i] = box;
                     days.Children.Add(box);
                 }
@@ -361,18 +365,21 @@ public sealed class SetupWizardWindow : Window
                 var presets = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
                 presets.Children.Add(PresetButton(_norwegian ? "Hverdagskveld 18:00" : "Weeknights 18:00", () =>
                 {
+                    CaptureInstallTimeFromBox();
                     _daysMask = 0b0011111; // Mon-Fri
                     _installTime = "18:00";
                     Render();
                 }));
                 presets.Children.Add(PresetButton(_norwegian ? "Tir + fre 18:00" : "Tue + Fri 18:00", () =>
                 {
+                    CaptureInstallTimeFromBox();
                     _daysMask = (1 << 1) | (1 << 4);
                     _installTime = "18:00";
                     Render();
                 }));
                 presets.Children.Add(PresetButton(_norwegian ? "Helgemorgen 10:00" : "Weekend morning 10:00", () =>
                 {
+                    CaptureInstallTimeFromBox();
                     _daysMask = (1 << 5) | (1 << 6);
                     _installTime = "10:00";
                     Render();
@@ -385,14 +392,15 @@ public sealed class SetupWizardWindow : Window
                     VerticalAlignment = System.Windows.VerticalAlignment.Center,
                     Margin = new Thickness(0, 0, 8, 0)
                 });
-                timeRow.Children.Add(new System.Windows.Controls.TextBox
+                _installTimeBox = new System.Windows.Controls.TextBox
                 {
-                    Name = "InstallTimeBox",
                     Text = _installTime,
                     Width = 72,
                     Height = 28,
                     Padding = new Thickness(6, 3, 6, 3)
-                });
+                };
+                _installTimeBox.TextChanged += (_, _) => CaptureInstallTimeFromBox();
+                timeRow.Children.Add(_installTimeBox);
                 _content.Children.Add(timeRow);
                 break;
 
@@ -456,6 +464,26 @@ public sealed class SetupWizardWindow : Window
                 });
                 break;
         }
+    }
+
+    private void SyncDaysMaskFromBoxes()
+    {
+        int mask = 0;
+        for (int i = 0; i < 7; i++)
+            if (_dayBoxes[i]?.IsChecked == true) mask |= 1 << i;
+        if (mask != 0) _daysMask = mask;
+    }
+
+    /// <summary>
+    /// Keep <see cref="_installTime"/> in sync while typing so Next/Back/presets do not
+    /// discard the TextBox value (previously never read because it was nested in a WrapPanel).
+    /// </summary>
+    private void CaptureInstallTimeFromBox()
+    {
+        if (_installTimeBox is null) return;
+        string t = _installTimeBox.Text.Trim();
+        if (TimeSpan.TryParseExact(t, @"hh\:mm", CultureInfo.InvariantCulture, out _))
+            _installTime = t;
     }
 
     private UIElement InfoLine(string text) => new TextBlock

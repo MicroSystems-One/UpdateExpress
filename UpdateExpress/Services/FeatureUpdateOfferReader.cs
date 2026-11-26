@@ -38,11 +38,19 @@ internal static class FeatureUpdateOfferReader
         if (chosen is null)
             lines.Add("No newer feature update without a safeguard hold. This does not query Windows Settings.");
         else
-            lines.Add($"Shown in Windows Updates: {chosen.Version} (build {chosen.DestBuild}). Not a WUA package. Install from Windows Update in Settings.");
-        lines.Add("WUA COM does not return this Settings offer. Include optional only adds BrowseOnly updates.");
+            lines.Add($"Potential feature update candidate: {chosen.Version} (build {chosen.DestBuild}). Check availability in Windows Update Settings.");
+        // Never word this as if a concrete Settings offer was observed: this reader only
+        // evaluates compatibility-assessment registry keys and does not query Settings.
+        lines.Add(chosen is null
+            ? "No specific Windows Settings offer is identified or verified by this report."
+            : "This candidate is derived from the compatibility assessment in the registry. It is not a verified Windows Settings offer.");
+        lines.Add("General limitation: offers shown in Windows Settings are not necessarily returned by WUA COM. Include optional only adds the WUA BrowseOnly search.");
         return lines;
     }
 
+    /// <summary>
+    /// Opens Windows Update in Settings only (ms-settings:windowsupdate). Does not scan, download, or install.
+    /// </summary>
     internal static void OpenWindowsUpdate()
     {
         Process.Start(new ProcessStartInfo("ms-settings:windowsupdate") { UseShellExecute = true });
@@ -109,7 +117,32 @@ internal static class FeatureUpdateOfferReader
             return null;
         }
 
-        return considered.Where(item => item.Eligible).OrderBy(item => item.DestBuild).ThenBy(item => item.Version).FirstOrDefault();
+        // Prefer the newest eligible destination (e.g. 25H2 over 24H2 on a 23H2 PC).
+        return considered.Where(item => item.Eligible)
+            .OrderByDescending(item => item.DestBuild)
+            .ThenByDescending(item => item.Version)
+            .FirstOrDefault();
+    }
+
+    /// <summary>Installed DisplayVersion / CurrentBuild for feature-update selection.</summary>
+    internal static void TryReadInstalled(out string displayVersion, out int currentBuild)
+    {
+        displayVersion = "Unknown";
+        currentBuild = 0;
+        try
+        {
+            using var hive = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using var current = hive.OpenSubKey(CurrentVersionPath);
+            displayVersion = current?.GetValue("DisplayVersion")?.ToString()?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(displayVersion))
+                displayVersion = current?.GetValue("ReleaseId")?.ToString()?.Trim() ?? "Unknown";
+            currentBuild = ReadInt(current?.GetValue("CurrentBuild"));
+            if (currentBuild <= 0) currentBuild = Environment.OSVersion.Version.Build;
+        }
+        catch
+        {
+            if (currentBuild <= 0) currentBuild = Environment.OSVersion.Version.Build;
+        }
     }
 
     private static UpdateEntry ToEntry(Assessment offer)

@@ -13,6 +13,8 @@ public sealed class InstallationQueueItem(string source, string name) : System.C
 {
     public string Source { get; } = source;
     public string Name { get; } = name;
+    /// <summary>WUA UpdateID of the queued update. Empty for WinGet. Ties the outcome row to its Windows Update history event.</summary>
+    public string UpdateId { get; init; } = "";
     private string _state = "Pending";
     public string State
     {
@@ -51,10 +53,15 @@ public sealed class InstallationManagerWindow : Window
     private readonly Button _cancel;
     private readonly DispatcherTimer _clock;
     private readonly TextBlock _elapsed;
+    private readonly TextBlock _autoCloseCountdown;
+    private DispatcherTimer? _autoCloseTimer;
     private readonly bool _norwegian;
     private DateTime _started;
     private bool _running;
     private readonly System.Windows.Controls.ListView _list;
+
+    /// <summary>Matches Installation Manager's existing post-finish auto-close (15 s).</summary>
+    private const int AutoCloseSeconds = 15;
     public InstallationManagerWindow(List<InstallationQueueItem> items, string? subtitle = null, bool norwegian = false)
     {
         _norwegian = norwegian;
@@ -71,16 +78,29 @@ public sealed class InstallationManagerWindow : Window
         }
         var root = new DockPanel { Margin = new Thickness(20) };
         Content = root;
-        // Fixed-height footer grid: both buttons share exactly one 27-DIP row.
+        // Fixed-height footer: countdown (when finished) + Install + Close on one 27-DIP row.
         // A local template removes theme-specific minimum sizing and internal padding.
-        var bottom = new Grid { Height = 27, MinHeight = 27, MaxHeight = 27, VerticalAlignment = System.Windows.VerticalAlignment.Bottom, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var bottom = new Grid { Height = 27, MinHeight = 27, MaxHeight = 27, VerticalAlignment = System.Windows.VerticalAlignment.Bottom, HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch, Margin = new Thickness(0, 12, 0, 0) };
         bottom.RowDefinitions.Add(new RowDefinition { Height = new GridLength(27) });
+        bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
         bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
         bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
         bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
         DockPanel.SetDock(bottom, Dock.Bottom);
         root.Children.Add(bottom);
         var buttonStyle = CreateFooterButtonStyle();
+        _autoCloseCountdown = new TextBlock
+        {
+            Text = "",
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x52, 0x61, 0x7A)),
+            VerticalAlignment = System.Windows.VerticalAlignment.Center,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+            Margin = new Thickness(0, 0, 4, 0),
+            Visibility = Visibility.Collapsed
+        };
         _start = new Button
         {
             Content = norwegian ? "Installer valgte oppdateringer" : "Install selected updates",
@@ -99,8 +119,10 @@ public sealed class InstallationManagerWindow : Window
         };
         _start.Click += (_, _) => { };
         _cancel.Click += (_, _) => Close();
-        Grid.SetRow(_start, 0); Grid.SetColumn(_start, 0);
-        Grid.SetRow(_cancel, 0); Grid.SetColumn(_cancel, 2);
+        Grid.SetRow(_autoCloseCountdown, 0); Grid.SetColumn(_autoCloseCountdown, 1);
+        Grid.SetRow(_start, 0); Grid.SetColumn(_start, 3);
+        Grid.SetRow(_cancel, 0); Grid.SetColumn(_cancel, 5);
+        bottom.Children.Add(_autoCloseCountdown);
         bottom.Children.Add(_start);
         bottom.Children.Add(_cancel);
         var top = new StackPanel(); DockPanel.SetDock(top, Dock.Top); root.Children.Add(top);
@@ -172,7 +194,11 @@ public sealed class InstallationManagerWindow : Window
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _clock.Tick += (_, _) => PulseElapsed();
         Closing += (_, e) => { if (_running) e.Cancel = true; };
-        Closed += (_, _) => _clock.Stop();
+        Closed += (_, _) =>
+        {
+            _clock.Stop();
+            StopAutoCloseCountdown();
+        };
     }
 
     public static bool IsHelpfulStatus(string state)
@@ -489,23 +515,51 @@ public sealed class InstallationManagerWindow : Window
         _cancel.Content = norwegian ? "Lukk" : "Close";
         _cancel.IsEnabled = true;
         Dispatcher.BeginInvoke(RefreshStatusCellVisuals, DispatcherPriority.Loaded);
-        ScheduleAutoClose(TimeSpan.FromSeconds(15));
+        ScheduleAutoClose(AutoCloseSeconds);
         return (completed, failed, unverified);
     }
 
-    /// <summary>Close is already enabled; auto-dismiss after delay unless the user closes sooner.</summary>
-    public void ScheduleAutoClose(TimeSpan delay)
+    /// <summary>
+    /// Close stays enabled; show remaining seconds (same pattern as <see cref="AutoCloseInfoDialog"/>)
+    /// and dismiss when the countdown reaches 0 unless the user closes sooner.
+    /// </summary>
+    public void ScheduleAutoClose(int seconds = AutoCloseSeconds)
     {
         if (!IsLoaded) return;
-        var timer = new DispatcherTimer { Interval = delay };
-        void Stop(object? s, EventArgs e) => timer.Stop();
-        timer.Tick += (_, _) =>
+        StopAutoCloseCountdown();
+
+        int remaining = Math.Max(1, seconds);
+        _autoCloseCountdown.Text = FormatAutoClose(remaining);
+        _autoCloseCountdown.Visibility = Visibility.Visible;
+
+        _autoCloseTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _autoCloseTimer.Tick += (_, _) =>
         {
-            timer.Stop();
-            Closed -= Stop;
-            if (IsLoaded) Close();
+            remaining--;
+            if (remaining <= 0)
+            {
+                StopAutoCloseCountdown();
+                if (IsLoaded) Close();
+                return;
+            }
+            _autoCloseCountdown.Text = FormatAutoClose(remaining);
         };
-        Closed += Stop;
-        timer.Start();
+        _autoCloseTimer.Start();
     }
+
+    private void StopAutoCloseCountdown()
+    {
+        if (_autoCloseTimer is not null)
+        {
+            _autoCloseTimer.Stop();
+            _autoCloseTimer = null;
+        }
+        _autoCloseCountdown.Visibility = Visibility.Collapsed;
+        _autoCloseCountdown.Text = "";
+    }
+
+    private string FormatAutoClose(int remaining) =>
+        _norwegian
+            ? $"Lukker om {remaining} s…"
+            : $"Closing in {remaining} s…";
 }

@@ -355,7 +355,7 @@ internal static class DriverAutomation
             return;
         }
 
-        var queue = selected.Select(d => new InstallationQueueItem("Driver", d.Title)).ToList();
+        var queue = selected.Select(d => new InstallationQueueItem("Driver", d.Title) { UpdateId = d.UpdateId }).ToList();
         AgentLog.Write($"Drivers install helper: installing {selected.Count} queued driver(s) with progress UI.");
         var manager = new InstallationManagerWindow(queue)
         {
@@ -386,11 +386,15 @@ internal static class DriverAutomation
                     var driverResult = results.FirstOrDefault();
                     string state = driverResult == null ? "Not verified" :
                         driverResult.Status is "Installert" or "Already up to date" ? "Completed" :
-                        driverResult.Status is "Delvis fullført" ? "Not verified" :
+                        driverResult.Status is "Delvis fullført" or "Verification unavailable" ? "Not verified" :
                         "Failed" + (string.IsNullOrWhiteSpace(driverResult.ErrorCode) ? "" : " " + driverResult.ErrorCode);
                     if (state == "Completed") ok++;
                     if (driverResult?.Source?.Contains("Restart", StringComparison.OrdinalIgnoreCase) == true)
                         rebootHint = true;
+                    if (driverResult is not null &&
+                        driverResult.Status == "Installert" &&
+                        (driverResult.Source ?? "").Contains("Restart required", StringComparison.OrdinalIgnoreCase))
+                        DriverRebootHoldStore.Remember(d, "Restart required after WUA driver install");
                     manager.CompleteItem(i, state, state.StartsWith("Failed", StringComparison.Ordinal));
                 }
                 catch (Exception ex)
@@ -414,6 +418,8 @@ internal static class DriverAutomation
                     : $"{ok}/{selected.Count} completed.",
                 NextDue(DateTime.Now, ResolveIntervalMinutes(policy), preferred));
             ActivityLog.TryWrite("DriversAutomation", "Installed", new { ok, Total = selected.Count, rebootHint }, mode: "Automatic", source: "ElevatedHelper");
+            try { HistoryArchive.RecordInstallationManagerQueue(queue); }
+            catch (Exception ex) { AgentLog.Write("Drivers install: history record failed: " + ex.Message); }
 
             manager.Finish();
             if (rebootHint)
