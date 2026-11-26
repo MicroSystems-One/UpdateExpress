@@ -27,14 +27,106 @@ internal static class AutomationStatePaths
         {
             if (!string.IsNullOrWhiteSpace(_overrideDirectory))
                 return _overrideDirectory!;
-            // Prefer shared machine state when it already holds automation files.
-            try
+            return ResolveDirectory(SharedDirectory, InstallationManager.InstallDir);
+        }
+    }
+
+    /// <summary>
+    /// The shared folder when it already holds automation files and the current identity can
+    /// change them; otherwise <paramref name="fallback"/>. A shared folder this identity can
+    /// only read is left to the processes that can write it (elevated helper, service).
+    /// </summary>
+    internal static string ResolveDirectory(string shared, string fallback)
+    {
+        try
+        {
+            if (System.IO.Directory.Exists(shared) &&
+                HasAutomationFiles(shared) &&
+                IsDirectoryWritableCached(shared))
+                return shared;
+        }
+        catch { /* ignore */ }
+        return fallback;
+    }
+
+    // Directory is read on every state access (the tray polls pending-reboot.json every 5 s),
+    // so the probe result is kept for a while. A "no" is kept only briefly: it turns into a
+    // "yes" as soon as a helper or the service grants Users modify.
+    private static readonly TimeSpan WritableYesTtl = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan WritableNoTtl = TimeSpan.FromSeconds(5);
+    private static readonly object WritableLock = new();
+    private static string? _writableDir;
+    private static bool _writable;
+    private static long _writableCheckedTicks;
+
+    private static bool IsDirectoryWritableCached(string dir)
+    {
+        long now = Environment.TickCount64;
+        lock (WritableLock)
+        {
+            if (string.Equals(_writableDir, dir, StringComparison.OrdinalIgnoreCase) &&
+                now - _writableCheckedTicks < (long)(_writable ? WritableYesTtl : WritableNoTtl).TotalMilliseconds)
+                return _writable;
+        }
+
+        bool writable = IsDirectoryWritable(dir);
+        lock (WritableLock)
+        {
+            _writableDir = dir;
+            _writable = writable;
+            _writableCheckedTicks = now;
+        }
+        return writable;
+    }
+
+    private static void ForgetWritableProbe()
+    {
+        lock (WritableLock) _writableDir = null;
+    }
+
+    /// <summary>
+    /// True when the current identity can create files in <paramref name="dir"/> and change
+    /// every state file already there. Creating a file is not enough on its own: under the
+    /// default ProgramData ACL every user may add files, but a state file written by an
+    /// elevated helper, the service or another user is read-only to everyone else.
+    /// </summary>
+    internal static bool IsDirectoryWritable(string dir)
+    {
+        try
+        {
+            if (!System.IO.Directory.Exists(dir)) return false;
+            string probe = Path.Combine(dir, ".ue-write-probe-" + Guid.NewGuid().ToString("N"));
+            using (new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose))
             {
-                if (System.IO.Directory.Exists(SharedDirectory) && HasAutomationFiles(SharedDirectory))
-                    return SharedDirectory;
             }
-            catch { /* ignore */ }
-            return InstallationManager.InstallDir;
+
+            foreach (string file in EnumerateStateFiles(dir))
+            {
+                if (!CanOpenForWrite(file)) return false;
+            }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool CanOpenForWrite(string path)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            // Gone meanwhile, or another process is writing it right now: not a rights problem.
+            return true;
         }
     }
 
@@ -48,7 +140,11 @@ internal static class AutomationStatePaths
         try
         {
             System.IO.Directory.CreateDirectory(shared);
-            TryMigrateUserStateIntoShared(shared);
+            TryGrantUsersModify(shared);
+            // Move state over only where this user can keep writing it. Otherwise it stays
+            // here, where Directory still finds it, and the helper migrates it from the source dir.
+            if (IsDirectoryWritable(shared))
+                TryMigrateUserStateIntoShared(shared);
         }
         catch { /* helper creates when elevated */ }
         return $"{elevateArg} --automation-state-dir=\"{shared}\" --automation-state-source=\"{userDir}\"";
@@ -63,6 +159,12 @@ internal static class AutomationStatePaths
         try
         {
             System.IO.Directory.CreateDirectory(SharedDirectory);
+            TryGrantUsersModify(SharedDirectory);
+            if (!IsDirectoryWritable(SharedDirectory))
+            {
+                AgentLog.Write("Shared automation state dir is not writable for this user; state stays in " + Directory);
+                return Directory;
+            }
             TryMigrateUserStateIntoShared();
             _overrideDirectory = SharedDirectory;
             return SharedDirectory;
@@ -72,6 +174,89 @@ internal static class AutomationStatePaths
             AgentLog.Write("Could not prefer shared automation state dir: " + ex.Message);
             return Directory;
         }
+    }
+
+    /// <summary>
+    /// Grant on the shared folder if it exists. For the session-0 service: the files it
+    /// creates there as SYSTEM must stay writable for the signed-in user's agent.
+    /// </summary>
+    internal static void EnsureSharedDirectoryAccess()
+    {
+        try
+        {
+            if (System.IO.Directory.Exists(SharedDirectory))
+                TryGrantUsersModify(SharedDirectory);
+        }
+        catch { /* best effort */ }
+    }
+
+    private static readonly object GrantLock = new();
+    private static string? _grantedDir;
+    private static DateTime _grantedDirCreatedUtc;
+    private static bool _grantFailureLogged;
+
+    /// <summary>
+    /// Best-effort ACL so interactive users can save prompts/queues after an elevated
+    /// helper creates the ProgramData folder (avoids read-only shared state).
+    /// Uses icacls to avoid an extra AccessControl package dependency. The grant is
+    /// inherited by files created later, so one success per process and folder is enough.
+    /// Succeeds only for an administrator, SYSTEM or the folder's owner.
+    /// </summary>
+    internal static bool TryGrantUsersModify(string dir)
+    {
+        try
+        {
+            if (!OperatingSystem.IsWindows() || !System.IO.Directory.Exists(dir)) return false;
+            DateTime createdUtc = System.IO.Directory.GetCreationTimeUtc(dir);
+            lock (GrantLock)
+            {
+                if (string.Equals(_grantedDir, dir, StringComparison.OrdinalIgnoreCase) &&
+                    _grantedDirCreatedUtc == createdUtc)
+                    return true;
+            }
+
+            using var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = Path.Combine(Environment.SystemDirectory, "icacls.exe"),
+                Arguments = $"\"{dir}\" /grant *S-1-5-32-545:(OI)(CI)M /T /C /Q",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            if (proc is null) return false;
+            if (!proc.WaitForExit(8000))
+            {
+                LogGrantFailure(dir, "icacls did not finish in time");
+                return false;
+            }
+            if (proc.ExitCode != 0)
+            {
+                LogGrantFailure(dir, "icacls exit code " + proc.ExitCode);
+                return false;
+            }
+
+            lock (GrantLock)
+            {
+                _grantedDir = dir;
+                _grantedDirCreatedUtc = createdUtc;
+            }
+            ForgetWritableProbe();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogGrantFailure(dir, ex.Message);
+            return false;
+        }
+    }
+
+    private static void LogGrantFailure(string dir, string reason)
+    {
+        lock (GrantLock)
+        {
+            if (_grantFailureLogged) return;
+            _grantFailureLogged = true;
+        }
+        AgentLog.Write($"Could not grant Users modify on {dir}: {reason}");
     }
 
     /// <summary>
@@ -244,12 +429,17 @@ internal static class AutomationStatePaths
                 if (createIfShared && isShared)
                 {
                     System.IO.Directory.CreateDirectory(fullPath);
+                    TryGrantUsersModify(fullPath);
                 }
                 else
                 {
                     reason = "directory does not exist";
                     return false;
                 }
+            }
+            else if (createIfShared && isShared)
+            {
+                TryGrantUsersModify(fullPath);
             }
             return true;
         }
@@ -277,6 +467,21 @@ internal static class AutomationStatePaths
             return false;
         }
     }
+
+    private static readonly string[] FixedStateFileNames =
+    {
+        "unattended-until-clear.json",
+        "pending-reboot.json",
+        "windows-automation-status.json",
+        "winget-available.json",
+        "shared-schedule-notice.json"
+    };
+
+    /// <summary>The state files processes read and write through <see cref="Directory"/>.</summary>
+    private static System.Collections.Generic.IEnumerable<string> EnumerateStateFiles(string dir) =>
+        System.IO.Directory.EnumerateFiles(dir, "*-prompt.json")
+            .Concat(System.IO.Directory.EnumerateFiles(dir, "*-install-queue.json"))
+            .Concat(FixedStateFileNames.Select(name => Path.Combine(dir, name)).Where(File.Exists));
 
     private static void TryMigrateUserStateIntoShared(string? shared = null) =>
         TryMigrateFrom(InstallationManager.InstallDir, shared ?? SharedDirectory);

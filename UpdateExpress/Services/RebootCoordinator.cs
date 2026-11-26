@@ -113,13 +113,13 @@ internal static class RebootCoordinator
     private static bool PromptConfirmAndMaybeReboot(string source, AutoRebootPolicy reboot, System.Windows.Window? owner)
     {
         // Countdown notice lets the signed-in user Stop or Postpone 15 minutes.
-        StartCountdownReboot(
+        // False after Stop: no restart is armed, and the caller must not wait for one.
+        return StartCountdownReboot(
             source,
             reboot.CountdownSeconds,
             "Update Express: restart required after Windows updates. Save your work.",
             showUi: true,
             owner: owner);
-        return true;
     }
 
     internal static void SchedulePending(
@@ -357,9 +357,10 @@ internal static class RebootCoordinator
     /// the countdown and restarts at 0, so Windows shows no sign-out notice of its own. Without
     /// it (session 0, or the notice failed) Windows runs the countdown and shows its own notice.
     /// <paramref name="owner"/> is unused: the notice is ownerless so it still shows when the
-    /// main window is minimised.
+    /// main window is minimised. Returns false only when the user pressed Stop in the notice:
+    /// the restart is off, so a caller that parked work until after it has to pick it up again.
     /// </summary>
-    internal static void StartCountdownReboot(
+    internal static bool StartCountdownReboot(
         string source,
         int countdownSeconds,
         string comment,
@@ -372,8 +373,8 @@ internal static class RebootCoordinator
         {
             try
             {
-                RebootCountdownWindow.RunWithUi(source, seconds, comment, stillWanted);
-                return;
+                RebootCountdownWindow.RunWithUi(source, seconds, comment, out var decision, stillWanted);
+                return RebootCountdownWindow.KeepsRestartArmed(decision);
             }
             catch (Exception ex)
             {
@@ -383,6 +384,7 @@ internal static class RebootCoordinator
         }
 
         StartCountdownRebootCore(source, seconds, comment);
+        return true;
     }
 
     /// <summary>

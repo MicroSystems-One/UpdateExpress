@@ -267,10 +267,12 @@ internal sealed class RebootCountdownWindow : Window
     /// <summary>
     /// Show the notice and act on the outcome. Call on a UI thread. Returns false without
     /// showing when a notice is already live in this session or <paramref name="stillWanted"/>
-    /// says the restart was taken over meanwhile.
+    /// says the restart was taken over meanwhile; <paramref name="decision"/> is then
+    /// <see cref="Choice.None"/>.
     /// </summary>
-    internal static bool RunWithUi(string source, int countdownSeconds, string comment, Func<bool>? stillWanted = null)
+    internal static bool RunWithUi(string source, int countdownSeconds, string comment, out Choice decision, Func<bool>? stillWanted = null)
     {
+        decision = Choice.None;
         int seconds = Math.Clamp(countdownSeconds, 60, 3600);
         if (Interlocked.CompareExchange(ref _activeInProcess, 1, 0) != 0) return false;
 
@@ -317,7 +319,8 @@ internal sealed class RebootCountdownWindow : Window
 
             var dlg = new RebootCountdownWindow(seconds, cancelSignal);
             dlg.ShowDialog();
-            Apply(dlg.Decision, source, seconds, comment, restartAt);
+            decision = dlg.Decision;
+            Apply(decision, source, seconds, comment, restartAt);
             return true;
         }
         finally
@@ -331,6 +334,12 @@ internal sealed class RebootCountdownWindow : Window
             Interlocked.Exchange(ref _activeInProcess, 0);
         }
     }
+
+    /// <summary>
+    /// False only for Stop, where the user called the restart off. Every other outcome leaves
+    /// a restart running or scheduled, or leaves the decision to whoever closed the notice.
+    /// </summary>
+    internal static bool KeepsRestartArmed(Choice decision) => decision != Choice.Stop;
 
     private static void Apply(Choice decision, string source, int seconds, string comment, DateTime restartAt)
     {
