@@ -219,6 +219,12 @@ internal static class AutomationStatePaths
     private static bool _legacyGrantHandled;
 
     /// <summary>
+    /// Set by the unit test assembly: a test run must never move the state of the Update
+    /// Express that is installed on the PC it runs on.
+    /// </summary>
+    internal static bool SharedStateMaintenanceDisabled { get; set; }
+
+    /// <summary>
     /// Housekeeping every process does before it reads state, at most once a minute: bring the
     /// state files an older version left in <see cref="LegacySharedDirectory"/> into
     /// <see cref="SharedDirectory"/>, and once per process take back the Users modify grant
@@ -227,6 +233,7 @@ internal static class AutomationStatePaths
     /// </summary>
     internal static void MaintainSharedState(bool force = false)
     {
+        if (SharedStateMaintenanceDisabled) return;
         lock (MaintenanceLock)
         {
             if (_maintaining) return;
