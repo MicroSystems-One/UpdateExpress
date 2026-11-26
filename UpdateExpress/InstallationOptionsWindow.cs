@@ -25,7 +25,7 @@ public sealed class InstallationOptionsWindow : Window
     private readonly System.Windows.Controls.RadioButton _profilePrivate = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 2) };
     private readonly System.Windows.Controls.RadioButton _profileBusiness = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 2) };
     private readonly System.Windows.Controls.RadioButton _profileBoth = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 2) };
-    private readonly System.Windows.Controls.RadioButton _profileServer = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 8) };
+    private readonly System.Windows.Controls.RadioButton _profileServer = new() { GroupName = "InstallProfile", Margin = new Thickness(0, 4, 0, 2) };
     private readonly System.Windows.Controls.TextBox _activeStart = new() { Width = 48, Height = 28, Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 0, 12, 0) };
     private readonly System.Windows.Controls.TextBox _activeEnd = new() { Width = 48, Height = 28, Padding = new Thickness(6, 3, 6, 3) };
     private readonly System.Windows.Controls.CheckBox[] _dayBoxes = new System.Windows.Controls.CheckBox[7];

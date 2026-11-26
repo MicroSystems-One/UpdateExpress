@@ -30,7 +30,7 @@ public class WindowsSupportReaderTests
         Assert.Equal(expectedVersion, result.Version);
         Assert.Equal("supported", result.Status);
         Assert.Contains($"Build {build}", result.Details);
-        Assert.Contains(DateTime.Parse(expectedEnd, System.Globalization.CultureInfo.InvariantCulture).ToString("dd MMMM yyyy"), result.Details);
+        Assert.Contains(expectedEnd, result.Details);
         Assert.Equal(WindowsSupportReader.ServerReferenceUrl, result.ReferenceUrl);
         AssertNoClientWording(result);
     }
@@ -63,6 +63,7 @@ public class WindowsSupportReaderTests
         var expired = WindowsSupportReader.Describe(server2016, new DateTime(2027, 1, 13));
         Assert.Equal("expired", expired.Status);
         Assert.Contains("Windows Server 2016", expired.Details);
+        Assert.Contains("ended on 12 January 2027", expired.Details);
         Assert.Equal(WindowsSupportReader.ServerReferenceUrl, expired.ReferenceUrl);
         AssertNoClientWording(expired);
 

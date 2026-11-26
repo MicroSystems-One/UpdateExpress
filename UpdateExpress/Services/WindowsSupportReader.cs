@@ -141,12 +141,14 @@ internal static class WindowsSupportReader
             return new(name, version, "unknown", details +
                 "This Windows Server release is not in the built-in lifecycle table. Verify its support status with Microsoft. No supported-status claim is made.")
             { ReferenceUrl = ServerReferenceUrl };
+        // The sentence is English, so the month is too, whatever the regional settings are.
+        string endDate = end.Value.ToString("dd MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
         if (today > end.Value)
             return new(name, version, "expired", details +
-                $"Microsoft security updates for {release} ended on {end.Value:dd MMMM yyyy}. Without verified Extended Security Updates (ESU), this server no longer receives Microsoft security fixes. Upgrade or replace it. ESU enrollment cannot be verified by this indicator.")
+                $"Microsoft security updates for {release} ended on {endDate}. Without verified Extended Security Updates (ESU), this server no longer receives Microsoft security fixes. Upgrade or replace it. ESU enrollment cannot be verified by this indicator.")
             { ReferenceUrl = ServerReferenceUrl };
         return new(name, version, "supported", details +
-            $"Microsoft security updates for {release} are scheduled through {end.Value:dd MMMM yyyy} (end of extended support). This does not confirm that security updates are installed or that the server is fully protected.")
+            $"Microsoft security updates for {release} are scheduled through {endDate} (end of extended support). This does not confirm that security updates are installed or that the server is fully protected.")
         { ReferenceUrl = ServerReferenceUrl };
     }
 
