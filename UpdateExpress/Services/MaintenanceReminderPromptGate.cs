@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Threading;
 
 namespace UpdateExpress.Services;
@@ -7,6 +8,8 @@ namespace UpdateExpress.Services;
 /// Cross-process coordination for Påminnelse:
 /// - MainUi session: while MainWindow is open, tray skips new reminder checks.
 /// - ReminderPrompt: while any process shows ReminderDialog, the other must not open another.
+/// - Updates-ready prompts: while MainWindow is open and a Påminnelse is due today, the tray
+///   skips the Applications/Windows/Drivers "updates ready" dialogs so Påminnelse is the only prompt.
 /// </summary>
 internal static class MaintenanceReminderPromptGate
 {
@@ -154,5 +157,55 @@ internal static class MaintenanceReminderPromptGate
         {
             try { probe?.Dispose(); } catch { /* ignore */ }
         }
+    }
+
+    /// <summary>
+    /// True when the Main UI is open and a maintenance Påminnelse is due today (the caller is
+    /// about to show a category updates-ready dialog, so pending updates exist).
+    /// The caller must have saved its prompt state first and leaves it unchanged: the Main UI
+    /// reads it (<see cref="CategoryPromptState.LoadUpdatesWaitingForUser"/>) as the reason
+    /// to show Påminnelse, and the prompt comes back once the due window ends or the Main UI
+    /// closes.
+    /// </summary>
+    internal static bool ShouldSuppressCategoryUpdateReadyPrompt(DateTime? now = null)
+    {
+        if (!IsMainUiSessionActive()) return false;
+        return IsMaintenanceReminderDueForPending(now ?? DateTime.Now);
+    }
+
+    internal static bool IsMaintenanceReminderDueForPending(DateTime now)
+    {
+        var schedule = ReminderSchedule.Load();
+        var policy = UpdatePolicy.Load();
+        policy.Normalize();
+        return IsReminderDueWindow(schedule, policy.InstallDaysMask, now);
+    }
+
+    /// <summary>
+    /// Same day and slot rules as <c>MainWindow.CheckReminder</c>: reminders enabled, today is a
+    /// reminder day, the scheduled time has passed and a half-hour slot is still left today,
+    /// and today is not confirmed. A snooze or Lukk does not end the window: Påminnelse comes
+    /// back at the next half hour and keeps covering the same pending updates.
+    /// </summary>
+    internal static bool IsReminderDueWindow(ReminderSchedule schedule, int installDaysMask, DateTime now)
+    {
+        if (!schedule.Enabled) return false;
+
+        if (schedule.ConfirmedOccurrence is DateTime confirmed && confirmed.Date == now.Date)
+            return false;
+
+        int mask = MaintenanceSetup.ClampMask(installDaysMask);
+        int todayIndex = MaintenanceSetup.TodayMondayBased(now);
+        if (mask != 0)
+        {
+            if (!MaintenanceSetup.HasDay(mask, todayIndex)) return false;
+        }
+        else if (schedule.Weekday != 7 && todayIndex != schedule.Weekday)
+            return false;
+
+        if (!TimeSpan.TryParseExact(schedule.Time, @"hh\:mm", CultureInfo.InvariantCulture, out var at))
+            return false;
+
+        return ReminderSchedule.EffectiveReminderSlot(now, at) is not null;
     }
 }

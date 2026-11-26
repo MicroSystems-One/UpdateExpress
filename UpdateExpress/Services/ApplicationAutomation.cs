@@ -326,18 +326,39 @@ internal static class ApplicationAutomation
     {
         try
         {
+            if (MaintenanceReminderPromptGate.ShouldSuppressCategoryUpdateReadyPrompt())
+            {
+                AgentLog.Write(
+                    "Applications automation: updates-ready prompt suppressed " +
+                    "(Påminnelse covers pending updates in this Main UI session).");
+                return;
+            }
+
+            if (SoftwareUpdatesDialog.IsShowing)
+            {
+                AgentLog.Write("Applications automation: another updates-ready dialog is open — asking again once it has closed.");
+                return;
+            }
+
             try { _balloon?.Invoke("Update Express – Application updates", balloonText); }
             catch { }
 
             AgentLog.Write($"Applications automation: presenting confirmation dialog ({prompt.Updates.Count}).");
-            var decision = await dispatcher.InvokeAsync(() =>
+            var shown = await dispatcher.InvokeAsync(() =>
             {
-                var dialog = new SoftwareUpdatesDialog(DisplayName, prompt.Updates, preferred, prompt.Downloaded);
-                dialog.ShowDialog();
-                return dialog.Decision;
+                if (!SoftwareUpdatesDialog.TryShowModal(
+                        DisplayName, prompt.Updates, preferred, prompt.Downloaded, out var decision))
+                {
+                    AgentLog.Write("Applications automation: updates-ready dialog already open — skip stack.");
+                    return (Shown: false, Decision: SoftwareUpdatesDialog.PromptDecision.Later);
+                }
+                return (Shown: true, Decision: decision);
             }).Task.ConfigureAwait(false);
 
-            await HandleDecisionAsync(decision, prompt, preferred).ConfigureAwait(false);
+            if (!shown.Shown)
+                return;
+
+            await HandleDecisionAsync(shown.Decision, prompt, preferred).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
