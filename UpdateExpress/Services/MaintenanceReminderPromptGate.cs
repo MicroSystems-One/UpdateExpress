@@ -162,8 +162,10 @@ internal static class MaintenanceReminderPromptGate
     /// <summary>
     /// True when the Main UI is open and a maintenance Påminnelse is due today (the caller is
     /// about to show a category updates-ready dialog, so pending updates exist).
-    /// The caller leaves the category prompt state unchanged, so the prompt comes back once
-    /// the due window ends or the Main UI closes.
+    /// The caller must have saved its prompt state first and leaves it unchanged: the Main UI
+    /// reads it (<see cref="CategoryPromptState.LoadUpdatesWaitingForUser"/>) as the reason
+    /// to show Påminnelse, and the prompt comes back once the due window ends or the Main UI
+    /// closes.
     /// </summary>
     internal static bool ShouldSuppressCategoryUpdateReadyPrompt(DateTime? now = null)
     {
