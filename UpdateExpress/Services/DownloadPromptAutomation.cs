@@ -330,18 +330,32 @@ internal static class DownloadPromptAutomation
                 return;
             }
 
+            if (SoftwareUpdatesDialog.IsShowing)
+            {
+                AgentLog.Write($"{displayName} automation: another updates-ready dialog is open — asking again once it has closed.");
+                return;
+            }
+
             try { _balloon?.Invoke(balloonTitle, balloonText); }
             catch { }
 
             AgentLog.Write($"{displayName} automation: presenting confirmation dialog ({prompt.Updates.Count}).");
-            var decision = await dispatcher.InvokeAsync(() =>
+            var shown = await dispatcher.InvokeAsync(() =>
             {
-                var dialog = new SoftwareUpdatesDialog(displayName, prompt.Updates, preferred, prompt.Downloaded);
-                dialog.ShowDialog();
-                return dialog.Decision;
+                if (!SoftwareUpdatesDialog.TryShowModal(
+                        displayName, prompt.Updates, preferred, prompt.Downloaded, out var decision))
+                {
+                    AgentLog.Write($"{displayName} automation: updates-ready dialog already open — skip stack.");
+                    return (Shown: false, Decision: SoftwareUpdatesDialog.PromptDecision.Later);
+                }
+                return (Shown: true, Decision: decision);
             }).Task.ConfigureAwait(false);
 
-            await HandleDecisionAsync(decision, prompt, preferred, displayName, elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
+            // Another category's dialog is up: leave awaitingPrompt so this can surface later.
+            if (!shown.Shown)
+                return;
+
+            await HandleDecisionAsync(shown.Decision, prompt, preferred, displayName, elevateArg, cat, useWeeklySchedule, minIntervalMinutes)
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
