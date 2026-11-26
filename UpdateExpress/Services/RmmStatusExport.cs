@@ -35,8 +35,9 @@ internal static class RmmStatusExport
             string json = JsonSerializer.Serialize(payload, JsonOpts);
             string text = ToKeyValue(payload);
 
-            TryWrite(ProgramDataDir, json, text);
-            TryWrite(InstallationManager.InstallDir, json, text);
+            string programData = ProgramDataDir;
+            TryWrite(programData, json, text, programData);
+            TryWrite(InstallationManager.InstallDir, json, text, programData);
             _lastWriteUtc = DateTime.UtcNow;
         }
         catch (Exception ex)
@@ -45,13 +46,40 @@ internal static class RmmStatusExport
         }
     }
 
-    private static void TryWrite(string dir, string json, string text)
+    /// <summary>
+    /// Create the ProgramData status files from a process running elevated or as SYSTEM. The
+    /// signed-in user's agent can write them once they exist, but not create them.
+    /// </summary>
+    internal static void WriteProgramDataOnly(string note)
+    {
+        try
+        {
+            var payload = Build();
+            payload.Note = note;
+            string programData = ProgramDataDir;
+            TryWrite(programData, JsonSerializer.Serialize(payload, JsonOpts), ToKeyValue(payload), programData);
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("RMM status export failed: " + ex.Message);
+        }
+    }
+
+    private static void TryWrite(string dir, string json, string text, string programData)
     {
         try
         {
             Directory.CreateDirectory(dir);
             string jsonPath = Path.Combine(dir, JsonFileName);
             string textPath = Path.Combine(dir, TextFileName);
+            if (ReferenceEquals(dir, programData))
+            {
+                // Users may write these two files there, but not create files beside them.
+                var utf8 = new UTF8Encoding(false);
+                PolicyFolderGuard.WriteUserFile(jsonPath, utf8.GetBytes(json));
+                PolicyFolderGuard.WriteUserFile(textPath, utf8.GetBytes(text));
+                return;
+            }
             string tmpJson = jsonPath + "." + Environment.ProcessId + ".tmp";
             string tmpText = textPath + "." + Environment.ProcessId + ".tmp";
             File.WriteAllText(tmpJson, json);
@@ -61,7 +89,7 @@ internal static class RmmStatusExport
         }
         catch
         {
-            // ProgramData may be denied for user-scope installs.
+            // ProgramData may be denied: another user's files in a folder that is not secured yet.
         }
     }
 

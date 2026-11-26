@@ -33,6 +33,28 @@ internal static class LinkSafeFile
     }
 
     /// <summary>
+    /// Open an existing regular file to overwrite it where it is. A link or a folder is refused.
+    /// The file keeps its owner and rights, which a replaced file would not.
+    /// </summary>
+    internal static FileStream OpenWriteExisting(string path)
+    {
+        SafeFileHandle handle = CreateFileW(
+            path, GenericWrite | FileReadAttributes, ShareRead, IntPtr.Zero, OpenExisting, FlagOpenReparsePoint, IntPtr.Zero);
+        if (handle.IsInvalid) throw Failure(handle, path);
+        try
+        {
+            if ((File.GetAttributes(handle) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0)
+                throw new FileNotFoundException("No regular file: " + path, path);
+            return new FileStream(handle, FileAccess.Write);
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Put a new file at <paramref name="target"/>: written under a random name in the same
     /// folder, created exclusively, then renamed over the target. A link waiting at the target
     /// name is replaced, not followed.
@@ -122,6 +144,8 @@ internal static class LinkSafeFile
     internal const uint Delete = 0x00010000;
     internal const uint ReadControl = 0x00020000;
     internal const uint WriteDac = 0x00040000;
+    internal const uint WriteOwner = 0x00080000;
+    internal const uint GenericWrite = 0x40000000;
     internal const uint FileReadAttributes = 0x0080;
     internal const uint FileWriteAttributes = 0x0100;
     internal const uint ShareNone = 0x0;

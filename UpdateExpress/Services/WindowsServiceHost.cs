@@ -53,6 +53,7 @@ internal sealed class UpdateExpressServiceWorker : BackgroundService
         // Right away, not after the stagger: state an older version left beside
         // fleet-policy.json moves to its own subfolder before the user's agent looks for it.
         AutomationStatePaths.MaintainSharedState(force: true);
+        PolicyFolderGuard.RunIfPrivileged();
         // Stagger first tick so boot is not blocked by WUA.
         try { await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken).ConfigureAwait(false); }
         catch (OperationCanceledException) { return; }
@@ -61,6 +62,8 @@ internal sealed class UpdateExpressServiceWorker : BackgroundService
         {
             try
             {
+                // Not behind the consent gate: who may write fleet-policy.json is not an automation.
+                PolicyFolderGuard.RunIfPrivileged();
                 var policy = UpdatePolicy.Load();
                 policy.Normalize();
                 if (!policy.SetupCompleted)

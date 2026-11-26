@@ -11,5 +11,10 @@ internal static class TestAssemblySetup
     /// trigger it; the migration itself is tested on temp folders.
     /// </summary>
     [ModuleInitializer]
-    internal static void KeepInstalledStateAlone() => AutomationStatePaths.SharedStateMaintenanceDisabled = true;
+    internal static void KeepInstalledStateAlone()
+    {
+        AutomationStatePaths.SharedStateMaintenanceDisabled = true;
+        // The same for the rights on the PC's own policy folder, should a test run elevated.
+        PolicyFolderGuard.Disabled = true;
+    }
 }

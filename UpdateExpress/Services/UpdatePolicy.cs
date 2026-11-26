@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.IO;
 
 namespace UpdateExpress.Services;
@@ -134,11 +134,12 @@ public sealed class UpdatePolicy
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(MachinePathName)!);
-            File.WriteAllText(MachinePathName, json);
+            // Over the existing file: users may write it but not create files in that folder.
+            PolicyFolderGuard.WriteUserFile(MachinePathName, new System.Text.UTF8Encoding(false).GetBytes(json));
         }
         catch
         {
-            // User-scope install without elevation cannot write ProgramData — OK.
+            // Not writable for this user (another user's file in a folder that is not secured yet) — OK.
         }
     }
 

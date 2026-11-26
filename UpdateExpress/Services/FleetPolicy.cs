@@ -36,7 +36,14 @@ internal static class FleetPolicy
                 return false;
             }
 
-            string raw = File.ReadAllText(ProgramDataPath);
+            // Under the default ProgramData rights any user can put a file there. Only one an
+            // administrator or SYSTEM made is a policy.
+            if (!PolicyFolderGuard.TryReadAdministratorFile(ProgramDataPath, out string raw, out string refused))
+            {
+                LastAppliedSource = "";
+                AgentLog.Write("Fleet policy ignored: " + ProgramDataPath + " " + refused);
+                return false;
+            }
             var overlay = JsonSerializer.Deserialize<FleetPolicyDocument>(raw, JsonOpts);
             if (overlay is null)
             {
