@@ -31,11 +31,22 @@ public sealed class SetupWizardWindow : Window
     private readonly System.Windows.Controls.CheckBox[] _dayBoxes = new System.Windows.Controls.CheckBox[7];
     private System.Windows.Controls.TextBox? _installTimeBox;
 
+    private readonly bool _server;
+    private readonly bool _serverTestSwitch;
+
     public bool Completed { get; private set; }
 
     public SetupWizardWindow(Window? owner = null)
+        : this(owner, UpdatePolicy.Load(), MaintenanceSetup.SetupTreatsThisMachineAsServer, MaintenanceSetup.ServerTestSwitchOn)
     {
-        _norwegian = MaintenanceSetup.IsNorwegian();
+    }
+
+    /// <param name="saved">The policy the wizard starts from: what is saved on this machine.</param>
+    internal SetupWizardWindow(Window? owner, UpdatePolicy saved, bool serverOs, bool serverTestSwitch, bool? norwegian = null)
+    {
+        _server = serverOs;
+        _serverTestSwitch = serverTestSwitch;
+        _norwegian = norwegian ?? MaintenanceSetup.IsNorwegian();
         Owner = owner;
         Title = _norwegian ? "Update Express – Oppsett" : "Update Express – Setup";
         AppIcon.Apply(this);
@@ -149,10 +160,9 @@ public sealed class SetupWizardWindow : Window
         scroll.Content = _content;
 
         // Seed from existing policy if any.
-        var policy = UpdatePolicy.Load();
+        var policy = saved;
         policy.Normalize();
-        if (!string.IsNullOrWhiteSpace(policy.SetupProfile))
-            _profile = policy.SetupProfile;
+        _profile = MaintenanceSetup.InitialProfile(policy.SetupProfile, _server, "private");
         _activeStart = policy.WindowsAutomation.AutoReboot.ActiveHoursStart;
         _activeEnd = policy.WindowsAutomation.AutoReboot.ActiveHoursEnd;
         _daysMask = policy.InstallDaysMask == 0 ? MaintenanceSetup.AllDaysMask : policy.InstallDaysMask;
@@ -171,11 +181,7 @@ public sealed class SetupWizardWindow : Window
     {
         var policy = UpdatePolicy.Load();
         policy.Normalize();
-        if (string.IsNullOrWhiteSpace(policy.SetupProfile))
-            MaintenanceSetup.ApplyProfileDefaults(policy, "private");
-        else
-            MaintenanceSetup.ApplyToPolicy(policy, policy.InstallDaysMask, policy.InstallTime);
-        policy.SetupCompleted = true;
+        MaintenanceSetup.ApplySkipChoice(policy, _server);
         policy.Save();
         MaintenanceSetup.SyncReminderFromPolicy(policy);
         Completed = true;
@@ -323,6 +329,18 @@ public sealed class SetupWizardWindow : Window
                     _norwegian ? "Arbeids-PC – man–fre arbeidstid, omstart utenom arbeidstid." : "Work PC — weekday hours, restart outside active hours."));
                 _content.Children.Add(ProfileRadio("both", _norwegian ? "Begge deler" : "Both",
                     _norwegian ? "Blanding – arbeidstid man–fre, spør før omstart (tryggere)." : "Mixed — weekday hours, ask before restart (safer)."));
+                _content.Children.Add(ProfileRadio(MaintenanceSetup.ServerProfile, "Server",
+                    MaintenanceSetup.ServerProfileTip(_norwegian)));
+                if (_serverTestSwitch)
+                    _content.Children.Add(new TextBlock
+                    {
+                        Text = MaintenanceSetup.ServerTestSwitchNote(_norwegian),
+                        FontSize = 12,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = new SolidColorBrush(Color.FromRgb(198, 40, 40)),
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 4, 0, 0)
+                    });
                 break;
 
             case 2:

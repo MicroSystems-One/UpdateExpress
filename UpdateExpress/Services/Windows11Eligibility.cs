@@ -26,7 +26,7 @@ internal static class Windows11Eligibility
     internal const int MinClockMhz = 1000;
 
     /// <summary>VER_NT_WORKSTATION: a client edition, not Windows Server.</summary>
-    internal const int ProductTypeWorkstation = 1;
+    internal const int ProductTypeWorkstation = WindowsProductType.Workstation;
     internal const int ArchitectureX86 = 0;
     internal const int ArchitectureX64 = 9;
     internal const int ArchitectureArm64 = 12;
@@ -218,7 +218,7 @@ internal static class Windows11Eligibility
         var facts = new Facts
         {
             OsBuild = Try(() => (int?)Environment.OSVersion.Version.Build),
-            ProductType = Try(ReadProductType),
+            ProductType = Try(WindowsProductType.Read),
             LogicalProcessors = Try(() => (int?)Environment.ProcessorCount),
             InstalledMemoryBytes = Try(ReadInstalledMemoryBytes),
             SystemDriveBytes = Try(ReadSystemDriveBytes),
@@ -276,12 +276,6 @@ internal static class Windows11Eligibility
         catch { return default; }
     }
 
-    private static int? ReadProductType()
-    {
-        var info = new OSVERSIONINFOEXW { dwOSVersionInfoSize = Marshal.SizeOf<OSVERSIONINFOEXW>() };
-        return RtlGetVersion(ref info) == 0 && info.wProductType != 0 ? info.wProductType : null;
-    }
-
     private static long? ReadInstalledMemoryBytes() =>
         GetPhysicallyInstalledSystemMemory(out long kilobytes) && kilobytes > 0 ? kilobytes * 1024 : null;
 
@@ -327,26 +321,6 @@ internal static class Windows11Eligibility
         public ushort wProcessorLevel;
         public ushort wProcessorRevision;
     }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct OSVERSIONINFOEXW
-    {
-        public int dwOSVersionInfoSize;
-        public int dwMajorVersion;
-        public int dwMinorVersion;
-        public int dwBuildNumber;
-        public int dwPlatformId;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
-        public string szCSDVersion;
-        public ushort wServicePackMajor;
-        public ushort wServicePackMinor;
-        public ushort wSuiteMask;
-        public byte wProductType;
-        public byte wReserved;
-    }
-
-    [DllImport("ntdll.dll")]
-    private static extern int RtlGetVersion(ref OSVERSIONINFOEXW versionInformation);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct TPM_DEVICE_INFO

@@ -2646,9 +2646,11 @@ public partial class MainWindow : Window
         });
     }
     private string _osSupportDetails = "";
+    private string _osSupportReferenceUrl = WindowsSupportReader.ClientReferenceUrl;
     private void RefreshOsSupportStatus()
     {
         var info = WindowsSupportReader.Read();
+        _osSupportReferenceUrl = info.ReferenceUrl;
         OsVersionLabel.Text = info.Name;
         OsSupportIcon.Text = info.Status switch { "supported" => "✔", "expired" => "✖", _ => "⚠" };
         OsSupportIcon.Foreground = new System.Windows.Media.SolidColorBrush(
@@ -2661,7 +2663,7 @@ public partial class MainWindow : Window
     }
     private void OsSupportInfo_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new OsSupportInfoDialog(_osSupportDetails, _schedule.Language == "no") { Owner = this };
+        var dlg = new OsSupportInfoDialog(_osSupportDetails, _schedule.Language == "no", _osSupportReferenceUrl) { Owner = this };
         dlg.ShowDialog();
     }
 

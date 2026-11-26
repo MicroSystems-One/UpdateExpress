@@ -12,20 +12,23 @@ public partial class OsSupportInfoDialog : Window
         "https://learn.microsoft.com/windows/release-health/supported-versions-windows-client";
 
     private readonly bool _norwegian;
+    private readonly string _referenceUrl;
     private DispatcherTimer? _copyFeedbackTimer;
 
-    public OsSupportInfoDialog(string details, bool norwegian = true)
+    /// <param name="referenceUrl">The lifecycle page to link to; the Windows client page when left out.</param>
+    public OsSupportInfoDialog(string details, bool norwegian = true, string? referenceUrl = null)
     {
         InitializeComponent();
         _norwegian = norwegian;
+        _referenceUrl = string.IsNullOrWhiteSpace(referenceUrl) ? ReferenceUrl : referenceUrl;
         DetailsText.Text = details?.Trim() ?? "";
         ReferenceLabel.Text = norwegian ? "Referanse:" : "Reference:";
         CopyButton.Content = norwegian ? "Kopier" : "Copy";
         CopyButton.ToolTip = norwegian ? "Kopier lenken" : "Copy the link";
         System.Windows.Automation.AutomationProperties.SetName(
             CopyButton, norwegian ? "Kopier" : "Copy");
-        ReferenceLink.NavigateUri = new Uri(ReferenceUrl);
-        ReferenceLinkText.Text = ReferenceUrl;
+        ReferenceLink.NavigateUri = new Uri(_referenceUrl);
+        ReferenceLinkText.Text = _referenceUrl;
     }
 
     private void ReferenceLink_RequestNavigate(object sender, RequestNavigateEventArgs e)
@@ -45,7 +48,7 @@ public partial class OsSupportInfoDialog : Window
     {
         try
         {
-            System.Windows.Clipboard.SetDataObject(ReferenceUrl, true);
+            System.Windows.Clipboard.SetDataObject(_referenceUrl, true);
             CopyFeedback.Text = _norwegian ? "Kopiert!" : "Copied!";
             CopyFeedback.Visibility = Visibility.Visible;
             _copyFeedbackTimer?.Stop();
