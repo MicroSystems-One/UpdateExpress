@@ -21,11 +21,15 @@ internal sealed class TrayAgent : IDisposable
     private SettingsWindow? _settings;
     private readonly System.Threading.Timer _timer;
     private readonly System.Threading.Timer _defenderTimer;
+    private readonly System.Threading.Timer _reminderTimer;
+    private readonly System.Threading.Timer _rebootNoticeTimer;
     private readonly System.Windows.Threading.Dispatcher _dispatcher;
     private readonly string _baselinePath = Path.Combine(InstallationManager.InstallDir, "monitor-initialized.flag");
     private readonly string _statePath = Path.Combine(InstallationManager.InstallDir, "monitor-state.txt");
     private readonly string _statusPath = Path.Combine(InstallationManager.InstallDir, "monitor-status.json");
     private DateTime _nextScheduled = DateTime.Now.AddMinutes(5);
+    private DateTime? _lastSharedNoticeBalloonAt;
+    private string? _lastSharedNoticeKey;
     private bool _disposed;
     private int _scanRunning;
 
@@ -78,17 +82,51 @@ internal sealed class TrayAgent : IDisposable
             _ = CriticalAutomation.RunDueJobAsync(_dispatcher);
             _ = GeneralAutomation.RunDueJobAsync(_dispatcher);
             _ = DriverAutomation.RunDueJobAsync(_dispatcher);
+            try { ApplicationAutomation.TryResumeAfterReboot(); }
+            catch (Exception ex) { AgentLog.Write("Applications resume poll failed: " + ex.Message); }
             _ = ApplicationAutomation.RunDueJobAsync(_dispatcher);
             try { _dispatcher.BeginInvoke(new Action(() => RebootCoordinator.RunDueJob(allowUiPrompt: true))); }
             catch (Exception ex) { AgentLog.Write("Deferred reboot poll failed: " + ex.Message); }
             try { UpdateUntilCurrent.TryLaunchResume(); }
             catch (Exception ex) { AgentLog.Write("Update-until-current resume poll failed: " + ex.Message); }
+            try { _ = UnattendedUntilClear.TryContinueClearingAsync(_dispatcher); }
+            catch (Exception ex) { AgentLog.Write("Unattended until-clear continue failed: " + ex.Message); }
+            try { UnattendedUntilClear.TryShowPendingResult(_dispatcher); }
+            catch (Exception ex) { AgentLog.Write("Unattended until-clear result poll failed: " + ex.Message); }
+            try { MaybeBalloonSharedSchedule(); }
+            catch (Exception ex) { AgentLog.Write("Shared schedule notice poll failed: " + ex.Message); }
             try { RmmStatusExport.WriteBestEffort("tray-poll"); }
             catch (Exception ex) { AgentLog.Write("RMM status export failed: " + ex.Message); }
         }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
+        // Påminnelse while Main UI is closed (Main owns the timer when open).
+        _reminderTimer = new System.Threading.Timer(
+            _ =>
+            {
+                try { MaintenanceReminderHost.CheckFromTray(_dispatcher); }
+                catch (Exception ex) { AgentLog.Write("Tray reminder poll failed: " + ex.Message); }
+            },
+            null,
+            TimeSpan.FromSeconds(20),
+            TimeSpan.FromSeconds(30));
+        // A due restart must reach the user as the Update Express notice before the session-0
+        // service falls back to the bare Windows countdown (RebootCoordinator.ServiceGrace),
+        // so this cannot wait for the 5-minute poll above.
+        _rebootNoticeTimer = new System.Threading.Timer(
+            _ =>
+            {
+                try
+                {
+                    if (RebootCoordinator.IsPendingDue())
+                        _dispatcher.BeginInvoke(new Action(() => RebootCoordinator.RunDueJob(allowUiPrompt: true)));
+                }
+                catch (Exception ex) { AgentLog.Write("Restart notice poll failed: " + ex.Message); }
+            },
+            null,
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(5));
         WriteMonitorStatus("waiting", 0, 0, null, null);
         try { RmmStatusExport.WriteBestEffort("tray-start", force: true); } catch { /* ignore */ }
-        AgentLog.Write($"Tray agent started; WUA monitor every {monitorInterval.TotalHours:0.##}h; Defender+Critical+General+Drivers+Apps+reboot poll every 5m.");
+        AgentLog.Write($"Tray agent started; WUA monitor every {monitorInterval.TotalHours:0.##}h; Defender+Critical+General+Drivers+Apps+reboot poll every 5m; Påminnelse poll every 30s when Main UI closed.");
         _ = Task.Run(async () =>
         {
             try
@@ -100,16 +138,23 @@ internal sealed class TrayAgent : IDisposable
                     try
                     {
                         if (_disposed) return;
+                        if (ApplicationAutomation.TryResumeAfterReboot())
+                            ShowAppBalloon(
+                                "Application updates",
+                                "Remaining app installs continue after the restart. Approve the administrator prompt.",
+                                ToolTipIcon.Info);
                         if (UpdateUntilCurrent.TryLaunchResume())
                             ShowAppBalloon(
                                 "Update until current",
                                 "The cycle continues after the restart. Approve the administrator prompt.",
                                 ToolTipIcon.Info);
+                        _ = UnattendedUntilClear.TryContinueClearingAsync(_dispatcher);
+                        UnattendedUntilClear.TryShowPendingResult(_dispatcher);
                     }
-                    catch (Exception ex) { AgentLog.Write("Update until current resume failed: " + ex.Message); }
+                    catch (Exception ex) { AgentLog.Write("Post-reboot resume failed: " + ex.Message); }
                 }));
             }
-            catch (Exception ex) { AgentLog.Write("Update until current resume failed: " + ex.Message); }
+            catch (Exception ex) { AgentLog.Write("Post-reboot resume failed: " + ex.Message); }
         });
         // After sign-in / agent start: quiet Update Express self-update check (prompt only if newer).
         _ = Task.Run(async () =>
@@ -267,6 +312,34 @@ internal sealed class TrayAgent : IDisposable
         catch (Exception ex) { AgentLog.Write("Cannot show app-update balloon: " + ex.Message); }
     }
 
+    /// <summary>
+    /// Any interactive user session can see Install-at / unattended schedule notices
+    /// published to ProgramData (not only the user who confirmed).
+    /// </summary>
+    private void MaybeBalloonSharedSchedule()
+    {
+        var notice = AutomationStatePaths.LoadSharedScheduleNotice();
+        if (notice is null) return;
+        // Only toast when approaching or overdue (within 2h before → 6h after).
+        if (notice.ScheduledAt > DateTime.Now.AddHours(2)) return;
+        if (notice.ScheduledAt < DateTime.Now.AddHours(-6)) return;
+
+        string key = $"{notice.Category}|{notice.ScheduledAt:O}|{notice.PublishedBy}";
+        if (string.Equals(_lastSharedNoticeKey, key, StringComparison.Ordinal) &&
+            _lastSharedNoticeBalloonAt is DateTime last &&
+            DateTime.Now - last < TimeSpan.FromHours(2))
+            return;
+
+        bool norwegian = AppLanguage.IsNorwegian;
+        string title = norwegian ? "Update Express – Planlagt installasjon" : "Update Express – Scheduled install";
+        string text = norwegian
+            ? $"{notice.Category}: installasjon kl. {notice.ScheduledAt:dd.MM HH:mm}. {(string.IsNullOrWhiteSpace(notice.Detail) ? "Lagre arbeidet før du går." : notice.Detail)}"
+            : $"{notice.Category}: install at {notice.ScheduledAt:dd.MM HH:mm}. {(string.IsNullOrWhiteSpace(notice.Detail) ? "Save your work before you leave." : notice.Detail)}";
+        ShowAppBalloon(title, text, ToolTipIcon.Info);
+        _lastSharedNoticeKey = key;
+        _lastSharedNoticeBalloonAt = DateTime.Now;
+    }
+
     private void SetAppUpdateMenuEnabled(bool enabled)
     {
         try
@@ -396,6 +469,8 @@ internal sealed class TrayAgent : IDisposable
         _disposed = true;
         _timer.Dispose();
         _defenderTimer.Dispose();
+        _reminderTimer.Dispose();
+        _rebootNoticeTimer.Dispose();
         AgentLog.Write("Agent stopped.");
         _tray.Visible = false;
         _tray.Dispose();

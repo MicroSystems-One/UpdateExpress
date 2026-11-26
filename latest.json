@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.26",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.26/UpdateExpress_v0.7.2.26.exe",
-  "sha256": "1977d6c968c309fd4c698c560401b3ca7e1825d8d4492c48d1b5eceaa7700a03",
-  "publishedAt": "2026-11-16T17:31:19Z",
-  "releaseNotes": "Align chevrons; Results gap/Check 32/header swap. Tip 2c7e801."
+  "version": "0.7.2.61",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.61/UpdateExpress_v0.7.2.61.exe",
+  "sha256": "b11a95a2d14ab6c428efd97d0ec788d8cf93fd7dd54b7aa91d8ed5d34243ef6f",
+  "publishedAt": "2026-11-25T23:22:45Z",
+  "releaseNotes": "Scheduled restart still found after the queue files are cleared (pending-reboot.json in shared-directory discovery); failed OEM install ends as one History row (#148 507b95e) on 0.7.2.60. Tip 6803102. Keep 0.7.2.60 for rollback."
 }

@@ -50,17 +50,29 @@
           </DataGridTemplateColumn>
         </DataGrid.Columns>
       </DataGrid>
-      <Grid Grid.Row="3" Height="27" MinHeight="27" MaxHeight="27" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Grid Grid.Row="3" MinHeight="27" HorizontalAlignment="Right" Margin="0,12,0,0">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="100"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="8"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="8"/>
+          <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="8"/>
           <ColumnDefinition Width="90"/>
         </Grid.ColumnDefinitions>
-        <Button x:Name="FixSelectedButton" Grid.Column="0" Content="Fix it"
+        <Button x:Name="ClearUnresolvedButton" Grid.Column="0" Content="Clear Unresolved"
+                Height="27" MinHeight="27" MaxHeight="27" Padding="10,0"
+                VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                Click="ClearUnresolved_Click" IsEnabled="False" Visibility="Collapsed"/>
+        <Button x:Name="HideFromFutureButton" Grid.Column="2" Content="Hide from future updates"
+                Height="27" MinHeight="27" MaxHeight="27" Padding="10,0"
+                VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                Click="HideFromFuture_Click" IsEnabled="False" Visibility="Collapsed"/>
+        <Button x:Name="FixSelectedButton" Grid.Column="4" Content="Fix it"
                 Height="27" MinHeight="27" MaxHeight="27" Padding="10,0"
                 VerticalAlignment="Stretch" VerticalContentAlignment="Center"
                 Click="FixSelected_Click" IsEnabled="False"/>
-        <Button x:Name="CloseButton" Grid.Column="2" Content="Close"
+        <Button x:Name="CloseButton" Grid.Column="6" Content="Close"
                 Height="27" MinHeight="27" MaxHeight="27" Padding="10,0"
                 VerticalAlignment="Stretch" VerticalContentAlignment="Center"
                 IsCancel="True" Click="Close_Click"/>

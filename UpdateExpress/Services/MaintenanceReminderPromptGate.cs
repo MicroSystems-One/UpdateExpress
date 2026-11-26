@@ -5,17 +5,24 @@ using System.Threading;
 namespace UpdateExpress.Services;
 
 /// <summary>
-/// Keeps Påminnelse as the single startup prompt when a maintenance reminder is due
-/// for pending updates: suppress Applications/Windows/Drivers "updates ready" dialogs
-/// in the same Main UI session for that due window.
+/// Cross-process coordination for Påminnelse:
+/// - MainUi session: while MainWindow is open, tray skips new reminder checks.
+/// - ReminderPrompt: while any process shows ReminderDialog, the other must not open another.
+/// - Updates-ready prompts: while MainWindow is open and a Påminnelse is due today, the tray
+///   skips the Applications/Windows/Drivers "updates ready" dialogs so Påminnelse is the only prompt.
 /// </summary>
 internal static class MaintenanceReminderPromptGate
 {
     private const string MainUiMutexName = @"Local\MicroSystems.UpdateExpress.MainUi";
+    private const string ReminderPromptMutexName = @"Local\MicroSystems.UpdateExpress.ReminderPrompt";
+
     private static Mutex? _mainUiMutex;
     private static bool _ownsMainUiMutex;
 
-    /// <summary>Call from MainWindow construction so tray automation can detect an open UI session.</summary>
+    private static Mutex? _reminderPromptMutex;
+    private static bool _ownsReminderPrompt;
+
+    /// <summary>Call from MainWindow construction so tray can detect an open UI session.</summary>
     internal static void RegisterMainUiSession()
     {
         if (_mainUiMutex is not null) return;
@@ -38,7 +45,7 @@ internal static class MaintenanceReminderPromptGate
         }
     }
 
-    /// <summary>Call from MainWindow close so tray can resume category update-ready prompts.</summary>
+    /// <summary>Call from MainWindow close so tray can resume presenting Påminnelse.</summary>
     internal static void UnregisterMainUiSession()
     {
         if (_mainUiMutex is null) return;
@@ -64,10 +71,74 @@ internal static class MaintenanceReminderPromptGate
     internal static bool IsMainUiSessionActive()
     {
         if (_ownsMainUiMutex) return true;
+        return IsMutexHeldByOther(MainUiMutexName);
+    }
+
+    /// <summary>
+    /// Claim exclusive ownership of the live Påminnelse dialog (cross-process).
+    /// Re-entrant in the same process (refresh / nested checks).
+    /// </summary>
+    internal static bool TryEnterReminderPrompt()
+    {
+        if (_ownsReminderPrompt) return true;
+        try
+        {
+            _reminderPromptMutex = new Mutex(false, ReminderPromptMutexName);
+            bool owned;
+            try { owned = _reminderPromptMutex.WaitOne(0); }
+            catch (AbandonedMutexException) { owned = true; }
+            if (!owned)
+            {
+                try { _reminderPromptMutex.Dispose(); } catch { /* ignore */ }
+                _reminderPromptMutex = null;
+                return false;
+            }
+            _ownsReminderPrompt = true;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Reminder prompt enter failed: " + ex.Message);
+            try { _reminderPromptMutex?.Dispose(); } catch { /* ignore */ }
+            _reminderPromptMutex = null;
+            _ownsReminderPrompt = false;
+            return false;
+        }
+    }
+
+    /// <summary>Release after ShowDialog returns (or if presentation is aborted).</summary>
+    internal static void ReleaseReminderPrompt()
+    {
+        if (!_ownsReminderPrompt || _reminderPromptMutex is null) return;
+        try
+        {
+            try { _reminderPromptMutex.ReleaseMutex(); } catch { /* ignore */ }
+            _reminderPromptMutex.Dispose();
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Reminder prompt release failed: " + ex.Message);
+        }
+        finally
+        {
+            _reminderPromptMutex = null;
+            _ownsReminderPrompt = false;
+        }
+    }
+
+    /// <summary>True when another process currently owns the live Påminnelse dialog.</summary>
+    internal static bool IsReminderPromptHeldElsewhere()
+    {
+        if (_ownsReminderPrompt) return false;
+        return IsMutexHeldByOther(ReminderPromptMutexName);
+    }
+
+    private static bool IsMutexHeldByOther(string name)
+    {
         Mutex? probe = null;
         try
         {
-            probe = new Mutex(false, MainUiMutexName);
+            probe = new Mutex(false, name);
             bool owned;
             try { owned = probe.WaitOne(0); }
             catch (AbandonedMutexException) { owned = true; }
@@ -89,34 +160,39 @@ internal static class MaintenanceReminderPromptGate
     }
 
     /// <summary>
-    /// True when the Main UI is open and a maintenance Påminnelse is due today for pending
-    /// updates (caller is about to show a category updates-ready dialog, so pending exists).
-    /// Leave category prompt state unchanged; re-present after the due window ends.
+    /// True when the Main UI is open and a maintenance Påminnelse is due today (the caller is
+    /// about to show a category updates-ready dialog, so pending updates exist).
+    /// The caller leaves the category prompt state unchanged, so the prompt comes back once
+    /// the due window ends or the Main UI closes.
     /// </summary>
     internal static bool ShouldSuppressCategoryUpdateReadyPrompt(DateTime? now = null)
     {
-        var at = now ?? DateTime.Now;
         if (!IsMainUiSessionActive()) return false;
-        return IsMaintenanceReminderDueForPending(at);
+        return IsMaintenanceReminderDueForPending(now ?? DateTime.Now);
     }
 
-    /// <summary>
-    /// Schedule window aligned with <c>MainWindow.CheckReminder</c> when pending updates exist:
-    /// reminders enabled, today is a reminder day, an effective reminder slot is active
-    /// (at/after scheduled clock, including half-hour rolls), not confirmed today.
-    /// Snooze does not clear suppression — Påminnelse already covers this pending set for the session.
-    /// </summary>
     internal static bool IsMaintenanceReminderDueForPending(DateTime now)
     {
         var schedule = ReminderSchedule.Load();
+        var policy = UpdatePolicy.Load();
+        policy.Normalize();
+        return IsReminderDueWindow(schedule, policy.InstallDaysMask, now);
+    }
+
+    /// <summary>
+    /// Same day and slot rules as <c>MainWindow.CheckReminder</c>: reminders enabled, today is a
+    /// reminder day, the scheduled time has passed and a half-hour slot is still left today,
+    /// and today is not confirmed. A snooze or Lukk does not end the window: Påminnelse comes
+    /// back at the next half hour and keeps covering the same pending updates.
+    /// </summary>
+    internal static bool IsReminderDueWindow(ReminderSchedule schedule, int installDaysMask, DateTime now)
+    {
         if (!schedule.Enabled) return false;
 
         if (schedule.ConfirmedOccurrence is DateTime confirmed && confirmed.Date == now.Date)
             return false;
 
-        var policy = UpdatePolicy.Load();
-        policy.Normalize();
-        int mask = MaintenanceSetup.ClampMask(policy.InstallDaysMask);
+        int mask = MaintenanceSetup.ClampMask(installDaysMask);
         int todayIndex = MaintenanceSetup.TodayMondayBased(now);
         if (mask != 0)
         {
@@ -128,13 +204,6 @@ internal static class MaintenanceReminderPromptGate
         if (!TimeSpan.TryParseExact(schedule.Time, @"hh\:mm", CultureInfo.InvariantCulture, out var at))
             return false;
 
-        // Same slot rule as CheckReminder: null before due; after due includes half-hour rolls until midnight.
-        if (ReminderSchedule.EffectiveReminderSlot(now, at) is null)
-            return false;
-
-        // Due window for today: from scheduled time until confirm or next calendar day.
-        // (If user already dismissed/snoozed, LastPromptedOccurrence may block another Påminnelse,
-        // but category updates-ready stays suppressed for this same pending set.)
-        return true;
+        return ReminderSchedule.EffectiveReminderSlot(now, at) is not null;
     }
 }
