@@ -94,6 +94,58 @@ internal sealed class CategoryPromptState
             .ToList();
     }
 
+    private static readonly string[] WindowsUpdateCategories = { "critical", "general", "drivers" };
+
+    /// <summary>
+    /// Drop from the Windows Update queues what a Windows Update scan no longer offers.
+    /// Only for a scan at least as wide as the tray's own (<c>AdvancedPending</c>), so an
+    /// update missing from it is really gone.
+    /// </summary>
+    internal static void KeepOnlyOfferedInWindowsQueues(IEnumerable<string> offeredUpdateIds)
+    {
+        var offered = new HashSet<string>(offeredUpdateIds, StringComparer.OrdinalIgnoreCase);
+        RemoveFromWindowsQueues(item => !offered.Contains(item.UpdateId));
+    }
+
+    /// <summary>
+    /// Drop from the Windows Update queues what was just installed. Windows Update can keep
+    /// offering an installed update for a while, so the scan alone does not remove it.
+    /// </summary>
+    internal static void RemoveInstalledFromWindowsQueues(IEnumerable<string> installedUpdateIds)
+    {
+        var installed = new HashSet<string>(installedUpdateIds, StringComparer.OrdinalIgnoreCase);
+        if (installed.Count == 0) return;
+        RemoveFromWindowsQueues(item => installed.Contains(item.UpdateId));
+    }
+
+    private static void RemoveFromWindowsQueues(Func<PromptUpdateItem, bool> gone)
+    {
+        foreach (string category in WindowsUpdateCategories)
+        {
+            try
+            {
+                var prompt = Load(category);
+                if (!prompt.RemoveUpdates(gone)) continue;
+                if (prompt.Updates.Count == 0) Clear(category);
+                else prompt.Save();
+            }
+            catch { /* queue reconcile is best-effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Remove the matching updates and report whether any were removed. An update without an
+    /// ID cannot be matched and stays; a queue the elevated installer is working on is left alone.
+    /// </summary>
+    internal bool RemoveUpdates(Func<PromptUpdateItem, bool> gone)
+    {
+        if (string.Equals(State, "installing", StringComparison.OrdinalIgnoreCase)) return false;
+        var kept = Updates.Where(item => string.IsNullOrWhiteSpace(item.UpdateId) || !gone(item)).ToList();
+        if (kept.Count == Updates.Count) return false;
+        Updates = kept;
+        return true;
+    }
+
     /// <summary>
     /// Load prompt state and recover abandoned "installing" after helper crash / reboot.
     /// Applications keep an installing + remaining-queue marker so resume can relaunch

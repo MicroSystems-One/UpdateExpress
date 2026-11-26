@@ -72,4 +72,56 @@ public class CategoryPromptWaitingTests
         Assert.Equal(new[] { "a", "c", "", "" }, rest.Select(i => i.UpdateId));
         Assert.Equal(new[] { "No id 1", "No id 2" }, rest.Where(i => i.UpdateId == "").Select(i => i.Title));
     }
+
+    [Fact]
+    public void RemoveUpdates_DropsTheMatchingUpdatesAndReportsTheChange()
+    {
+        var prompt = Prompt("awaitingPrompt", null, Item("a"), Item("b"), Item("c"));
+
+        Assert.True(prompt.RemoveUpdates(item => item.UpdateId is "a" or "c"));
+
+        Assert.Equal(new[] { "b" }, prompt.Updates.Select(i => i.UpdateId));
+        Assert.True(prompt.IsWaitingForUser(Now));
+    }
+
+    [Fact]
+    public void RemoveUpdates_WhenEveryUpdateIsGone_NothingIsWaiting()
+    {
+        var prompt = Prompt("awaitingPrompt", null, Item("a"), Item("b"));
+
+        Assert.True(prompt.RemoveUpdates(_ => true));
+
+        Assert.Empty(prompt.Updates);
+        Assert.False(prompt.IsWaitingForUser(Now));
+    }
+
+    [Fact]
+    public void RemoveUpdates_WithNoMatch_ReportsNoChange()
+    {
+        var prompt = Prompt("awaitingPrompt", null, Item("a"));
+
+        Assert.False(prompt.RemoveUpdates(item => item.UpdateId == "x"));
+
+        Assert.Single(prompt.Updates);
+    }
+
+    [Fact]
+    public void RemoveUpdates_KeepsAnUpdateWithoutId()
+    {
+        var prompt = Prompt("awaitingPrompt", null, Item("", "No id"), Item("a"));
+
+        Assert.True(prompt.RemoveUpdates(_ => true));
+
+        Assert.Equal(new[] { "No id" }, prompt.Updates.Select(i => i.Title));
+    }
+
+    [Fact]
+    public void RemoveUpdates_LeavesAQueueThatIsInstalling()
+    {
+        var prompt = Prompt("installing", null, Item("a"));
+
+        Assert.False(prompt.RemoveUpdates(_ => true));
+
+        Assert.Single(prompt.Updates);
+    }
 }
