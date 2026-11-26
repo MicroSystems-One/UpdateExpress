@@ -10,7 +10,9 @@ namespace UpdateExpress.Services;
 
 /// <summary>
 /// Phase 2a: download a published package to temp, verify SHA-256, then hand off to the
-/// detached maintenance helper. Never writes the package into the install directory first.
+/// detached maintenance helper. The verified package stays under the temp update root until
+/// the helper copies it over UpdateExpress.exe; the helper itself is staged under the
+/// install directory when possible (App Control / WDAC often blocks unsigned Temp launches).
 /// </summary>
 internal static class AppUpdateInstaller
 {

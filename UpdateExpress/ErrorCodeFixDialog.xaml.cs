@@ -50,7 +50,7 @@ public partial class ErrorCodeFixDialog : Window
                 ? "Windows tilbyr ikke denne oppdateringen nå. Den er allerede installert, eller den er ikke tilgjengelig for denne PC-en."
                 : "Windows is not offering this update now. It is already installed, or it is not available for this PC.");
         ContextText.Text =
-            $"Update: {entry.Title}\nKB: {(string.IsNullOrWhiteSpace(entry.KB) ? "—" : entry.KB)}\nStatus: {entry.Status}\n\n{offer}";
+            $"Update: {entry.Title}\nKB: {(string.IsNullOrWhiteSpace(entry.KB) ? "—" : entry.KB)}\nStatus: {HistoryStatusDisplay.Format(entry.Status, norwegian)}\n\n{offer}";
 
         if (!string.IsNullOrWhiteSpace(_info.LearnMoreUrl) &&
             Uri.TryCreate(_info.LearnMoreUrl, UriKind.Absolute, out var uri))
