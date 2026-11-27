@@ -210,6 +210,10 @@ public class AntivirusReaderTests
             if (_locked.Contains(key)) throw new System.Security.SecurityException("Requested registry access is not allowed.");
             return _values.TryGetValue(key + "|" + name, out int value) ? value : null;
         }
+
+        public string? ReadText(string key, string name) => throw new NotSupportedException();
+        public IReadOnlyList<string>? ValueNames(string key) => throw new NotSupportedException();
+        public int? CountLines(string key, string name) => throw new NotSupportedException();
     }
 
     [Fact]

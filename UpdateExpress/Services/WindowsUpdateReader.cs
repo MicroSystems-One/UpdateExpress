@@ -53,6 +53,34 @@ public static class WindowsUpdateReader
             return "Versjonsoppgradering";
         return "Programvare / sikkerhet";
     }
+    /// <summary>
+    /// The id Windows Update gives the classification "Security Updates". The name of a
+    /// classification follows the display language; the id does not.
+    /// </summary>
+    internal const string SecurityUpdatesClassificationId = "0FA1201D-4330-4FA8-8AE9-B877473B6441";
+
+    internal static bool IsSecurityClassificationId(string? id) =>
+        string.Equals((id ?? "").Trim().Trim('{', '}'), SecurityUpdatesClassificationId, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True when Windows Update itself calls the update a security update: by its
+    /// classification, or by an MSRC severity. The title is never used.
+    /// </summary>
+    private static bool IsSecurityClassified(dynamic update)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(Convert.ToString(update.MsrcSeverity))) return true;
+        }
+        catch { }
+        try
+        {
+            foreach (var item in update.Categories)
+                if (IsSecurityClassificationId(Convert.ToString(item.CategoryID))) return true;
+        }
+        catch { }
+        return false;
+    }
     private static bool IsFirmwareUpdate(dynamic update)
     {
         string title = Convert.ToString(update.Title) ?? "";
@@ -178,6 +206,7 @@ public static class WindowsUpdateReader
                     Status = "Tilgjengelig", Source = "WUA / " + kind,
                     UpdateId = Convert.ToString(u.Identity.UpdateID) ?? "",
                     SafeDefault = category == "Programvare / sikkerhet",
+                    IsSecurityUpdate = kind == "Software" && IsSecurityClassified(u),
                     DriverAssigned = assignedDriver,
                     DriverClassification = kind != "Driver" ? "" : firmware ? "Firmware" : assignedDriver ? "Recommended" : "Optional",
                     DriverVersionFromWua = kind == "Driver" ? DriverField(u, "DriverVersion") : "",

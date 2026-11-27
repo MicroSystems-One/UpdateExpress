@@ -1682,6 +1682,8 @@ public partial class MainWindow : Window
         _pendingSnapshot.Clear();
         foreach (var item in items) _pendingSnapshot.Add(item);
         _pendingSnapshotAt = _pendingSnapshot.Count == 0 ? null : DateTime.Now;
+        // Every caller passes the result of a finished Windows Update search.
+        UpdateExpress.Services.Security.WindowsUpdateSearchMemory.Record(_pendingSnapshot, DateTimeOffset.Now);
         RefreshFeatureUpdateButton();
     }
 
@@ -2468,6 +2470,13 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // Rows leave the pending list as their updates are installed; the Security Overview's
+        // count of waiting security updates follows, with the time of the search kept.
+        _pendingSnapshot.CollectionChanged += (_, change) =>
+        {
+            if (change.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove && change.OldItems is not null)
+                UpdateExpress.Services.Security.WindowsUpdateSearchMemory.Remove(change.OldItems.OfType<UpdateEntry>());
+        };
         // First paint: Results starts collapsed — force Auto row (Collapsed event does not run at init).
         ApplyResultsRowLayout();
         HeaderGrid.LayoutUpdated += (_, _) => UpdateThisPcLabelVisibility();
@@ -3868,14 +3877,17 @@ public partial class MainWindow : Window
             StatusText.Text = "Reloading history after Windows Update fix…";
             if (scanCompleted)
             {
-                var pending = HistoryArchive.CopyPendingEntries() ?? new List<UpdateEntry>();
-                ReplacePendingSnapshot(pending);
+                var stored = HistoryArchive.CopyPendingEntries();
+                ReplacePendingSnapshot(stored ?? new List<UpdateEntry>());
+                // An empty list that stands for "no stored scan" is not a search that found nothing.
+                if (stored is null) UpdateExpress.Services.Security.WindowsUpdateSearchMemory.Forget();
                 _lastSuccessfulScan = DateTime.Now;
             }
             else if (replacedUpdateCache)
             {
                 _pendingSnapshot.Clear();
                 _pendingSnapshotAt = null;
+                UpdateExpress.Services.Security.WindowsUpdateSearchMemory.Forget();
                 RefreshFeatureUpdateButton();
             }
             var history = await WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);
@@ -4377,6 +4389,7 @@ public partial class MainWindow : Window
                         abandonOnTimeout: true);
                     outstandingWork.Remove(pendingTask);
                     ReconcileWindowsPromptsWithScan(pending);
+                    UpdateExpress.Services.Security.WindowsUpdateSearchMemory.Learn(pending, DateTimeOffset.Now);
                     // Keep last search results for display; rescan is only for verification.
                     // Successfully installed rows are pruned below after queue states are resolved.
                     var historyTask = WindowsUpdateReader.RunStaAsync(WindowsUpdateReader.HistoryForDisplay);

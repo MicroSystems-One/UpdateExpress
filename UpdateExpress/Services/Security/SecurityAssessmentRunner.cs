@@ -12,7 +12,11 @@ internal static class SecurityCheckProviders
     internal static IReadOnlyList<ISecurityCheckProvider> Create() => new ISecurityCheckProvider[]
     {
         new FirewallProfileCheckProvider(),
-        new AntivirusCheckProvider()
+        new AntivirusCheckProvider(),
+        new DeviceSecurityCheckProvider(),
+        new AutoLogonCheckProvider(),
+        new InstalledSecurityUpdateCheckProvider(),
+        new WindowsServicingCheckProvider()
     };
 }
 
