@@ -15,7 +15,67 @@ internal static class SecurityOverviewStrings
     internal const string Title = "Security Overview";
     internal const string HonestyLine = "Assessment snapshot – not a security certification.";
 
+    /// <summary>Texts of the window and of the status shield in the main window's header.</summary>
+    internal static class Ui
+    {
+        internal const string LastAssessed = "Last assessed: {0}";
+        internal const string Progress = "Checking… {0} of {1}";
+        internal const string ShownUntilAnswered = "Results from {0} are shown until each check has answered.";
+        internal const string Cancelled = "The assessment was cancelled.";
+        internal const string ShowingAssessmentFrom = "Showing the assessment from {0}.";
+        internal const string EmptyCategory = "No checks in this category in this version.";
+        internal const string ScanAgain = "Scan again";
+        internal const string Cancel = "Cancel";
+        internal const string Close = "Close";
+        internal const string Details = "Details";
+        internal const string DetailsFor = "Details for {0}";
+        internal const string CurrentState = "Current state";
+        internal const string Recommended = "Recommended";
+        internal const string Policy = "Policy";
+        internal const string Checked = "Checked";
+        internal const string NotCheckedYet = "Not checked yet";
+        internal const string Remediation = "Remediation";
+        internal const string RemediationAssessmentOnly = "Assessment only";
+        internal const string RemediationNotInThisVersion = "Not available in this version";
+        internal const string RemediationAvailable = "Available";
+        internal const string Restart = "Restart";
+        internal const string RestartNeeded = "Required";
+        internal const string RestartNotNeeded = "Not required";
+        internal const string WhyItMatters = "Why it matters";
+        internal const string PolicyNote = "About policy";
+        internal const string Finding = "Finding";
+        internal const string TechnicalDetail = "Technical detail";
+        internal const string CheckId = "Check ID";
+        internal const string Severity = "Severity";
+        internal const string SeverityInformational = "Informational";
+        internal const string SeverityLow = "Low";
+        internal const string SeverityMedium = "Medium";
+        internal const string SeverityHigh = "High";
+        internal const string MoreInformation = "More information";
+        internal const string ManualReviewNote = "This finding needs a person to judge it.";
+        internal const string BaselineNote = "The checks and recommendations are Update Express's own selection ({0}). The assessment only reads; it changes nothing on this PC.";
+        internal const string ShieldStatus = "Security Overview status";
+        internal const string ShieldOpen = "Click to open the Security Overview.";
+        internal const string SummaryCards = "Summary";
+        internal const string CategoryFilter = "Category";
+        internal const string CheckList = "Security checks";
+    }
+
     internal static string T(string english) => T(english, AppLanguage.IsNorwegian);
+
+    /// <summary>A text with "{0}" places filled in, in the chosen language.</summary>
+    internal static string Tf(string english, bool norwegian, params object[] values) =>
+        string.Format(CultureInfo.InvariantCulture, T(english, norwegian), values);
+
+    internal static string SeverityEnglish(SecuritySeverity severity) => severity switch
+    {
+        SecuritySeverity.High => Ui.SeverityHigh,
+        SecuritySeverity.Medium => Ui.SeverityMedium,
+        SecuritySeverity.Low => Ui.SeverityLow,
+        _ => Ui.SeverityInformational
+    };
+
+    internal static string Severity(SecuritySeverity severity, bool norwegian) => T(SeverityEnglish(severity), norwegian);
 
     internal static string T(string english, bool norwegian) =>
         norwegian && Norwegian.TryGetValue(english, out var text) ? text : english;
@@ -216,6 +276,88 @@ internal static class SecurityOverviewStrings
         ["No check could confirm protection."] = "Ingen sjekker kunne bekrefte beskyttelse.",
         ["The last assessment is more than {0} days old."] = "Siste vurdering er mer enn {0} dager gammel.",
         ["No check found a problem."] = "Ingen sjekker fant et problem.",
+
+        // Window and header shield
+        [Ui.LastAssessed] = "Sist vurdert: {0}",
+        [Ui.Progress] = "Sjekker… {0} av {1}",
+        [Ui.ShownUntilAnswered] = "Resultatene fra {0} vises til hver sjekk har svart.",
+        [Ui.Cancelled] = "Vurderingen ble avbrutt.",
+        [Ui.ShowingAssessmentFrom] = "Viser vurderingen fra {0}.",
+        [Ui.EmptyCategory] = "Ingen sjekker i denne kategorien i denne versjonen.",
+        [Ui.ScanAgain] = "Skann på nytt",
+        [Ui.Cancel] = "Avbryt",
+        [Ui.Close] = "Lukk",
+        [Ui.Details] = "Detaljer",
+        [Ui.DetailsFor] = "Detaljer for {0}",
+        [Ui.CurrentState] = "Nåværende tilstand",
+        [Ui.Recommended] = "Anbefalt",
+        [Ui.Checked] = "Sjekket",
+        [Ui.NotCheckedYet] = "Ikke sjekket ennå",
+        [Ui.Remediation] = "Utbedring",
+        [Ui.RemediationAssessmentOnly] = "Kun vurdering",
+        [Ui.RemediationNotInThisVersion] = "Ikke tilgjengelig i denne versjonen",
+        [Ui.RemediationAvailable] = "Tilgjengelig",
+        [Ui.Restart] = "Omstart",
+        [Ui.RestartNeeded] = "Kreves",
+        [Ui.RestartNotNeeded] = "Kreves ikke",
+        [Ui.WhyItMatters] = "Hvorfor det betyr noe",
+        [Ui.PolicyNote] = "Om policy",
+        [Ui.Finding] = "Funn",
+        [Ui.TechnicalDetail] = "Teknisk detalj",
+        [Ui.CheckId] = "Sjekk-ID",
+        [Ui.Severity] = "Alvorlighetsgrad",
+        [Ui.SeverityInformational] = "Informasjon",
+        [Ui.SeverityLow] = "Lav",
+        [Ui.SeverityMedium] = "Middels",
+        [Ui.SeverityHigh] = "Høy",
+        [Ui.MoreInformation] = "Mer informasjon",
+        [Ui.ManualReviewNote] = "Dette funnet må vurderes av en person.",
+        [Ui.BaselineNote] = "Sjekkene og anbefalingene er Update Express' eget utvalg ({0}). Vurderingen leser bare; den endrer ingenting på denne PC-en.",
+        [Ui.ShieldStatus] = "Status for sikkerhetsoversikt",
+        [Ui.ShieldOpen] = "Klikk for å åpne sikkerhetsoversikten.",
+        [Ui.SummaryCards] = "Sammendrag",
+        [Ui.CategoryFilter] = "Kategori",
+        [Ui.CheckList] = "Sikkerhetssjekker",
+
+        // Why a value is recommended, and what policy can hold (baseline v1)
+        ["Group Policy or MDM (Windows Defender Firewall profile settings) can hold the profile state."] =
+            "Gruppepolicy eller MDM (profilinnstillinger for Windows Defender-brannmur) kan styre profilens tilstand.",
+        ["Group Policy, MDM or tamper protection can hold Microsoft Defender Antivirus settings; a third-party product manages its own."] =
+            "Gruppepolicy, MDM eller manipuleringsbeskyttelse kan styre innstillingene for Microsoft Defender Antivirus; et tredjepartsprodukt styrer sine egne.",
+        ["Microsoft recommends keeping Windows Firewall on for every network profile, also when another firewall is in use on the network."] =
+            "Microsoft anbefaler å ha Windows-brannmuren på for alle nettverksprofiler, også når en annen brannmur er i bruk i nettverket.",
+        ["A PC needs one antivirus product. Registration shows which product Windows knows of; it does not prove that the product is healthy or up to date."] =
+            "En PC trenger ett antivirusprodukt. Registreringen viser hvilket produkt Windows kjenner til; den beviser ikke at produktet fungerer eller er oppdatert.",
+        ["Antivirus protection that is switched off does not stop known malware. For a third-party product the health cannot be verified from Windows alone and is reported as unknown."] =
+            "Antivirusbeskyttelse som er slått av, stopper ikke kjent skadevare. For et tredjepartsprodukt kan tilstanden ikke bekreftes fra Windows alene, og den rapporteres som ukjent.",
+        ["Without real-time protection malware is found only by a scheduled or manual scan, after it has run."] =
+            "Uten sanntidsbeskyttelse blir skadevare bare funnet av en planlagt eller manuell skanning, etter at den har kjørt.",
+        ["Reported for reference and support. No version is recommended; how fresh the definitions are is judged by UPD-SEC-008."] =
+            "Rapporteres som referanse og for support. Ingen versjon er anbefalt; hvor ferske definisjonene er, vurderes av UPD-SEC-008.",
+        ["Reported for reference and support. The age limit is in UPD-SEC-008."] =
+            "Rapporteres som referanse og for support. Aldersgrensen ligger i UPD-SEC-008.",
+        ["Microsoft Defender Antivirus steps back to passive mode or switches off when another antivirus product is the active one. That is by design and is not a fault."] =
+            "Microsoft Defender Antivirus går over i passiv modus eller slår seg av når et annet antivirusprodukt er det aktive. Det er tilsiktet og er ikke en feil.",
+        ["Secure Boot keeps malware from loading before Windows starts. It is a firmware setting; Update Express reports it and never changes it. A PC that starts in legacy BIOS mode cannot use it and is reported as not supported."] =
+            "Sikker oppstart hindrer skadevare i å lastes før Windows starter. Det er en fastvareinnstilling; Update Express rapporterer den og endrer den aldri. En PC som starter i eldre BIOS-modus kan ikke bruke den, og rapporteres som ikke støttet.",
+        ["A TPM protects encryption keys and sign-in secrets in hardware; BitLocker and Windows Hello build on it. It is hardware or a firmware setting; Update Express reports it and never changes it."] =
+            "En TPM beskytter krypteringsnøkler og påloggingshemmeligheter i maskinvaren; BitLocker og Windows Hello bygger på den. Den er maskinvare eller en fastvareinnstilling; Update Express rapporterer den og endrer den aldri.",
+        ["Microsoft recommends TPM 2.0 over TPM 1.2 for its newer algorithms, and Windows 11 requires it."] =
+            "Microsoft anbefaler TPM 2.0 fremfor TPM 1.2 på grunn av nyere algoritmer, og Windows 11 krever det.",
+        ["With automatic logon anyone who can switch the PC on is signed in, and the classic setup keeps the password readable in the registry. Only whether it is configured is reported; the stored password is never read."] =
+            "Med automatisk pålogging blir alle som kan slå på PC-en logget på, og det klassiske oppsettet lagrer passordet lesbart i registeret. Bare om det er konfigurert rapporteres; det lagrede passordet leses aldri.",
+        ["Microsoft releases Windows security updates monthly, on the second Tuesday. Two releases are at most 35 days apart; 45 days allows ten days to install. The limit of 45 days is Update Express's own."] =
+            "Microsoft gir ut sikkerhetsoppdateringer for Windows hver måned, den andre tirsdagen. Det er høyst 35 dager mellom to utgivelser; 45 dager gir ti dager til å installere. Grensen på 45 dager er Update Express' egen.",
+        ["A security update that is offered and not installed leaves a known weakness open. The result of the last search in Update Express is used; this check does not search again, and without a search it reports unknown."] =
+            "En sikkerhetsoppdatering som tilbys og ikke er installert, lar en kjent svakhet stå åpen. Resultatet av det siste søket i Update Express brukes; denne sjekken søker ikke på nytt, og uten et søk rapporterer den ukjent.",
+        ["Updates that wait for a restart do not protect until the PC has restarted. Update Express's own rule, from the indicators Windows sets."] =
+            "Oppdateringer som venter på omstart, beskytter ikke før PC-en er startet på nytt. Update Express' egen regel, ut fra indikatorene Windows setter.",
+        ["Reported for reference. Whether this release still gets security updates is judged by UPD-SEC-006."] =
+            "Rapporteres som referanse. Om denne versjonen fortsatt får sikkerhetsoppdateringer, vurderes av UPD-SEC-006.",
+        ["A Windows release past its end of servicing gets no security fixes. LTSC editions, releases outside the built-in table and Extended Security Updates cannot be verified here and are reported as unknown, not as supported."] =
+            "En Windows-versjon som har passert slutten på støtteperioden, får ingen sikkerhetsrettinger. LTSC-utgaver, versjoner utenfor den innebygde tabellen og Extended Security Updates kan ikke bekreftes her, og rapporteres som ukjent, ikke som støttet.",
+        ["Microsoft publishes Defender definitions several times a day. Update Express already warns in its header at 2 days and marks 7 days as critical; the same limits are used here."] =
+            "Microsoft publiserer Defender-definisjoner flere ganger om dagen. Update Express varsler allerede i toppfeltet ved 2 dager og markerer 7 dager som kritisk; de samme grensene brukes her.",
 
         // Check names and descriptions (baseline v1)
         ["Windows Firewall – Domain profile"] = "Windows-brannmur – domeneprofil",

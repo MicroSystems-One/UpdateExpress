@@ -17,7 +17,11 @@ internal static class SecurityResultCache
     internal const string FileName = "security-overview.json";
     private const long MaxFileBytes = 2 * 1024 * 1024;
 
-    internal static string DefaultPath => Path.Combine(AgentLog.UserDataDir, FileName);
+    /// <summary>For tests and isolated runs: another file than the signed-in user's own.</summary>
+    internal static string? PathOverride { get; set; }
+
+    internal static string DefaultPath =>
+        string.IsNullOrWhiteSpace(PathOverride) ? Path.Combine(AgentLog.UserDataDir, FileName) : PathOverride;
 
     private static readonly JsonSerializerOptions Json = new()
     {
