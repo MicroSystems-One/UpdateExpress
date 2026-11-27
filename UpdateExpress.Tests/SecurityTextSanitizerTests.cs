@@ -50,11 +50,39 @@ public class SecurityTextSanitizerTests
         Assert.Contains(SecurityTextSanitizer.Redacted, cleaned);
     }
 
+    [Theory]
+    [InlineData("{\"password\":\"hunter2\"}", "hunter2", "{\"password\":[redacted]}")]
+    [InlineData("{\"access_token\":\"eyJhbGciOi\",\"expires\":3600}", "eyJhbGciOi", "{\"access_token\":[redacted],\"expires\":3600}")]
+    [InlineData("{ \"DefaultPassword\" : \"p\\\"q r\" }", "q r", "{ \"DefaultPassword\" : [redacted] }")]
+    [InlineData("{'client_secret': 'abc 123'}", "abc 123", "{'client_secret': [redacted]}")]
+    [InlineData("<DefaultPassword>hunter2</DefaultPassword><User>kiosk</User>", "hunter2", "<DefaultPassword>[redacted]</DefaultPassword><User>kiosk</User>")]
+    [InlineData("<Password xsi:type=\"x\">two words</Password>", "two words", "<Password xsi:type=\"x\">[redacted]</Password>")]
+    public void A_secret_under_a_quoted_name_or_in_an_element_is_removed(string text, string secret, string expected)
+    {
+        string cleaned = SecurityTextSanitizer.Clean(text);
+
+        Assert.DoesNotContain(secret, cleaned);
+        Assert.Equal(expected, cleaned);
+    }
+
     [Fact]
-    public void What_follows_a_removed_value_is_kept()
+    public void What_follows_a_quoted_value_is_kept()
     {
         Assert.Equal("DefaultPassword: [redacted]; DefaultUserName: kiosk",
-            SecurityTextSanitizer.Clean("DefaultPassword: hunter2; DefaultUserName: kiosk"));
+            SecurityTextSanitizer.Clean("DefaultPassword: \"hunter2\"; DefaultUserName: kiosk"));
+    }
+
+    [Theory]
+    [InlineData("DefaultPassword: hunter2; with spaces, and more")]
+    [InlineData("password=ab}cd]ef gh")]
+    [InlineData("Passord: \"never closed; more text")]
+    public void An_unquoted_value_is_removed_to_the_end_of_its_line_and_the_next_line_is_kept(string line)
+    {
+        string cleaned = SecurityTextSanitizer.Clean(line + "\nNext line");
+
+        Assert.EndsWith("[redacted]\nNext line", cleaned);
+        Assert.DoesNotContain("more", cleaned);
+        Assert.DoesNotContain("cd]ef", cleaned);
     }
 
     [Fact]

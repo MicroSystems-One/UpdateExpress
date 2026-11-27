@@ -17,9 +17,21 @@ internal static class SecurityTextSanitizer
     private static readonly Regex RecoveryPassword = new(
         @"\b\d{6}(?:-\d{6}){7}\b", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
-    /// <summary>"password=…", "DefaultPassword: …", "recovery key = …", "token=…" and the like, up to the end of the value.</summary>
+    private const string SecretWord = "(?:password|passwd|pwd|passord|secret|recovery\\s*key|token|credential)";
+
+    /// <summary>
+    /// "password=…", "DefaultPassword: …", "recovery key = …", JSON's "access_token":"…" and the
+    /// like. A value in quotes ends at its closing quote. Any other value goes to the end of its
+    /// line: a password may hold spaces, semicolons and brackets, so nothing shorter is safe.
+    /// </summary>
     private static readonly Regex NamedSecret = new(
-        @"(?<name>\b[\w.-]*(?:password|passwd|pwd|passord|secret|recovery\s*key|token|credential)[\w.-]*\b\s*[:=]\s*)(?<value>""[^""]*""|'[^']*'|[^\s;,]+)",
+        @"(?<name>[""']?\b[\w.-]*" + SecretWord + @"[\w.-]*\b[""']?[ \t]*[:=][ \t]*)" +
+        @"(?<value>""(?:[^""\\\r\n]|\\.)*""|'(?:[^'\\\r\n]|\\.)*'|[^\r\n]+)",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>The same in XML: &lt;Password&gt;…&lt;/Password&gt;.</summary>
+    private static readonly Regex SecretElement = new(
+        @"(?<name><[\w:.-]*" + SecretWord + @"[\w:.-]*(?:\s[^<>]*)?>)(?<value>[^<]+)",
         RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     internal static string Clean(string? text)
@@ -33,6 +45,7 @@ internal static class SecurityTextSanitizer
         string cleaned = builder.ToString().Trim();
         cleaned = RecoveryPassword.Replace(cleaned, Redacted);
         cleaned = NamedSecret.Replace(cleaned, m => m.Groups["name"].Value + Redacted);
+        cleaned = SecretElement.Replace(cleaned, m => m.Groups["name"].Value + Redacted);
         return cleaned.Length > MaxLength ? cleaned[..MaxLength] + "…" : cleaned;
     }
 }
