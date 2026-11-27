@@ -1593,8 +1593,7 @@ public partial class MainWindow : Window
     internal static UpdateEntry ToInstallOutcomeEntry(InstallationQueueItem item)
     {
         string blob = item.State + " " + (item.Tip ?? "");
-        var hr = System.Text.RegularExpressions.Regex.Match(blob, @"0x[0-9A-Fa-f]{8}");
-        string error = hr.Success ? hr.Value : "";
+        string error = WindowsUpdateHResult.BestFromText(blob);
         if (string.IsNullOrWhiteSpace(error) &&
             (item.State.Contains("tech mismatch", StringComparison.OrdinalIgnoreCase)
              || item.State.Contains("teknologi-mismatch", StringComparison.OrdinalIgnoreCase)
@@ -4315,16 +4314,16 @@ public partial class MainWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    string hresult = ex.HResult < 0 ? $" 0x{unchecked((uint)ex.HResult):X8}" : "";
+                    string code = WindowsUpdateHResult.BestFromException(ex);
                     string? tip = null;
-                    if (!string.IsNullOrWhiteSpace(hresult))
+                    if (!string.IsNullOrWhiteSpace(code))
                     {
-                        var info = WindowsUpdateErrorCatalog.Lookup(hresult.Trim());
+                        var info = WindowsUpdateErrorCatalog.Lookup(code);
                         tip = string.IsNullOrWhiteSpace(info.Summary)
-                            ? hresult.Trim()
+                            ? code
                             : $"{info.Code} — {info.Name}. {info.Summary} {info.Guidance}".Trim();
                     }
-                    manager.CompleteItem(idx, "Failed" + hresult, true, tip);
+                    manager.CompleteItem(idx, WindowsUpdateHResult.FormatForFailedState(ex), true, tip);
                     Log("Driver", "Failed", new { d.Title, d.UpdateId, d.DriverHardwareId, Exception = ex.ToString(), InnerException = ex.InnerException?.ToString() });
                     manager.SetStage((norwegian ? "Driver feilet: " : "Driver failed: ") + ex.Message);
                 }

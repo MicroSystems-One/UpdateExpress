@@ -120,8 +120,7 @@ internal static class HistoryArchive
         if (!failed && !completed) return null;
 
         string blob = item.State + " " + (item.Tip ?? "");
-        var hr = Regex.Match(blob, @"0x[0-9A-Fa-f]{8}");
-        string error = hr.Success ? hr.Value : "";
+        string error = WindowsUpdateHResult.BestFromText(blob);
         if (string.IsNullOrWhiteSpace(error) &&
             (item.State.Contains("tech mismatch", StringComparison.OrdinalIgnoreCase)
              || item.State.Contains("teknologi-mismatch", StringComparison.OrdinalIgnoreCase)
