@@ -467,7 +467,7 @@ internal static class SecurityOverviewStrings
         [Ui.WhyItMatters] = "Hvorfor det betyr noe",
         [Ui.PolicyNote] = "Om policy",
         [Ui.Finding] = "Funn",
-        [Ui.TechnicalDetail] = "Teknisk detalj",
+        [Ui.TechnicalDetail] = "Teknisk detalj (på engelsk)",
         [Ui.CheckId] = "Sjekk-ID",
         [Ui.Severity] = "Alvorlighetsgrad",
         [Ui.SeverityInformational] = "Informasjon",

@@ -109,11 +109,13 @@ internal static class WindowsSupportReader
         };
         if (end is null)
             return new(name, version, "unknown", details + "This Windows release or edition is not in the built-in lifecycle table. Verify its support status with Microsoft. No supported-status claim is made.");
+        // The sentence is English, so the month is too, whatever the regional settings are.
+        string endDate = end.Value.ToString("dd MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
         if (today > end.Value)
             return new(name, version, "expired", details +
-                $"Standard security servicing ended on {end.Value:dd MMMM yyyy}. Upgrade to a supported Windows release. Avoid exposing an unpatched device to the internet or handling sensitive data. Special servicing arrangements must be verified separately.");
+                $"Standard security servicing ended on {endDate}. Upgrade to a supported Windows release. Avoid exposing an unpatched device to the internet or handling sensitive data. Special servicing arrangements must be verified separately.");
         return new(name, version, "supported", details +
-            $"Standard Microsoft servicing is scheduled through {end.Value:dd MMMM yyyy}. This does not confirm that security updates are installed or that the device is fully protected.");
+            $"Standard Microsoft servicing is scheduled through {endDate}. This does not confirm that security updates are installed or that the device is fully protected.");
     }
 
     private static Result DescribeServer(OsFacts facts, string version, DateTime today)

@@ -330,6 +330,14 @@ public class SecurityOverviewPresentationTests
     }
 
     [Fact]
+    public void The_Norwegian_label_of_the_technical_detail_says_that_the_text_is_English()
+    {
+        // The detail comes from the check itself and is not translated; the label must not promise otherwise.
+        Assert.Contains("engelsk", SecurityOverviewStrings.T(Ui.TechnicalDetail, norwegian: true));
+        Assert.Equal("Technical detail", SecurityOverviewStrings.T(Ui.TechnicalDetail, norwegian: false));
+    }
+
+    [Fact]
     public void Every_reason_and_policy_note_of_the_baseline_has_a_Norwegian_text()
     {
         foreach (var definition in Baseline.Definitions)

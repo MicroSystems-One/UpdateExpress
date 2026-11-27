@@ -115,7 +115,7 @@ public class InstalledSecurityUpdateCheckProviderTests
         Assert.Equal(SecurityStateCodes.InstalledOn, result.DetectedCode);
         Assert.Equal(DaysAgo(1).ToString("yyyy-MM-dd") + " (KB5132061, KB5132688)", result.DetectedValue);
         Assert.Equal("", result.ReasonCode);
-        Assert.Contains("installed 1 days ago", result.Detail);
+        Assert.Contains("installed 1 day ago.", result.Detail);
         Assert.Contains("4 installed updates, 3 of them as security updates", result.Detail);
     }
 
@@ -190,7 +190,7 @@ public class InstalledSecurityUpdateCheckProviderTests
             new InstalledFix("KB2", "Security Update", null)));
 
         Assert.Equal(Status.Protected, result.Status);
-        Assert.Contains("installed 0 days ago", result.Detail);
+        Assert.Contains("installed today.", result.Detail);
     }
 
     [Fact]

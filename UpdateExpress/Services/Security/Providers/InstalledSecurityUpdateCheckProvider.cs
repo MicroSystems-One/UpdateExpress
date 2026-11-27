@@ -149,7 +149,8 @@ internal sealed class InstalledSecurityUpdateCheckProvider : ISecurityCheckProvi
 
         double warn = Limit(limits, SecurityBaselineV1.WarnAfterDays, DefaultWarnAfterDays);
         double critical = Limit(limits, SecurityBaselineV1.CriticalAfterDays, double.PositiveInfinity);
-        string detail = $"The latest security update was installed {days} days ago. The limit is {warn.ToString("0.#", CultureInfo.InvariantCulture)} days. " + counts;
+        string ago = days == 0 ? "today" : days == 1 ? "1 day ago" : $"{days} days ago";
+        string detail = $"The latest security update was installed {ago}. The limit is {warn.ToString("0.#", CultureInfo.InvariantCulture)} days. " + counts;
 
         if (days <= warn)
             return With(SecurityAssessmentStatus.Protected, SecurityStateCodes.InstalledOn, value, detail: detail);
