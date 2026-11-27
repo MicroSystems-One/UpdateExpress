@@ -93,7 +93,10 @@ public partial class ReminderDialog : Window
         Occurrence = occurrence;
         ShowMissedPreviousDay = showMissedPreviousDay && !isTest;
 
-        var time = Services.ReminderSchedule.Load().Format(occurrence);
+        var schedule = Services.ReminderSchedule.Load();
+        string time = schedule.Format(occurrence);
+        if (!isTest && occurrence.Date == DateTime.Today)
+            time = (norwegian ? "I dag " : "Today ") + schedule.FormatWithoutWeekday(occurrence);
         WhenText.Text = isTest
             ? (norwegian ? "Testvarsel – ingen handling utført" : "Notification test – no action performed")
             : (norwegian ? $"Planlagt tidspunkt: {time}" : $"Scheduled time: {time}");

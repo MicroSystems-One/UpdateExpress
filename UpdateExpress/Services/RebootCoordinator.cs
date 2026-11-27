@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using UpdateExpress;
 using System.IO;
 using System.Text.Json;
 using System.Windows.Forms;
@@ -92,14 +93,7 @@ internal static class RebootCoordinator
                 var when = NextOutsideActiveHours(reboot, DateTime.Now);
                 SchedulePending(source, when, "Deferred until outside active hours.");
                 bool norwegian = AppLanguage.IsNorwegian;
-                System.Windows.MessageBox.Show(
-                    owner,
-                    norwegian
-                        ? $"Omstart er nødvendig.\n\nAutomatisk omstart er satt til utenfor arbeidstid ({reboot.ActiveHoursStart:00}:00–{reboot.ActiveHoursEnd:00}:00).\nUpdate Express tilbyr/omstarter rundt {when:dd.MM HH:mm} (nedtelling {reboot.CountdownSeconds}s)."
-                        : $"A restart is required.\n\nAuto-reboot is set to outside active hours ({reboot.ActiveHoursStart:00}:00–{reboot.ActiveHoursEnd:00}:00).\nUpdate Express will offer/restart around {when:dd.MM HH:mm} (countdown {reboot.CountdownSeconds}s).",
-                    norwegian ? "Update Express – omstart planlagt" : "Update Express – restart scheduled",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Information);
+                InformationNoticeWindow.ShowAndWait(DeferredRestartNotice(when, reboot, norwegian), owner);
                 return true;
             }
             // Already outside hours → start the countdown notice (Stop / Postpone).
@@ -120,6 +114,27 @@ internal static class RebootCoordinator
             "Update Express: restart required after Windows updates. Save your work.",
             showUi: true,
             owner: owner);
+    }
+
+    internal static InformationNotice DeferredRestartNotice(DateTime when, AutoRebootPolicy reboot, bool norwegian)
+    {
+        string title = norwegian ? "Update Express – omstart planlagt" : "Update Express – restart scheduled";
+        string hours = $"{reboot.ActiveHoursStart:00}:00–{reboot.ActiveHoursEnd:00}:00";
+        string whenText = NoticeDates.DayAndTimeInline(when, norwegian);
+        if (norwegian)
+        {
+            return new InformationNotice(
+                title,
+                "Omstart er nødvendig.",
+                $"Automatisk omstart er satt til utenfor arbeidstid ({hours}).\n" +
+                $"Update Express tilbyr/omstarter rundt {whenText} (nedtelling {reboot.CountdownSeconds}s).");
+        }
+
+        return new InformationNotice(
+            title,
+            "A restart is required.",
+            $"Auto-reboot is set to outside active hours ({hours}).\n" +
+            $"Update Express will offer/restart around {whenText} (countdown {reboot.CountdownSeconds}s).");
     }
 
     internal static void SchedulePending(
