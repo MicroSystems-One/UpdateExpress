@@ -49,7 +49,7 @@ public partial class SecurityOverviewWindow : Window
     {
         _norwegian = norwegian;
         _formatTime = formatTime ?? (time => time.ToString("g", CultureInfo.CurrentCulture));
-        _lastCompleted = lastCompleted is { Completed: true } ? lastCompleted : null;
+        _lastCompleted = SecurityAssessmentRunner.ReplacesEarlier(lastCompleted) ? lastCompleted : null;
         InitializeComponent();
         AppIcon.Apply(this);
         // On a small or strongly scaled screen the window must still fit the work area.
@@ -176,17 +176,17 @@ public partial class SecurityOverviewWindow : Window
         if (_closed) return;
 
         _scanButton.Content = T(Ui.ScanAgain);
-        if (snapshot is { Completed: true })
+        if (SecurityAssessmentRunner.ReplacesEarlier(snapshot))
         {
             _lastCompleted = snapshot;
             ShowSnapshot(snapshot);
-            AssessmentCompleted?.Invoke(snapshot);
+            AssessmentCompleted?.Invoke(snapshot!);
             return;
         }
 
-        // Cancelled, or it could not run: back to the last whole picture. Without one, what
-        // did answer stays and the rest reads unknown.
-        _cancelledNote = true;
+        // Cancelled, without any answer, or it could not run: back to the last whole picture,
+        // the one that is stored. Without one, what did answer stays and the rest reads unknown.
+        _cancelledNote = snapshot is not { Completed: true };
         ShowSnapshot(_lastCompleted ?? snapshot);
     }
 

@@ -353,6 +353,59 @@ public class SecurityOverviewWindowTests
     }
 
     [Fact]
+    public void An_assessment_without_any_answer_keeps_the_last_whole_one_on_screen_and_reports_nothing()
+    {
+        // No provider at all: the engine finishes with nothing to say.
+        using var sandbox = new SecurityOverviewSandbox();
+
+        RunSta(async () =>
+        {
+            var earlier = EarlierSnapshot(("NET-001", Status.Protected), ("NET-003", Status.NotProtected));
+            var window = Window(earlier);
+            bool reported = false;
+            window.AssessmentCompleted += _ => reported = true;
+
+            await window.StartScanAsync();
+            await Settle();
+
+            Assert.False(window.IsScanning);
+            Assert.False(reported);
+            Assert.Same(earlier, window.LastCompleted);
+            Assert.Equal(Status.Protected, Row(window, "NET-001").Text.Status);
+            Assert.Equal(Status.NotProtected, Row(window, "NET-003").Text.Status);
+            Assert.False(Row(window, "NET-003").Checking);
+            Assert.Equal("Needs attention: 1", Card(window, 1));
+            // Nobody cancelled, so the line says what it said before.
+            Assert.Equal("At least one check is not protected. Last assessed: " + Time(Earlier.LocalDateTime), OverallText(window));
+            Assert.Equal("Scan again", ScanButton(window));
+            Assert.False(File.Exists(sandbox.CachePath));
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void A_first_assessment_without_any_answer_stays_not_assessed()
+    {
+        using var sandbox = new SecurityOverviewSandbox();
+
+        RunSta(async () =>
+        {
+            var window = Window();
+            bool reported = false;
+            window.AssessmentCompleted += _ => reported = true;
+
+            await window.StartScanAsync();
+            await Settle();
+
+            Assert.False(reported);
+            Assert.Null(window.LastCompleted);
+            Assert.All(window.Rows, row => Assert.Equal(Status.Unknown, row.Text.Status));
+            Assert.Equal("Not assessed yet.", OverallText(window));
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void While_an_assessment_runs_earlier_answers_stay_and_the_rest_reads_checking()
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

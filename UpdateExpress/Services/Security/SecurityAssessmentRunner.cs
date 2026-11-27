@@ -31,6 +31,14 @@ internal static class SecurityAssessmentRunner
 
     internal static Func<IReadOnlyList<ISecurityCheckProvider>> Providers { get; set; } = SecurityCheckProviders.Create;
 
+    /// <summary>
+    /// Whether an assessment takes the place of the one before it, in the cache and on screen.
+    /// A cancelled one does not, and neither does one in which no check answered: that is not
+    /// a picture worth keeping over an older one.
+    /// </summary>
+    internal static bool ReplacesEarlier(SecurityAssessmentSnapshot? snapshot) =>
+        snapshot is { Completed: true } && snapshot.Results.Count > 0;
+
     internal static Task<SecurityAssessmentSnapshot> RunAsync(
         SecurityBaseline baseline,
         IProgress<SecurityCheckResult>? progress,
@@ -43,8 +51,7 @@ internal static class SecurityAssessmentRunner
                 .RunAsync(baseline, Providers(), ReadMachine(), options, progress, cancellationToken)
                 .ConfigureAwait(false);
 
-            // An assessment in which no check answered is not a picture worth keeping over an older one.
-            bool worthKeeping = snapshot.Completed && snapshot.Results.Count > 0;
+            bool worthKeeping = ReplacesEarlier(snapshot);
             bool saved = worthKeeping && SecurityResultCache.TrySave(snapshot);
             if (worthKeeping && !saved)
                 WriteLog("Security assessment result could not be saved; the previous stored result stays.");
