@@ -53,6 +53,8 @@ internal static class SecurityOverviewStrings
         internal const string SeverityHigh = "High";
         internal const string MoreInformation = "More information";
         internal const string ManualReviewNote = "This finding needs a person to judge it.";
+        /// <summary>The status of a check that reports a value and judges nothing.</summary>
+        internal const string StatusInformation = "Information";
         internal const string BaselineNote = "The checks and recommendations are Update Express's own selection ({0}). The assessment only reads; it changes nothing on this PC.";
         internal const string ShieldStatus = "Security Overview status";
         internal const string ShieldOpen = "Click to open the Security Overview.";
@@ -142,6 +144,9 @@ internal static class SecurityOverviewStrings
         SecurityStateCodes.NoSecurityUpdatesWaiting => "No security updates waiting",
         SecurityStateCodes.NoRestartPending => "No restart pending",
         SecurityStateCodes.WithinDays => "Within the last {0} days",
+        SecurityStateCodes.NoneRegistered => "None registered",
+        SecurityStateCodes.AgeHours => "Updated {0} h ago",
+        SecurityStateCodes.AgeDays => "Updated {0} days ago",
         _ => null
     };
 
@@ -161,6 +166,30 @@ internal static class SecurityOverviewStrings
             "A policy holds Windows Firewall off for this profile. Update Express does not override policy.",
         SecurityReasonCodes.FirewallOffOtherProduct =>
             "Windows Firewall is off for this profile, and another firewall product is registered with Windows. Whether that product protects this profile cannot be verified here.",
+        SecurityReasonCodes.Informational => "Reported for information. Nothing is judged.",
+        SecurityReasonCodes.AntivirusReadFailed => "Windows did not answer the question about antivirus protection.",
+        SecurityReasonCodes.AntivirusProductsUnreadable =>
+            "Windows Security Center could not be read, so it is not known which antivirus products are registered.",
+        SecurityReasonCodes.AntivirusNoneRegistered => "Windows Security Center lists no antivirus product.",
+        SecurityReasonCodes.AntivirusOtherProduct =>
+            "Another antivirus product is registered with Windows. Windows cannot show whether it works and is up to date; check that in the product itself.",
+        SecurityReasonCodes.AntivirusOtherProductValue =>
+            "Another antivirus product is registered with Windows, and this cannot be read for that product.",
+        SecurityReasonCodes.DefenderReadFailed => "Microsoft Defender Antivirus did not answer.",
+        SecurityReasonCodes.DefenderValueMissing => "Microsoft Defender Antivirus gave no value for this.",
+        SecurityReasonCodes.DefenderStateUnclear => "Microsoft Defender Antivirus gave values that do not fit together.",
+        SecurityReasonCodes.DefenderPassiveNoProduct =>
+            "Microsoft Defender Antivirus is in passive mode, and Windows Security Center lists no other antivirus product.",
+        SecurityReasonCodes.DefenderOffOtherProduct =>
+            "Microsoft Defender Antivirus is switched off, and another antivirus product is registered. Windows does that by design.",
+        SecurityReasonCodes.DefenderOffNoProduct =>
+            "Microsoft Defender Antivirus is switched off, and Windows Security Center lists no other antivirus product.",
+        SecurityReasonCodes.DefenderSilentOtherProduct =>
+            "Microsoft Defender Antivirus did not answer, and another antivirus product is registered. Defender normally switches off then.",
+        SecurityReasonCodes.DefenderSilentOnServer =>
+            "Microsoft Defender Antivirus did not answer. On Windows Server it can be removed or replaced by another product, and Windows Server keeps no list of antivirus products.",
+        SecurityReasonCodes.DefenderOffByPolicy =>
+            "A policy holds this Microsoft Defender Antivirus setting off. Update Express does not override policy.",
         _ => null
     };
 
@@ -262,6 +291,9 @@ internal static class SecurityOverviewStrings
         ["No security updates waiting"] = "Ingen sikkerhetsoppdateringer venter",
         ["No restart pending"] = "Ingen omstart venter",
         ["Within the last {0} days"] = "Innen de siste {0} dagene",
+        ["None registered"] = "Ingen registrert",
+        ["Updated {0} h ago"] = "Oppdatert for {0} t siden",
+        ["Updated {0} days ago"] = "Oppdatert for {0} dager siden",
 
         // Reasons
         ["The check did not answer in time."] = "Sjekken svarte ikke i tide.",
@@ -277,6 +309,31 @@ internal static class SecurityOverviewStrings
             "En policy holder Windows-brannmuren av for denne profilen. Update Express overstyrer ikke policy.",
         ["Windows Firewall is off for this profile, and another firewall product is registered with Windows. Whether that product protects this profile cannot be verified here."] =
             "Windows-brannmuren er av for denne profilen, og et annet brannmurprodukt er registrert i Windows. Om det produktet beskytter denne profilen, kan ikke bekreftes her.",
+        ["Reported for information. Nothing is judged."] = "Rapporteres til informasjon. Ingenting vurderes.",
+        ["Windows did not answer the question about antivirus protection."] = "Windows svarte ikke på spørsmålet om antivirusbeskyttelse.",
+        ["Windows Security Center could not be read, so it is not known which antivirus products are registered."] =
+            "Windows Sikkerhetssenter kunne ikke leses, så det er ikke kjent hvilke antivirusprodukter som er registrert.",
+        ["Windows Security Center lists no antivirus product."] = "Windows Sikkerhetssenter viser ingen antivirusprodukter.",
+        ["Another antivirus product is registered with Windows. Windows cannot show whether it works and is up to date; check that in the product itself."] =
+            "Et annet antivirusprodukt er registrert i Windows. Windows kan ikke vise om det virker og er oppdatert; kontroller det i produktet selv.",
+        ["Another antivirus product is registered with Windows, and this cannot be read for that product."] =
+            "Et annet antivirusprodukt er registrert i Windows, og dette kan ikke leses for det produktet.",
+        ["Microsoft Defender Antivirus did not answer."] = "Microsoft Defender Antivirus svarte ikke.",
+        ["Microsoft Defender Antivirus gave no value for this."] = "Microsoft Defender Antivirus oppga ingen verdi for dette.",
+        ["Microsoft Defender Antivirus gave values that do not fit together."] =
+            "Microsoft Defender Antivirus oppga verdier som ikke stemmer overens.",
+        ["Microsoft Defender Antivirus is in passive mode, and Windows Security Center lists no other antivirus product."] =
+            "Microsoft Defender Antivirus er i passiv modus, og Windows Sikkerhetssenter viser ingen andre antivirusprodukter.",
+        ["Microsoft Defender Antivirus is switched off, and another antivirus product is registered. Windows does that by design."] =
+            "Microsoft Defender Antivirus er slått av, og et annet antivirusprodukt er registrert. Slik er Windows ment å virke.",
+        ["Microsoft Defender Antivirus is switched off, and Windows Security Center lists no other antivirus product."] =
+            "Microsoft Defender Antivirus er slått av, og Windows Sikkerhetssenter viser ingen andre antivirusprodukter.",
+        ["Microsoft Defender Antivirus did not answer, and another antivirus product is registered. Defender normally switches off then."] =
+            "Microsoft Defender Antivirus svarte ikke, og et annet antivirusprodukt er registrert. Da slår Defender seg vanligvis av.",
+        ["Microsoft Defender Antivirus did not answer. On Windows Server it can be removed or replaced by another product, and Windows Server keeps no list of antivirus products."] =
+            "Microsoft Defender Antivirus svarte ikke. På Windows Server kan det være fjernet eller erstattet av et annet produkt, og Windows Server har ingen liste over antivirusprodukter.",
+        ["A policy holds this Microsoft Defender Antivirus setting off. Update Express does not override policy."] =
+            "En policy holder denne innstillingen i Microsoft Defender Antivirus av. Update Express overstyrer ikke policy.",
 
         // Overall status
         ["Not assessed yet."] = "Ikke vurdert ennå.",
@@ -324,6 +381,7 @@ internal static class SecurityOverviewStrings
         [Ui.SeverityHigh] = "Høy",
         [Ui.MoreInformation] = "Mer informasjon",
         [Ui.ManualReviewNote] = "Dette funnet må vurderes av en person.",
+        [Ui.StatusInformation] = "Informasjon",
         [Ui.BaselineNote] = "Sjekkene og anbefalingene er Update Express' eget utvalg ({0}). Vurderingen leser bare; den endrer ingenting på denne PC-en.",
         [Ui.ShieldStatus] = "Status for sikkerhetsoversikt",
         [Ui.ShieldOpen] = "Klikk for å åpne sikkerhetsoversikten.",

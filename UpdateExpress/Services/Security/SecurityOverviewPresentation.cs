@@ -87,7 +87,11 @@ internal static class SecurityOverviewPresentation
         string T(string english) => SecurityOverviewStrings.T(english, norwegian);
 
         var status = result?.Status ?? (checking ? SecurityAssessmentStatus.Checking : SecurityAssessmentStatus.Unknown);
-        string statusText = SecurityOverviewStrings.Status(status, norwegian);
+        // A check that only reports a value has nothing to judge. Its status stays "not
+        // applicable" for the counts and the colour; the pill says what the row is.
+        string statusText = IsInformation(result)
+            ? T(SecurityOverviewStrings.Ui.StatusInformation)
+            : SecurityOverviewStrings.Status(status, norwegian);
         if (result is not null && checking) statusText += " · " + SecurityOverviewStrings.Status(SecurityAssessmentStatus.Checking, norwegian);
         string name = T(definition.Name);
 
@@ -126,6 +130,10 @@ internal static class SecurityOverviewPresentation
             AccessibleName = name + ": " + statusText
         };
     }
+
+    /// <summary>Whether a result is a value that was read and reported without a judgement.</summary>
+    internal static bool IsInformation(SecurityCheckResult? result) =>
+        result is { Status: SecurityAssessmentStatus.NotApplicable, ReasonCode: SecurityReasonCodes.Informational };
 
     private static string RemediationEnglish(SecurityCheckDefinition definition) =>
         definition.RemediationLevel == SecurityRemediationLevel.AssessmentOnly
