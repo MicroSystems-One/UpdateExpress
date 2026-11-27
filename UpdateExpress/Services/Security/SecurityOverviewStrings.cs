@@ -1,0 +1,276 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+
+namespace UpdateExpress.Services.Security;
+
+/// <summary>
+/// English and Norwegian text for the Security Overview. Same pattern as
+/// <see cref="AppLanguage"/>: the English text is the key of the Norwegian text. Results and
+/// the cache hold codes only, so a change of language also changes what an older assessment
+/// reads.
+/// </summary>
+internal static class SecurityOverviewStrings
+{
+    internal const string Title = "Security Overview";
+    internal const string HonestyLine = "Assessment snapshot – not a security certification.";
+
+    internal static string T(string english) => T(english, AppLanguage.IsNorwegian);
+
+    internal static string T(string english, bool norwegian) =>
+        norwegian && Norwegian.TryGetValue(english, out var text) ? text : english;
+
+    internal static bool HasNorwegian(string english) => Norwegian.ContainsKey(english);
+
+    internal static string StatusEnglish(SecurityAssessmentStatus status) => status switch
+    {
+        SecurityAssessmentStatus.Protected => "Protected",
+        SecurityAssessmentStatus.NotProtected => "Not protected",
+        SecurityAssessmentStatus.NeedsAttention => "Needs attention",
+        SecurityAssessmentStatus.ManagedByPolicy => "Managed by policy",
+        SecurityAssessmentStatus.RestartRequired => "Restart required",
+        SecurityAssessmentStatus.NotSupported => "Not supported",
+        SecurityAssessmentStatus.NotApplicable => "Not applicable",
+        SecurityAssessmentStatus.Checking => "Checking…",
+        SecurityAssessmentStatus.Error => "Check failed",
+        _ => "Unknown"
+    };
+
+    internal static string CategoryEnglish(SecurityCheckCategory category) => category switch
+    {
+        SecurityCheckCategory.NetworkSecurity => "Network Security",
+        SecurityCheckCategory.EndpointProtection => "Endpoint Protection",
+        SecurityCheckCategory.DeviceSecurity => "Device Security",
+        SecurityCheckCategory.IdentityAndAccess => "Identity and Access",
+        SecurityCheckCategory.UpdatesAndMaintenance => "Updates and Maintenance",
+        _ => "Logging and Application Security"
+    };
+
+    internal static string BucketEnglish(SecuritySummaryBucket bucket) => bucket switch
+    {
+        SecuritySummaryBucket.Protected => "Protected",
+        SecuritySummaryBucket.NeedsAttention => "Needs attention",
+        SecuritySummaryBucket.ManualReview => "Manual review",
+        SecuritySummaryBucket.RestartRequired => "Restart required",
+        SecuritySummaryBucket.NotApplicable => "Not applicable",
+        _ => "Unknown or unsupported"
+    };
+
+    internal static string PolicyEnglish(SecurityPolicyState policy) => policy switch
+    {
+        SecurityPolicyState.NotManaged => "Not managed by policy",
+        SecurityPolicyState.Managed => "Managed by policy",
+        SecurityPolicyState.Unknown => "Unknown",
+        _ => "Not assessed"
+    };
+
+    /// <summary>English text for a state code, or null for a code this table does not know.</summary>
+    internal static string? StateEnglish(string code) => code switch
+    {
+        SecurityStateCodes.Unknown => "Unknown",
+        SecurityStateCodes.Value => "{0}",
+        SecurityStateCodes.On => "On",
+        SecurityStateCodes.Off => "Off",
+        SecurityStateCodes.Active => "Active",
+        SecurityStateCodes.Present => "Present",
+        SecurityStateCodes.NotConfigured => "Not configured",
+        SecurityStateCodes.Supported => "Supported by Microsoft",
+        SecurityStateCodes.Informational => "No recommended value (information only)",
+        SecurityStateCodes.AntivirusRegistered => "At least one antivirus product registered",
+        SecurityStateCodes.DefenderNormalOrPassive => "Normal, or passive when another antivirus product protects the PC",
+        SecurityStateCodes.Tpm20 => "TPM 2.0",
+        SecurityStateCodes.NoSecurityUpdatesWaiting => "No security updates waiting",
+        SecurityStateCodes.NoRestartPending => "No restart pending",
+        SecurityStateCodes.WithinDays => "Within the last {0} days",
+        _ => null
+    };
+
+    /// <summary>English text for a reason code, or null for a code this table does not know.</summary>
+    internal static string? ReasonEnglish(string code) => code switch
+    {
+        SecurityReasonCodes.Timeout => "The check did not answer in time.",
+        SecurityReasonCodes.Cancelled => "The assessment was cancelled before this check finished.",
+        SecurityReasonCodes.ProviderError => "The check could not run.",
+        SecurityReasonCodes.NoResult => "The check gave no answer.",
+        SecurityReasonCodes.ServerOs => "Not relevant on Windows Server.",
+        SecurityReasonCodes.ClientOs => "Only relevant on Windows Server.",
+        SecurityReasonCodes.OsTooOld => "Not supported on this Windows version.",
+        _ => null
+    };
+
+    internal static string OverallEnglish(string reasonCode) => reasonCode switch
+    {
+        SecurityOverallStatus.NothingAssessable => "No check could be assessed on this PC.",
+        SecurityOverallStatus.NotProtected => "At least one check is not protected.",
+        SecurityOverallStatus.NeedsAttention => "At least one check needs attention.",
+        SecurityOverallStatus.RestartRequired => "A restart is required.",
+        SecurityOverallStatus.CheckError => "At least one check could not run.",
+        SecurityOverallStatus.OnlyUnknown => "No check could confirm protection.",
+        SecurityOverallStatus.Stale => "The last assessment is more than {0} days old.",
+        SecurityOverallStatus.AllClear => "No check found a problem.",
+        _ => "Not assessed yet."
+    };
+
+    internal static string Status(SecurityAssessmentStatus status, bool norwegian) => T(StatusEnglish(status), norwegian);
+    internal static string Category(SecurityCheckCategory category, bool norwegian) => T(CategoryEnglish(category), norwegian);
+    internal static string Bucket(SecuritySummaryBucket bucket, bool norwegian) => T(BucketEnglish(bucket), norwegian);
+    internal static string Policy(SecurityPolicyState policy, bool norwegian) => T(PolicyEnglish(policy), norwegian);
+
+    /// <summary>
+    /// A detected or recommended state as text. A code without a text of its own shows the
+    /// value, or "Unknown" when there is none; it never shows as a state it is not.
+    /// </summary>
+    internal static string State(string? code, string? value, bool norwegian)
+    {
+        value = (value ?? "").Trim();
+        string? english = StateEnglish((code ?? "").Trim());
+        if (english is null) return value.Length > 0 ? value : T("Unknown", norwegian);
+        string text = T(english, norwegian);
+        if (text.Contains("{0}", StringComparison.Ordinal))
+            return value.Length > 0 ? string.Format(CultureInfo.InvariantCulture, text, value) : T("Unknown", norwegian);
+        return value.Length > 0 ? text + ": " + value : text;
+    }
+
+    /// <summary>Text for a reason code; empty for no reason, the code itself for one without a text.</summary>
+    internal static string Reason(string? code, bool norwegian)
+    {
+        code = (code ?? "").Trim();
+        if (code.Length == 0) return "";
+        string? english = ReasonEnglish(code);
+        return english is null ? code : T(english, norwegian);
+    }
+
+    internal static string Overall(SecurityOverall overall, bool norwegian)
+    {
+        string text = T(OverallEnglish(overall.ReasonCode), norwegian);
+        return text.Contains("{0}", StringComparison.Ordinal)
+            ? string.Format(CultureInfo.InvariantCulture, text, (int)SecurityOverallStatus.StaleAfter.TotalDays)
+            : text;
+    }
+
+    private static readonly Dictionary<string, string> Norwegian = new(StringComparer.Ordinal)
+    {
+        [Title] = "Sikkerhetsoversikt",
+        [HonestyLine] = "Øyeblikksbilde av en vurdering – ikke en sikkerhetssertifisering.",
+
+        // Assessment status
+        ["Protected"] = "Beskyttet",
+        ["Not protected"] = "Ikke beskyttet",
+        ["Needs attention"] = "Krever oppmerksomhet",
+        ["Managed by policy"] = "Styrt av policy",
+        ["Restart required"] = "Omstart kreves",
+        ["Not supported"] = "Støttes ikke",
+        ["Not applicable"] = "Ikke relevant",
+        ["Unknown"] = "Ukjent",
+        ["Checking…"] = "Sjekker…",
+        ["Check failed"] = "Sjekken feilet",
+
+        // Summary cards
+        ["Manual review"] = "Manuell vurdering",
+        ["Unknown or unsupported"] = "Ukjent eller ikke støttet",
+
+        // Policy management
+        ["Not managed by policy"] = "Ikke styrt av policy",
+        ["Not assessed"] = "Ikke vurdert",
+
+        // Categories
+        ["All"] = "Alle",
+        ["Network Security"] = "Nettverkssikkerhet",
+        ["Endpoint Protection"] = "Endepunktsbeskyttelse",
+        ["Device Security"] = "Enhetssikkerhet",
+        ["Identity and Access"] = "Identitet og tilgang",
+        ["Updates and Maintenance"] = "Oppdateringer og vedlikehold",
+        ["Logging and Application Security"] = "Logging og programsikkerhet",
+
+        // Detected and recommended states
+        ["On"] = "På",
+        ["Off"] = "Av",
+        ["Active"] = "Aktiv",
+        ["Present"] = "Til stede",
+        ["Not configured"] = "Ikke konfigurert",
+        ["Supported by Microsoft"] = "Støttet av Microsoft",
+        ["No recommended value (information only)"] = "Ingen anbefalt verdi (kun informasjon)",
+        ["At least one antivirus product registered"] = "Minst ett antivirusprodukt registrert",
+        ["Normal, or passive when another antivirus product protects the PC"] =
+            "Normal, eller passiv når et annet antivirusprodukt beskytter PC-en",
+        ["No security updates waiting"] = "Ingen sikkerhetsoppdateringer venter",
+        ["No restart pending"] = "Ingen omstart venter",
+        ["Within the last {0} days"] = "Innen de siste {0} dagene",
+
+        // Reasons
+        ["The check did not answer in time."] = "Sjekken svarte ikke i tide.",
+        ["The assessment was cancelled before this check finished."] = "Vurderingen ble avbrutt før denne sjekken var ferdig.",
+        ["The check could not run."] = "Sjekken kunne ikke kjøres.",
+        ["The check gave no answer."] = "Sjekken ga ikke noe svar.",
+        ["Not relevant on Windows Server."] = "Ikke relevant på Windows Server.",
+        ["Only relevant on Windows Server."] = "Bare relevant på Windows Server.",
+        ["Not supported on this Windows version."] = "Støttes ikke på denne Windows-versjonen.",
+
+        // Overall status
+        ["Not assessed yet."] = "Ikke vurdert ennå.",
+        ["No check could be assessed on this PC."] = "Ingen sjekker kunne vurderes på denne PC-en.",
+        ["At least one check is not protected."] = "Minst én sjekk er ikke beskyttet.",
+        ["At least one check needs attention."] = "Minst én sjekk krever oppmerksomhet.",
+        ["A restart is required."] = "En omstart kreves.",
+        ["At least one check could not run."] = "Minst én sjekk kunne ikke kjøres.",
+        ["No check could confirm protection."] = "Ingen sjekker kunne bekrefte beskyttelse.",
+        ["The last assessment is more than {0} days old."] = "Siste vurdering er mer enn {0} dager gammel.",
+        ["No check found a problem."] = "Ingen sjekker fant et problem.",
+
+        // Check names and descriptions (baseline v1)
+        ["Windows Firewall – Domain profile"] = "Windows-brannmur – domeneprofil",
+        ["Windows Firewall for networks where the PC reaches its domain."] =
+            "Windows-brannmur for nettverk der PC-en når domenet sitt.",
+        ["Windows Firewall – Private profile"] = "Windows-brannmur – privat profil",
+        ["Windows Firewall for networks marked as private, such as a home or office network."] =
+            "Windows-brannmur for nettverk merket som private, for eksempel hjemme- eller kontornettverk.",
+        ["Windows Firewall – Public profile"] = "Windows-brannmur – offentlig profil",
+        ["Windows Firewall for networks marked as public, such as a guest or café network."] =
+            "Windows-brannmur for nettverk merket som offentlige, for eksempel gjeste- eller kafénettverk.",
+        ["Registered antivirus products"] = "Registrerte antivirusprodukter",
+        ["The antivirus products that have registered with Windows Security Center."] =
+            "Antivirusproduktene som har registrert seg i Windows Sikkerhetssenter.",
+        ["Antivirus protection status"] = "Status for antivirusbeskyttelse",
+        ["Whether an antivirus product is switched on and protecting this PC."] =
+            "Om et antivirusprodukt er slått på og beskytter denne PC-en.",
+        ["Real-time protection"] = "Sanntidsbeskyttelse",
+        ["Whether files and programs are scanned as they are opened or run."] =
+            "Om filer og programmer skannes når de åpnes eller kjøres.",
+        ["Antivirus signature version"] = "Versjon av antivirussignaturer",
+        ["The version of the antivirus definitions in use."] = "Versjonen av antivirusdefinisjonene som er i bruk.",
+        ["Antivirus signatures last updated"] = "Antivirussignaturer sist oppdatert",
+        ["When the antivirus definitions were last updated."] = "Når antivirusdefinisjonene sist ble oppdatert.",
+        ["Microsoft Defender operating mode"] = "Driftsmodus for Microsoft Defender",
+        ["Whether Microsoft Defender Antivirus runs in normal (active) or passive mode."] =
+            "Om Microsoft Defender Antivirus kjører i normal (aktiv) eller passiv modus.",
+        ["Secure Boot"] = "Sikker oppstart",
+        ["Whether the firmware starts only boot software it trusts."] =
+            "Om fastvaren bare starter oppstartsprogramvare den stoler på.",
+        ["TPM availability"] = "TPM tilgjengelig",
+        ["Whether Windows finds a Trusted Platform Module (TPM) security chip."] =
+            "Om Windows finner en TPM-sikkerhetsbrikke (Trusted Platform Module).",
+        ["TPM specification version"] = "TPM-spesifikasjonsversjon",
+        ["The version of the TPM specification the security chip follows."] =
+            "Versjonen av TPM-spesifikasjonen som sikkerhetsbrikken følger.",
+        ["Automatic Windows logon"] = "Automatisk Windows-pålogging",
+        ["Whether Windows signs a user in by itself when the PC starts."] =
+            "Om Windows logger på en bruker av seg selv når PC-en starter.",
+        ["Last successful Windows security update"] = "Siste vellykkede sikkerhetsoppdatering for Windows",
+        ["When a Windows security update was last installed successfully."] =
+            "Når en sikkerhetsoppdatering for Windows sist ble installert uten feil.",
+        ["Available security updates"] = "Tilgjengelige sikkerhetsoppdateringer",
+        ["Security updates that the last Windows Update search found and that are not installed yet."] =
+            "Sikkerhetsoppdateringer som det siste Windows Update-søket fant, og som ikke er installert ennå.",
+        ["Pending restart"] = "Venter på omstart",
+        ["Whether Windows waits for a restart to finish installing updates."] =
+            "Om Windows venter på en omstart for å fullføre installasjonen av oppdateringer.",
+        ["Windows edition and version"] = "Windows-utgave og -versjon",
+        ["The Windows edition, feature version and build on this PC."] =
+            "Windows-utgaven, funksjonsversjonen og byggnummeret på denne PC-en.",
+        ["Windows support status"] = "Støttestatus for Windows",
+        ["Whether Microsoft still releases security updates for this Windows release."] =
+            "Om Microsoft fortsatt gir ut sikkerhetsoppdateringer for denne Windows-versjonen.",
+        ["Antivirus signature freshness"] = "Alder på antivirussignaturer",
+        ["How old the antivirus definitions are."] = "Hvor gamle antivirusdefinisjonene er.",
+    };
+}
