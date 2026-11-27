@@ -17,6 +17,7 @@ using UpdateExpress.Services.Security;
 using Brush = System.Windows.Media.Brush;
 using ColorConverter = System.Windows.Media.ColorConverter;
 using RadioButton = System.Windows.Controls.RadioButton;
+using ToggleButton = System.Windows.Controls.Primitives.ToggleButton;
 using Strings = UpdateExpress.Services.Security.SecurityOverviewStrings;
 using Ui = UpdateExpress.Services.Security.SecurityOverviewStrings.Ui;
 
@@ -33,15 +34,17 @@ public partial class SecurityOverviewWindow : Window
     private readonly SecurityBaseline _baseline = SecurityBaselineV1.Create();
     private readonly List<SecurityCheckRowView> _rows = new();
     private readonly Dictionary<string, SecurityCheckRowView> _rowsById = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<SecuritySummaryBucket, (Border Card, TextBlock Number)> _cards = new();
+    private readonly Dictionary<SecuritySummaryBucket, (ToggleButton Card, TextBlock Number)> _cards = new();
     private readonly ICollectionView _view;
     private readonly Button _scanButton;
     private SecurityCheckCategory? _category;
+    private SecuritySummaryBucket? _bucketFilter;
     private SecurityAssessmentSnapshot? _lastCompleted;
     private CancellationTokenSource? _scan;
     private int _answered;
     private bool _cancelledNote;
     private bool _closed;
+    private bool _syncingCardChecks;
 
     /// <param name="lastCompleted">The last finished assessment the caller knows of, shown until a fresh one answers.</param>
     /// <param name="formatTime">How the main window writes a date and time.</param>
@@ -74,7 +77,7 @@ public partial class SecurityOverviewWindow : Window
             _rowsById[definition.Id] = row;
         }
         _view = CollectionViewSource.GetDefaultView(_rows);
-        _view.Filter = item => _category is null || ((SecurityCheckRowView)item).Definition.Category == _category;
+        _view.Filter = RowPassesFilter;
         ChecksHost.ItemsSource = _view;
 
         BuildCards();
@@ -242,8 +245,70 @@ public partial class SecurityOverviewWindow : Window
         SetCard(SecuritySummaryBucket.UnknownOrUnsupported, summary.UnknownOrUnsupported + unanswered);
         SetCard(SecuritySummaryBucket.RestartRequired, summary.RestartRequired);
         // "Restart required, when applicable": the card is there only when a restart is.
+        if (summary.RestartRequired == 0 && _bucketFilter == SecuritySummaryBucket.RestartRequired)
+            SetBucketFilter(null);
         _cards[SecuritySummaryBucket.RestartRequired].Card.Visibility =
             summary.RestartRequired > 0 ? Visibility.Visible : Visibility.Collapsed;
+        RefreshListFilter();
+    }
+
+    private bool RowPassesFilter(object item)
+    {
+        var row = (SecurityCheckRowView)item;
+        if (_category is not null && row.Definition.Category != _category) return false;
+        return SecurityOverallStatus.MatchesListBucket(_bucketFilter, row.Result, row.Checking);
+    }
+
+    private void RefreshList()
+    {
+        RefreshListFilter();
+        ChecksScroll.ScrollToTop();
+    }
+
+    private void RefreshListFilter()
+    {
+        _view.Refresh();
+        RefreshListEmpty();
+    }
+
+    private void RefreshListEmpty()
+    {
+        if (!_view.IsEmpty)
+        {
+            EmptyCategoryText.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        string text = _bucketFilter is SecuritySummaryBucket bucket
+            ? Strings.Tf(Ui.EmptyBucketNamed, _norwegian, Strings.Bucket(bucket, _norwegian).ToLowerInvariant())
+            : _category is not null ? T(Ui.EmptyCategory) : T(Ui.EmptyBucket);
+        EmptyCategoryText.Text = text;
+        EmptyCategoryText.Visibility = Visibility.Visible;
+    }
+
+    private void SetBucketFilter(SecuritySummaryBucket? bucket)
+    {
+        if (_bucketFilter == bucket) return;
+        _syncingCardChecks = true;
+        try
+        {
+            if (_bucketFilter is SecuritySummaryBucket previous)
+                _cards[previous].Card.IsChecked = false;
+            _bucketFilter = bucket;
+            if (bucket is SecuritySummaryBucket selected)
+                _cards[selected].Card.IsChecked = true;
+            else
+                SyncCardChecks();
+            RefreshCardAccessibility();
+            RefreshList();
+        }
+        finally { _syncingCardChecks = false; }
+    }
+
+    private void SyncCardChecks()
+    {
+        foreach (var (b, (card, _)) in _cards)
+            card.IsChecked = _bucketFilter == b;
     }
 
     private void BuildCards()
@@ -275,25 +340,48 @@ public partial class SecurityOverviewWindow : Window
             DockPanel.SetDock(strip, Dock.Left);
             content.Children.Add(strip);
             content.Children.Add(text);
-            var card = new Border
+            var card = new ToggleButton
             {
-                Background = Brushes.White,
-                BorderBrush = BrushOf("#E5E5E5"),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
-                Margin = new Thickness(0, 0, 8, 0),
-                Child = content
+                Style = (Style)FindResource("SummaryCard"),
+                Content = content,
+                IsChecked = _bucketFilter == bucket
+            };
+            card.Checked += (_, _) =>
+            {
+                if (_syncingCardChecks) return;
+                SetBucketFilter(bucket);
+            };
+            card.Unchecked += (_, _) =>
+            {
+                if (_syncingCardChecks) return;
+                if (_bucketFilter == bucket) SetBucketFilter(null);
             };
             _cards[bucket] = (card, number);
             CardsHost.Children.Add(card);
         }
+        RefreshCardAccessibility();
     }
 
     private void SetCard(SecuritySummaryBucket bucket, int count)
     {
         var (card, number) = _cards[bucket];
         number.Text = count.ToString(CultureInfo.InvariantCulture);
-        AutomationProperties.SetName(card, Strings.Bucket(bucket, _norwegian) + ": " + number.Text);
+        RefreshCardAccessibility(bucket, count);
+    }
+
+    private void RefreshCardAccessibility() =>
+        RefreshCardAccessibility(null, null);
+
+    private void RefreshCardAccessibility(SecuritySummaryBucket? only, int? count)
+    {
+        foreach (var (bucket, (card, number)) in _cards)
+        {
+            if (only is not null && bucket != only) continue;
+            int n = count ?? int.Parse(number.Text, CultureInfo.InvariantCulture);
+            string label = Strings.Bucket(bucket, _norwegian) + ": " + n.ToString(CultureInfo.InvariantCulture);
+            string hint = _bucketFilter == bucket ? T(Ui.SummaryCardShowAll) : T(Ui.SummaryCardShowGroup);
+            AutomationProperties.SetName(card, label + ". " + hint);
+        }
     }
 
     private void BuildChips()
@@ -311,9 +399,7 @@ public partial class SecurityOverviewWindow : Window
             chip.Checked += (_, _) =>
             {
                 _category = category;
-                _view.Refresh();
-                EmptyCategoryText.Visibility = _view.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
-                ChecksScroll.ScrollToTop();
+                RefreshList();
             };
             ChipsHost.Children.Add(chip);
         }

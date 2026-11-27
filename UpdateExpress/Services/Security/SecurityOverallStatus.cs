@@ -92,6 +92,23 @@ internal static class SecurityOverallStatus
         return Result(SecurityOverallLevel.Unknown, NothingAssessable);
     }
 
+    /// <summary>
+    /// The card a row belongs in when the list is filtered. A check still running with no
+    /// answer yet is on no card. One without an answer after the run is unknown.
+    /// </summary>
+    internal static SecuritySummaryBucket? ListBucket(SecurityCheckResult? result, bool checking)
+    {
+        if (result is null) return checking ? null : SecuritySummaryBucket.UnknownOrUnsupported;
+        return BucketOf(result);
+    }
+
+    internal static bool MatchesListBucket(SecuritySummaryBucket? filter, SecurityCheckResult? result, bool checking)
+    {
+        if (filter is null) return true;
+        var bucket = ListBucket(result, checking);
+        return bucket is not null && bucket == filter;
+    }
+
     /// <summary>The card a result is counted on, or null for a check that is still running.</summary>
     internal static SecuritySummaryBucket? BucketOf(SecurityCheckResult result) => result.Status switch
     {
