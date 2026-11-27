@@ -183,6 +183,69 @@ public class SecurityAssessmentEngineTests
         await told.Task.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
+    /// <summary>A provider whose way of stopping a read blocks, as a Windows call can.</summary>
+    private static FakeProvider BlocksWhenToldToStop(ManualResetEventSlim release, TaskCompletionSource told, TimeSpan? timeout, params string[] ids) =>
+        new(ids, async (_, token) =>
+        {
+            token.Register(() =>
+            {
+                told.TrySetResult();
+                release.Wait(Never);
+            });
+            await Task.Delay(Never, CancellationToken.None);
+            return Array.Empty<SecurityCheckResult>();
+        })
+        { Timeout = timeout };
+
+    [Fact]
+    public async Task A_provider_whose_stop_blocks_does_not_hold_the_assessment_when_its_time_is_up()
+    {
+        using var release = new ManualResetEventSlim();
+        var told = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = BlocksWhenToldToStop(release, told, TimeSpan.FromMilliseconds(100), "NET-001");
+        try
+        {
+            var snapshot = await Run(new[] { provider }, options: new SecurityAssessmentOptions { ProviderTimeout = Never })
+                .WaitAsync(TimeSpan.FromSeconds(15));
+
+            Assert.True(snapshot.Completed);
+            Assert.Equal(SecurityReasonCodes.Timeout, snapshot.Results.Single().ReasonCode);
+            await told.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally { release.Set(); }
+    }
+
+    [Fact]
+    public async Task A_provider_whose_stop_blocks_holds_neither_the_one_who_cancels_nor_the_assessment()
+    {
+        using var release = new ManualResetEventSlim();
+        using var cancel = new CancellationTokenSource();
+        var told = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inner = BlocksWhenToldToStop(release, told, null, "NET-001");
+        var provider = new FakeProvider(new[] { "NET-001" }, (context, token) =>
+        {
+            var work = inner.AssessAsync(context, token);
+            started.TrySetResult();
+            return work;
+        });
+        try
+        {
+            var running = Run(new[] { provider }, options: new SecurityAssessmentOptions { ProviderTimeout = Never }, cancellationToken: cancel.Token);
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            // Cancel() runs on this thread, as it would on the window's; it must come back.
+            var cancelling = Task.Factory.StartNew(cancel.Cancel, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            await cancelling.WaitAsync(TimeSpan.FromSeconds(15));
+            var snapshot = await running.WaitAsync(TimeSpan.FromSeconds(15));
+
+            Assert.False(snapshot.Completed);
+            Assert.Equal(SecurityReasonCodes.Cancelled, snapshot.Results.Single().ReasonCode);
+            await told.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally { release.Set(); }
+    }
+
     [Fact]
     public async Task A_provider_that_gives_up_by_itself_is_unknown_and_the_assessment_is_still_whole()
     {

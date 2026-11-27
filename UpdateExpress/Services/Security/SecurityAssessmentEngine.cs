@@ -172,25 +172,26 @@ internal static class SecurityAssessmentEngine
             Now = run.Options.Clock()
         };
         var stopwatch = Stopwatch.StartNew();
-        var limit = CancellationTokenSource.CreateLinkedTokenSource(run.CancellationToken);
+        // The provider's token is not linked to the caller's: what a provider hangs on its token
+        // (stopping a Windows read, say) may block, and must hold neither the caller's Cancel()
+        // nor this method. Only the engine's own timer listens to the caller directly.
+        var limit = new CancellationTokenSource();
 
         // On the thread pool: a provider that works synchronously must not hold the caller.
         Task<IReadOnlyList<SecurityCheckResult>> assessment =
             Task.Run(() => provider.AssessAsync(context, limit.Token), CancellationToken.None);
         Task first;
-        try
+        using (var wait = CancellationTokenSource.CreateLinkedTokenSource(run.CancellationToken))
         {
-            first = await Task.WhenAny(assessment, Task.Delay(timeout, limit.Token)).ConfigureAwait(false);
-        }
-        finally
-        {
-            // Stops the timer, and tells a provider that is still working to stop. The token
-            // source lives until the provider has let go of it, however late that is.
-            try { limit.Cancel(); }
-            catch { /* A provider's own cancellation callback failed; its answer decides. */ }
-            _ = assessment.ContinueWith(
-                t => { _ = t.Exception; limit.Dispose(); },
-                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            try
+            {
+                first = await Task.WhenAny(assessment, Task.Delay(timeout, wait.Token)).ConfigureAwait(false);
+            }
+            finally
+            {
+                wait.Cancel();
+                StopProvider(limit, assessment);
+            }
         }
 
         if (first != assessment)
@@ -247,6 +248,21 @@ internal static class SecurityAssessmentEngine
                 Log(run.Options, $"Security check failed: provider={provider.Name}; id={id}; reason={SecurityTextSanitizer.Clean(answer.ReasonCode)}");
             Publish(run, answer with { Id = id }, elapsed);
         }
+    }
+
+    /// <summary>
+    /// Tells a provider to stop without waiting for it: its cancellation callbacks run on the
+    /// thread pool. The token source lives until both they and the provider have finished,
+    /// however late that is.
+    /// </summary>
+    private static void StopProvider(CancellationTokenSource limit, Task assessment)
+    {
+        Task stop;
+        try { stop = limit.CancelAsync(); }
+        catch (Exception ex) { stop = Task.FromException(ex); }
+        _ = Task.WhenAll(assessment, stop).ContinueWith(
+            t => { _ = t.Exception; limit.Dispose(); },
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
     private static void PublishAll(Run run, IEnumerable<string> ids, SecurityAssessmentStatus status, string reasonCode, string detail, long durationMs)
