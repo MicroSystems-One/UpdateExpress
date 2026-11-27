@@ -46,6 +46,18 @@ internal sealed class InformationNoticeWindow : OkNoticeShellWindow
             OwnerFrom(wpfOwner),
             () => System.Media.SystemSounds.Asterisk.Play());
 
+    /// <summary>Show on the WPF dispatcher when the caller is not on a UI thread (e.g. tray poll).</summary>
+    internal static void ShowAndWaitOnUiThread(InformationNotice notice, Window? wpfOwner = null)
+    {
+        var app = Application.Current;
+        if (app is not null && !app.Dispatcher.CheckAccess())
+        {
+            app.Dispatcher.Invoke(() => ShowAndWait(notice, wpfOwner));
+            return;
+        }
+        ShowAndWait(notice, wpfOwner);
+    }
+
     protected override void OnKeyDown(WpfKeyEventArgs e)
     {
         if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control)

@@ -93,7 +93,7 @@ internal static class RebootCoordinator
                 var when = NextOutsideActiveHours(reboot, DateTime.Now);
                 SchedulePending(source, when, "Deferred until outside active hours.");
                 bool norwegian = AppLanguage.IsNorwegian;
-                InformationNoticeWindow.ShowAndWait(DeferredRestartNotice(when, reboot, norwegian), owner);
+                InformationNoticeWindow.ShowAndWaitOnUiThread(DeferredRestartNotice(when, reboot, norwegian), owner);
                 return true;
             }
             // Already outside hours → start the countdown notice (Stop / Postpone).
