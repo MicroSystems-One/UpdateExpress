@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
+using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -315,8 +316,19 @@ public class SecurityOverviewWindowTests
 
     private static SecurityCheckRowView Row(SecurityOverviewWindow window, string id) => window.Rows.Single(r => r.Definition.Id == id);
 
+    private static System.Windows.Controls.Primitives.ToggleButton CardButton(SecurityOverviewWindow window, int index) =>
+        (System.Windows.Controls.Primitives.ToggleButton)((System.Windows.Controls.Primitives.UniformGrid)window.FindName("CardsHost")).Children[index];
+
     private static string Card(SecurityOverviewWindow window, int index) =>
-        AutomationProperties.GetName(((System.Windows.Controls.Primitives.UniformGrid)window.FindName("CardsHost")).Children[index]);
+        AutomationProperties.GetName(CardButton(window, index));
+
+    /// <summary>The count line of a summary card, without the filter hint in the accessible name.</summary>
+    private static string CardLabel(SecurityOverviewWindow window, int index)
+    {
+        string name = Card(window, index);
+        int dot = name.IndexOf(". ", StringComparison.Ordinal);
+        return dot >= 0 ? name[..dot] : name;
+    }
 
     private static string OverallText(SecurityOverviewWindow window) => ((TextBlock)window.FindName("OverallText")).Text;
 
@@ -354,10 +366,10 @@ public class SecurityOverviewWindowTests
             Assert.Equal(Status.NotProtected, Row(window, "NET-003").Text.Status);
             // A check the stored assessment does not hold is unknown, and counted as unknown.
             Assert.Equal(Status.Unknown, Row(window, "END-002").Text.Status);
-            Assert.Equal("Protected: 1", Card(window, 0));
-            Assert.Equal("Needs attention: 1", Card(window, 1));
-            Assert.Equal("Manual review: 0", Card(window, 2));
-            Assert.Equal("Unknown or unsupported: " + (window.Rows.Count - 2), Card(window, 3));
+            Assert.Equal("Protected: 1", CardLabel(window, 0));
+            Assert.Equal("Needs attention: 1", CardLabel(window, 1));
+            Assert.Equal("Manual review: 0", CardLabel(window, 2));
+            Assert.Equal("Unknown or unsupported: " + (window.Rows.Count - 2), CardLabel(window, 3));
             Assert.Equal("At least one check is not protected. Last assessed: " + Time(Earlier.LocalDateTime), OverallText(window));
             Assert.Equal("Scan again", ScanButton(window));
             window.Close();
@@ -375,9 +387,9 @@ public class SecurityOverviewWindowTests
             await Settle();
 
             Assert.All(window.Rows, row => Assert.Equal(Status.Unknown, row.Text.Status));
-            Assert.Equal("Protected: 0", Card(window, 0));
-            Assert.Equal("Needs attention: 0", Card(window, 1));
-            Assert.Equal("Unknown or unsupported: " + window.Rows.Count, Card(window, 3));
+            Assert.Equal("Protected: 0", CardLabel(window, 0));
+            Assert.Equal("Needs attention: 0", CardLabel(window, 1));
+            Assert.Equal("Unknown or unsupported: " + window.Rows.Count, CardLabel(window, 3));
             Assert.Equal("Not assessed yet.", OverallText(window));
             window.Close();
         });
@@ -400,8 +412,8 @@ public class SecurityOverviewWindowTests
             Assert.False(window.IsScanning);
             Assert.Equal(Status.Protected, Row(window, "NET-003").Text.Status);
             Assert.False(Row(window, "NET-003").Checking);
-            Assert.Equal("Protected: 3", Card(window, 0));
-            Assert.Equal("Needs attention: 0", Card(window, 1));
+            Assert.Equal("Protected: 3", CardLabel(window, 0));
+            Assert.Equal("Needs attention: 0", CardLabel(window, 1));
             Assert.StartsWith("No check found a problem. Last assessed: ", OverallText(window));
             Assert.Equal("Scan again", ScanButton(window));
             Assert.Same(window.LastCompleted, Assert.Single(reported));
@@ -432,7 +444,7 @@ public class SecurityOverviewWindowTests
             Assert.Equal(Status.Protected, Row(window, "NET-001").Text.Status);
             Assert.Equal(Status.NotProtected, Row(window, "NET-003").Text.Status);
             Assert.False(Row(window, "NET-003").Checking);
-            Assert.Equal("Needs attention: 1", Card(window, 1));
+            Assert.Equal("Needs attention: 1", CardLabel(window, 1));
             // Nobody cancelled, so the line says what it said before.
             Assert.Equal("At least one check is not protected. Last assessed: " + Time(Earlier.LocalDateTime), OverallText(window));
             Assert.Equal("Scan again", ScanButton(window));
@@ -551,8 +563,8 @@ public class SecurityOverviewWindowTests
             Assert.Null(window.LastCompleted);
             Assert.All(window.Rows, row => Assert.Equal(Status.Unknown, row.Text.Status));
             Assert.Equal("The assessment was cancelled before this check finished.", Row(window, "NET-001").Text.Finding);
-            Assert.Equal("Needs attention: 0", Card(window, 1));
-            Assert.Equal("Unknown or unsupported: " + window.Rows.Count, Card(window, 3));
+            Assert.Equal("Needs attention: 0", CardLabel(window, 1));
+            Assert.Equal("Unknown or unsupported: " + window.Rows.Count, CardLabel(window, 3));
             Assert.StartsWith("The assessment was cancelled. Not assessed yet.", OverallText(window));
             window.Close();
         });
@@ -577,8 +589,8 @@ public class SecurityOverviewWindowTests
             Assert.Equal("Check failed", failed.Text.StatusText);
             Assert.Equal("Unknown", failed.Text.Detected);
             Assert.Equal("The check could not run.", failed.Text.Finding);
-            Assert.Equal("Needs attention: 0", Card(window, 1));
-            Assert.Equal("Unknown or unsupported: " + (window.Rows.Count - 1), Card(window, 3));
+            Assert.Equal("Needs attention: 0", CardLabel(window, 1));
+            Assert.Equal("Unknown or unsupported: " + (window.Rows.Count - 1), CardLabel(window, 3));
             window.Close();
         });
     }
@@ -631,6 +643,135 @@ public class SecurityOverviewWindowTests
         });
     }
 
+    private static SecurityAssessmentSnapshot CardFilterSnapshot()
+    {
+        SecurityCheckResult R(string id, Status status, string? reason = null) => new()
+        {
+            Id = id, Status = status, CheckedAt = Earlier,
+            DetectedCode = status == Status.Unknown ? SecurityStateCodes.Unknown : SecurityStateCodes.On,
+            ReasonCode = reason ?? ""
+        };
+        return new SecurityAssessmentSnapshot
+        {
+            BaselineId = SecurityBaselineV1.BaselineId, Completed = true, StartedAt = Earlier, CompletedAt = Earlier,
+            Results = new[]
+            {
+                R("NET-001", Status.Protected), R("NET-002", Status.Protected), R("NET-003", Status.Protected),
+                R("END-001", Status.Protected), R("END-002", Status.Protected), R("END-003", Status.Protected),
+                R("END-004", Status.NotApplicable, SecurityReasonCodes.Informational),
+                R("END-005", Status.NotApplicable, SecurityReasonCodes.Informational),
+                R("END-006", Status.Protected),
+                R("UPD-SEC-008", Status.Protected), R("DEV-003", Status.Protected), R("DEV-004", Status.Protected),
+                R("DEV-005", Status.Protected), R("ACC-007", Status.Protected),
+                R("UPD-SEC-001", Status.Protected), R("UPD-SEC-002", Status.Unknown), R("UPD-SEC-004", Status.Protected),
+                R("UPD-SEC-005", Status.NotApplicable, SecurityReasonCodes.Informational),
+                R("UPD-SEC-006", Status.Protected)
+            }
+        };
+    }
+
+    [Fact]
+    public void The_summary_cards_filter_the_list_to_one_group_and_toggle_off_to_show_all()
+    {
+        using var sandbox = new SecurityOverviewSandbox();
+
+        RunSta(async () =>
+        {
+            var window = Window(CardFilterSnapshot());
+            var list = (ItemsControl)window.FindName("ChecksHost");
+            var empty = (TextBlock)window.FindName("EmptyCategoryText");
+            var protectedCard = CardButton(window, 0);
+            var unknownCard = CardButton(window, 3);
+            await Settle();
+
+            Assert.Equal(window.Rows.Count, list.Items.Count);
+
+            protectedCard.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await Settle();
+
+            Assert.True(protectedCard.IsChecked);
+            var protectedIds = list.Items.Cast<SecurityCheckRowView>().Select(r => r.Definition.Id).ToArray();
+            Assert.Equal(15, protectedIds.Length);
+            Assert.DoesNotContain("END-004", protectedIds);
+            Assert.DoesNotContain("UPD-SEC-002", protectedIds);
+            Assert.Contains("Press again to show all checks", Card(window, 0));
+
+            protectedCard.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await Settle();
+
+            Assert.False(protectedCard.IsChecked);
+            Assert.Equal(window.Rows.Count, list.Items.Count);
+            Assert.Contains("Press to show only these checks", Card(window, 0));
+
+            unknownCard.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await Settle();
+            Assert.Single(list.Items.Cast<SecurityCheckRowView>());
+            Assert.Equal("UPD-SEC-002", list.Items.Cast<SecurityCheckRowView>().Single().Definition.Id);
+
+            CardButton(window, 1).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await Settle();
+            Assert.True(list.Items.IsEmpty);
+            Assert.Equal(System.Windows.Visibility.Visible, empty.Visibility);
+            Assert.Contains("needs attention", empty.Text, StringComparison.OrdinalIgnoreCase);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void The_summary_card_filter_and_the_category_filter_work_together()
+    {
+        using var sandbox = new SecurityOverviewSandbox();
+
+        RunSta(async () =>
+        {
+            var window = Window(CardFilterSnapshot());
+            var list = (ItemsControl)window.FindName("ChecksHost");
+            var chips = ((WrapPanel)window.FindName("ChipsHost")).Children.OfType<System.Windows.Controls.RadioButton>().ToList();
+            await Settle();
+
+            CardButton(window, 0).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            chips[1].IsChecked = true; // Network Security
+            await Settle();
+
+            Assert.Equal(new[] { "NET-001", "NET-002", "NET-003" },
+                list.Items.Cast<SecurityCheckRowView>().Select(r => r.Definition.Id).ToArray());
+
+            CardButton(window, 1).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await Settle();
+            chips[1].IsChecked = true; // Network Security, all protected in this snapshot
+            await Settle();
+            Assert.True(list.Items.IsEmpty);
+
+            CardButton(window, 1).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            chips[0].IsChecked = true;
+            await Settle();
+            Assert.Equal(window.Rows.Count, list.Items.Count);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void Information_checks_are_seen_only_with_no_summary_card_filter()
+    {
+        using var sandbox = new SecurityOverviewSandbox();
+
+        RunSta(async () =>
+        {
+            var window = Window(CardFilterSnapshot());
+            var list = (ItemsControl)window.FindName("ChecksHost");
+            await Settle();
+
+            Assert.Equal(new[] { "END-004", "END-005", "UPD-SEC-005" },
+                window.Rows.Where(r => r.Text.StatusText == "Information").Select(r => r.Definition.Id).ToArray());
+            Assert.Contains("END-004", list.Items.Cast<SecurityCheckRowView>().Select(r => r.Definition.Id));
+
+            CardButton(window, 0).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await Settle();
+            Assert.DoesNotContain("END-004", list.Items.Cast<SecurityCheckRowView>().Select(r => r.Definition.Id));
+            window.Close();
+        });
+    }
+
     [Fact]
     public void The_category_filter_shows_the_checks_of_one_category()
     {
@@ -679,7 +820,7 @@ public class SecurityOverviewWindowTests
 
             Assert.Equal("Sikkerhetsoversikt", window.Title);
             Assert.Equal("Øyeblikksbilde av en vurdering – ikke en sikkerhetssertifisering.", ((TextBlock)window.FindName("HonestyText")).Text);
-            Assert.Equal("Beskyttet: 1", Card(window, 0));
+            Assert.Equal("Beskyttet: 1", CardLabel(window, 0));
             Assert.Equal("Skann på nytt", ScanButton(window));
             var row = Row(window, "NET-001");
             Assert.Equal("Windows-brannmur – domeneprofil", row.Text.Name);

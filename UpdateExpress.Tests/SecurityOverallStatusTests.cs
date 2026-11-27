@@ -201,6 +201,25 @@ public class SecurityOverallStatusTests
     }
 
     [Fact]
+    public void A_row_without_an_answer_is_unknown_in_the_list_and_not_in_other_groups()
+    {
+        Assert.Equal(SecuritySummaryBucket.UnknownOrUnsupported, SecurityOverallStatus.ListBucket(null, checking: false));
+        Assert.Null(SecurityOverallStatus.ListBucket(null, checking: true));
+        Assert.False(SecurityOverallStatus.MatchesListBucket(SecuritySummaryBucket.Protected, null, checking: false));
+        Assert.False(SecurityOverallStatus.MatchesListBucket(SecuritySummaryBucket.Protected, null, checking: true));
+        Assert.True(SecurityOverallStatus.MatchesListBucket(SecuritySummaryBucket.UnknownOrUnsupported, null, checking: false));
+    }
+
+    [Fact]
+    public void An_information_check_is_not_in_any_summary_card_group()
+    {
+        var info = Check(Status.NotApplicable) with { ReasonCode = SecurityReasonCodes.Informational };
+        Assert.Equal(SecuritySummaryBucket.NotApplicable, SecurityOverallStatus.ListBucket(info, checking: false));
+        Assert.False(SecurityOverallStatus.MatchesListBucket(SecuritySummaryBucket.Protected, info, checking: false));
+        Assert.False(SecurityOverallStatus.MatchesListBucket(SecuritySummaryBucket.UnknownOrUnsupported, info, checking: false));
+    }
+
+    [Fact]
     public void A_check_that_is_still_running_is_on_no_card()
     {
         Assert.Null(SecurityOverallStatus.BucketOf(Check(Status.Checking)));

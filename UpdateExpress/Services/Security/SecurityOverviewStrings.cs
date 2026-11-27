@@ -24,6 +24,10 @@ internal static class SecurityOverviewStrings
         internal const string Cancelled = "The assessment was cancelled.";
         internal const string ShowingAssessmentFrom = "Showing the assessment from {0}.";
         internal const string EmptyCategory = "No checks in this category in this version.";
+        internal const string EmptyBucket = "No checks in this group.";
+        internal const string EmptyBucketNamed = "No checks count as {0} in the list.";
+        internal const string SummaryCardShowGroup = "Press to show only these checks in the list.";
+        internal const string SummaryCardShowAll = "Selected. Press again to show all checks.";
         internal const string ScanAgain = "Scan again";
         internal const string Cancel = "Cancel";
         internal const string Close = "Close";
@@ -448,6 +452,10 @@ internal static class SecurityOverviewStrings
         [Ui.Cancelled] = "Vurderingen ble avbrutt.",
         [Ui.ShowingAssessmentFrom] = "Viser vurderingen fra {0}.",
         [Ui.EmptyCategory] = "Ingen sjekker i denne kategorien i denne versjonen.",
+        [Ui.EmptyBucket] = "Ingen sjekker i denne gruppen.",
+        [Ui.EmptyBucketNamed] = "Ingen sjekker telles som {0} i listen.",
+        [Ui.SummaryCardShowGroup] = "Trykk for å vise bare disse sjekkene i listen.",
+        [Ui.SummaryCardShowAll] = "Valgt. Trykk igjen for å vise alle sjekker.",
         [Ui.ScanAgain] = "Skann på nytt",
         [Ui.Cancel] = "Avbryt",
         [Ui.Close] = "Lukk",
