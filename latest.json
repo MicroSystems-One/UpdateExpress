@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.64",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.64/UpdateExpress_v0.7.2.64.exe",
-  "sha256": "c3a50aabc82fdfdf4e9ee3a82409dfef9d2eee369094068f3e373aa52e535f4d",
-  "publishedAt": "2026-11-27T14:42:45Z",
-  "releaseNotes": "Security Overview, Phase 1 (read-only): a shield in the header after the (i) icon shows the result of the last assessment; a click opens the Security Overview window with 19 checks (Windows Firewall, antivirus, Windows Update state, pending restart, Windows support status, automatic logon, Secure Boot, TPM); it changes nothing on the PC (#167) on 0.7.2.63. Tip 6b919ff. Keep 0.7.2.63 for rollback."
+  "version": "0.7.2.65",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.65/UpdateExpress_v0.7.2.65.exe",
+  "sha256": "503c08d74261456a1a08ce82756c6c2ea5e4cd2b7ec26691adf6166c3016c7af",
+  "publishedAt": "2026-11-27T18:53:38Z",
+  "releaseNotes": "Scheduled-install and restart notices restyled like the restart window; the title says \"this evening\" only when the install is today; dates use the app's language (EN/NO). The maintenance reminder's scheduled-time line says Today/I dag when the date is today. Security Overview summary cards are toggle buttons that filter the check list (#170, #171, #172) on 0.7.2.64. Tip 20c9037. Keep 0.7.2.64 for rollback."
 }
