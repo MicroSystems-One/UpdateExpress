@@ -2,13 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using UpdateExpress.Services.Security.Providers;
 
 namespace UpdateExpress.Services.Security;
 
 /// <summary>The checks this version can assess. A check of the baseline without a provider stays unanswered.</summary>
 internal static class SecurityCheckProviders
 {
-    internal static IReadOnlyList<ISecurityCheckProvider> Create() => Array.Empty<ISecurityCheckProvider>();
+    internal static IReadOnlyList<ISecurityCheckProvider> Create() => new ISecurityCheckProvider[]
+    {
+        new FirewallProfileCheckProvider()
+    };
 }
 
 /// <summary>

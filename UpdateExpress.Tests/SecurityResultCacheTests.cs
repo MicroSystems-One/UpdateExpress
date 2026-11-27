@@ -6,6 +6,8 @@ using Xunit;
 
 namespace UpdateExpress.Tests;
 
+// With the tests that point the cache at a folder of their own: the default path is one static.
+[Collection(SecurityOverviewRuntimeCollection.Name)]
 public sealed class SecurityResultCacheTests : IDisposable
 {
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "ue-security-cache-tests-" + Guid.NewGuid().ToString("N"));

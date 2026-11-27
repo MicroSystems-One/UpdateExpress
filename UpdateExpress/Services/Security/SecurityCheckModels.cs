@@ -39,6 +39,11 @@ internal static class SecurityReasonCodes
     internal const string ServerOs = "server_os";
     internal const string ClientOs = "client_os";
     internal const string OsTooOld = "os_too_old";
+
+    internal const string FirewallReadFailed = "firewall_read_failed";
+    internal const string FirewallProfileNotReported = "firewall_profile_not_reported";
+    internal const string FirewallOffByPolicy = "firewall_off_by_policy";
+    internal const string FirewallOffOtherProduct = "firewall_off_other_product";
 }
 
 /// <summary>

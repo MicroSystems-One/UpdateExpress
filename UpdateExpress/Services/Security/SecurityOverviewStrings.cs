@@ -155,6 +155,12 @@ internal static class SecurityOverviewStrings
         SecurityReasonCodes.ServerOs => "Not relevant on Windows Server.",
         SecurityReasonCodes.ClientOs => "Only relevant on Windows Server.",
         SecurityReasonCodes.OsTooOld => "Not supported on this Windows version.",
+        SecurityReasonCodes.FirewallReadFailed => "Windows did not answer the question about the firewall.",
+        SecurityReasonCodes.FirewallProfileNotReported => "Windows gave no state for this firewall profile.",
+        SecurityReasonCodes.FirewallOffByPolicy =>
+            "A policy holds Windows Firewall off for this profile. Update Express does not override policy.",
+        SecurityReasonCodes.FirewallOffOtherProduct =>
+            "Windows Firewall is off for this profile, and another firewall product is registered with Windows. Whether that product protects this profile cannot be verified here.",
         _ => null
     };
 
@@ -265,6 +271,12 @@ internal static class SecurityOverviewStrings
         ["Not relevant on Windows Server."] = "Ikke relevant på Windows Server.",
         ["Only relevant on Windows Server."] = "Bare relevant på Windows Server.",
         ["Not supported on this Windows version."] = "Støttes ikke på denne Windows-versjonen.",
+        ["Windows did not answer the question about the firewall."] = "Windows svarte ikke på spørsmålet om brannmuren.",
+        ["Windows gave no state for this firewall profile."] = "Windows oppga ingen tilstand for denne brannmurprofilen.",
+        ["A policy holds Windows Firewall off for this profile. Update Express does not override policy."] =
+            "En policy holder Windows-brannmuren av for denne profilen. Update Express overstyrer ikke policy.",
+        ["Windows Firewall is off for this profile, and another firewall product is registered with Windows. Whether that product protects this profile cannot be verified here."] =
+            "Windows-brannmuren er av for denne profilen, og et annet brannmurprodukt er registrert i Windows. Om det produktet beskytter denne profilen, kan ikke bekreftes her.",
 
         // Overall status
         ["Not assessed yet."] = "Ikke vurdert ennå.",
