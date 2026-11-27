@@ -6,6 +6,48 @@
         ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
         Background="#F3F3F3" FontFamily="Segoe UI"
         ShowInTaskbar="False" Icon="Assets/UpdateExpress-U.ico">
+  <Window.Resources>
+    <Style x:Key="ReferenceCopyButton" TargetType="Button">
+      <Setter Property="Width" Value="22"/>
+      <Setter Property="Height" Value="22"/>
+      <Setter Property="MinWidth" Value="22"/>
+      <Setter Property="MinHeight" Value="22"/>
+      <Setter Property="Padding" Value="2"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="VerticalAlignment" Value="Top"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" CornerRadius="4">
+              <Viewbox Width="14" Height="14" Stretch="Uniform">
+                <Canvas Width="24" Height="24">
+                  <Path Fill="#F3F3F3" Stroke="#0067C0" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                        Data="M3,4 H12 L15.2,7.2 V16.2 H3 Z"/>
+                  <Path Stroke="#0067C0" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                        Data="M12,4 V7.2 H15.2"/>
+                  <Path Stroke="#0067C0" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                        Data="M5.2,8.2 H10.2 M5.2,10.6 H10.2 M5.2,13 H10.2"/>
+                  <Path Fill="#F3F3F3" Stroke="#0067C0" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                        Data="M8.2,8 H16.4 L20,11.6 V21 H8.2 Z"/>
+                  <Path Stroke="#0067C0" StrokeThickness="1.6" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                        Data="M16.4,8 V11.6 H20"/>
+                  <Path Stroke="#0067C0" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                        Data="M10.4,13.4 H17.2 M10.4,16 H17.2 M10.4,18.6 H17.2"/>
+                </Canvas>
+              </Viewbox>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="#E5E5E5"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Window.Resources>
   <Border Margin="14" Background="White" BorderBrush="#DFE5EC" BorderThickness="1" CornerRadius="8" Padding="16">
     <Grid>
       <Grid.ColumnDefinitions>
@@ -26,9 +68,9 @@
         <TextBlock x:Name="ReferenceLabel" Margin="0,14,0,4" FontSize="13" Foreground="#1C1C1C"
                    Text="Reference:"/>
         <DockPanel LastChildFill="True" Margin="0,0,0,2">
-          <Button x:Name="CopyButton" DockPanel.Dock="Right" Margin="10,0,0,0"
-                  Padding="10,3" MinHeight="26" VerticalAlignment="Top"
-                  Content="Kopier" Click="Copy_Click" Cursor="Hand"
+          <Button x:Name="CopyButton" Style="{StaticResource ReferenceCopyButton}"
+                  DockPanel.Dock="Right" Margin="10,0,0,0"
+                  Click="Copy_Click"
                   ToolTip="Kopier lenken" AutomationProperties.Name="Kopier"/>
           <TextBlock TextWrapping="Wrap" VerticalAlignment="Center" FontSize="13">
             <Hyperlink x:Name="ReferenceLink" RequestNavigate="ReferenceLink_RequestNavigate"

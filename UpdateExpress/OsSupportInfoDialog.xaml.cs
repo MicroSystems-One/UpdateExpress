@@ -23,7 +23,6 @@ public partial class OsSupportInfoDialog : Window
         _referenceUrl = string.IsNullOrWhiteSpace(referenceUrl) ? ReferenceUrl : referenceUrl;
         DetailsText.Text = details?.Trim() ?? "";
         ReferenceLabel.Text = norwegian ? "Referanse:" : "Reference:";
-        CopyButton.Content = norwegian ? "Kopier" : "Copy";
         CopyButton.ToolTip = norwegian ? "Kopier lenken" : "Copy the link";
         System.Windows.Automation.AutomationProperties.SetName(
             CopyButton, norwegian ? "Kopier" : "Copy");
