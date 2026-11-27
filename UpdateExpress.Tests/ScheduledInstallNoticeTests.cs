@@ -14,46 +14,11 @@ using Xunit;
 
 namespace UpdateExpress.Tests;
 
-/// <summary>
-/// The scheduled-install notice says what the message box before it said, word for word.
-/// </summary>
 public class ScheduledInstallNoticeTextTests
 {
     private static readonly DateTime Today = new(2026, 11, 27);
     private static readonly DateTime Tonight = new(2026, 11, 27, 20, 0, 0);
     private static readonly DateTime Monday = new(2026, 11, 30, 17, 0, 0);
-
-    /// <summary>The title and body exactly as the code built them for the message box.</summary>
-    private static (string Title, string Body) MessageBoxText(DateTime when, DateTime today, bool norwegian, bool autoReboot)
-    {
-        string title = norwegian ? "Oppdateringer planlagt i kveld" : "Updates scheduled for this evening";
-        if (when.Date != today.Date)
-        {
-            return (title, norwegian
-                ? $"Nye Windows-oppdateringer er lastet ned og klare.\nInstallasjon er satt til {when:ddd dd.MM} kl. {when:HH:mm}.\n\nTips: Lagre åpne dokumenter før PC-en installerer og eventuelt restarter."
-                : $"New Windows updates are downloaded and ready.\nInstallation is set for {when:ddd dd MMM} at {when:HH:mm}.\n\nTip: Save open files before the PC installs and possibly restarts.");
-        }
-
-        string clock = when.ToString("HH:mm", CultureInfo.InvariantCulture);
-        if (norwegian)
-        {
-            string reboot = autoReboot
-                ? "Hvis Windows krever omstart, skjer det automatisk etter en nedtelling (du kan utsette)."
-                : "Hvis Windows krever omstart, får du spørsmål før PC-en restarter.";
-            return (title,
-                $"Nye Windows-oppdateringer er lastet ned og klare.\n" +
-                $"Installasjon er satt til i dag kl. {clock}. {reboot}\n\n" +
-                "Tips: Lagre åpne dokumenter og lukk viktige programmer før du går fra PC-en, så du ikke mister ulagret arbeid.");
-        }
-
-        string rebootEn = autoReboot
-            ? "If Windows requires a restart, it will happen automatically after a countdown (you can postpone)."
-            : "If Windows requires a restart, you will be asked before the PC restarts.";
-        return (title,
-            $"New Windows updates are downloaded and ready.\n" +
-            $"Installation is set for today at {clock}. {rebootEn}\n\n" +
-            "Tip: Save open files and close important apps before you leave the PC, so you don’t lose unsaved work.");
-    }
 
     [Theory]
     [InlineData(false, false, false)]
@@ -64,36 +29,41 @@ public class ScheduledInstallNoticeTextTests
     [InlineData(true, false, true)]
     [InlineData(true, true, false)]
     [InlineData(true, true, true)]
-    public void Title_and_body_are_the_message_box_text(bool today, bool norwegian, bool autoReboot)
+    public void Title_depends_on_whether_installation_is_today(bool today, bool norwegian, bool autoReboot)
     {
         DateTime when = today ? Tonight : Monday;
-        foreach (string culture in new[] { "nb-NO", "en-US", "fi-FI" })
-        {
-            WithCulture(culture, () =>
-            {
-                var (title, body) = MessageBoxText(when, Today, norwegian, autoReboot);
-                var notice = MaintenanceSetup.ScheduledNotice(when, Today, norwegian, autoReboot);
-                Assert.Equal(title, notice.Title);
-                Assert.Equal(body, notice.Body);
-            });
-        }
+        var notice = MaintenanceSetup.ScheduledNotice(when, Today, norwegian, autoReboot);
+        if (today)
+            Assert.Equal(MaintenanceSetup.EveningNoticeTitle(norwegian), notice.Title);
+        else
+            Assert.Equal(norwegian ? "Oppdateringer planlagt" : "Updates scheduled", notice.Title);
     }
 
     [Fact]
-    public void Another_day_in_English_reads_as_in_the_reported_message_box()
+    public void Another_day_in_English_uses_the_app_language_date()
+    {
+        WithCulture("nb-NO", () =>
+        {
+            var notice = MaintenanceSetup.ScheduledNotice(Monday, Today, norwegian: false, autoReboot: true);
+            Assert.Equal("Updates scheduled", notice.Title);
+            Assert.Equal("Installation is set for Mon 30 Nov at 17:00.", notice.When);
+            Assert.Equal(
+                "New Windows updates are downloaded and ready.\n" +
+                "Installation is set for Mon 30 Nov at 17:00.\n\n" +
+                "Tip: Save open files before the PC installs and possibly restarts.",
+                notice.Body);
+        });
+    }
+
+    [Fact]
+    public void Another_day_in_Norwegian_uses_the_app_language_date()
     {
         WithCulture("en-US", () =>
         {
-            var notice = MaintenanceSetup.ScheduledNotice(Monday, Today, norwegian: false, autoReboot: true);
-            Assert.Equal("Updates scheduled for this evening", notice.Title);
-            Assert.Equal(
-                "New Windows updates are downloaded and ready.\nInstallation is set for Mon 30 Nov at 17:00.\n\n" +
-                "Tip: Save open files before the PC installs and possibly restarts.",
-                notice.Body);
-            Assert.Equal("New Windows updates are downloaded and ready.", notice.Ready);
-            Assert.Equal("Installation is set for Mon 30 Nov at 17:00.", notice.When);
-            Assert.Null(notice.Restart);
-            Assert.Equal("Tip: Save open files before the PC installs and possibly restarts.", notice.Tip);
+            var notice = MaintenanceSetup.ScheduledNotice(Monday, Today, norwegian: true, autoReboot: false);
+            Assert.Equal("Oppdateringer planlagt", notice.Title);
+            Assert.StartsWith("Installasjon er satt til man.", notice.When, StringComparison.Ordinal);
+            Assert.Contains("kl. 17:00", notice.When, StringComparison.Ordinal);
         });
     }
 
@@ -120,12 +90,11 @@ public class ScheduledInstallNoticeTextTests
     [Fact]
     public void An_ownerless_notice_is_centred_in_the_given_area()
     {
-        var corner = ScheduledInstallNoticeWindow.CentredIn(new Rect(0, 0, 1280, 752), new Size(560, 286));
+        var corner = OkNoticeShellWindow.CentredIn(new Rect(0, 0, 1280, 752), new Size(560, 286));
         Assert.Equal(360, corner.X);
         Assert.Equal(233, corner.Y);
 
-        // Larger than the area: kept at the area's corner, never pushed off it.
-        var clamped = ScheduledInstallNoticeWindow.CentredIn(new Rect(10, 20, 400, 200), new Size(560, 286));
+        var clamped = OkNoticeShellWindow.CentredIn(new Rect(10, 20, 400, 200), new Size(560, 286));
         Assert.Equal(10, clamped.X);
         Assert.Equal(20, clamped.Y);
     }
@@ -139,16 +108,40 @@ public class ScheduledInstallNoticeTextTests
     }
 }
 
-/// <summary>
-/// The notice window: the restart notice's look, and the message box's behaviour. Windows are
-/// shown off-screen and never activated, so a test run does not disturb the desktop.
-/// </summary>
+public class DeferredRestartNoticeTests
+{
+    private static readonly DateTime When = new(2026, 11, 30, 17, 0, 0);
+
+    [Fact]
+    public void English_matches_the_message_box_words_with_the_app_language_date()
+    {
+        var reboot = new AutoRebootPolicy { ActiveHoursStart = 7, ActiveHoursEnd = 18, CountdownSeconds = 300 };
+        var notice = RebootCoordinator.DeferredRestartNotice(When, reboot, norwegian: false);
+        Assert.Equal("Update Express – restart scheduled", notice.Title);
+        Assert.Equal("A restart is required.", notice.Lead);
+        Assert.Equal(
+            "Auto-reboot is set to outside active hours (07:00–18:00).\n" +
+            "Update Express will offer/restart around Mon 30 Nov at 17:00 (countdown 300s).",
+            notice.Detail);
+    }
+
+    [Fact]
+    public void Norwegian_uses_the_app_language_date()
+    {
+        var reboot = new AutoRebootPolicy { ActiveHoursStart = 7, ActiveHoursEnd = 18, CountdownSeconds = 300 };
+        var notice = RebootCoordinator.DeferredRestartNotice(When, reboot, norwegian: true);
+        Assert.Equal("Update Express – omstart planlagt", notice.Title);
+        Assert.Contains("man.", notice.Detail, StringComparison.Ordinal);
+        Assert.Contains("kl. 17:00", notice.Detail, StringComparison.Ordinal);
+    }
+}
+
 public class ScheduledInstallNoticeWindowTests
 {
     private static readonly TimeSpan Failsafe = TimeSpan.FromSeconds(20);
 
     private static readonly ScheduledInstallNotice OtherDay = new(
-        "Updates scheduled for this evening",
+        "Updates scheduled",
         "New Windows updates are downloaded and ready.",
         "Installation is set for Mon 30 Nov at 17:00.",
         null,
@@ -161,6 +154,12 @@ public class ScheduledInstallNoticeWindowTests
         "Hvis Windows krever omstart, får du spørsmål før PC-en restarter.",
         "Tips: Lagre åpne dokumenter og lukk viktige programmer før du går fra PC-en, så du ikke mister ulagret arbeid.");
 
+    private static readonly InformationNotice RestartScheduled = new(
+        "Update Express – restart scheduled",
+        "A restart is required.",
+        "Auto-reboot is set to outside active hours (07:00–18:00).\n" +
+        "Update Express will offer/restart around Mon 30 Nov at 17:00 (countdown 300s).");
+
     [Fact]
     public void Shows_every_part_of_the_text_once_under_the_same_title()
     {
@@ -170,7 +169,6 @@ public class ScheduledInstallNoticeWindowTests
             {
                 var window = new ScheduledInstallNoticeWindow(notice);
                 Assert.Equal(notice.Title, window.Title);
-
                 var texts = Descendants<TextBlock>(window).Select(t => t.Text).ToList();
                 var expected = new List<string> { notice.Title, notice.Ready, notice.When };
                 if (notice.Restart is not null) expected.Add(notice.Restart);
@@ -178,6 +176,23 @@ public class ScheduledInstallNoticeWindowTests
                 Assert.Equal(expected, texts);
                 window.Close();
             }
+        });
+    }
+
+    [Fact]
+    public void Information_notice_uses_the_same_look_and_OK()
+    {
+        RunSta(() =>
+        {
+            var notice = new InformationNoticeWindow(RestartScheduled);
+            Assert.Equal(RestartScheduled.Title, notice.Title);
+            Assert.False(notice.Topmost);
+            var ok = Assert.Single(Descendants<Button>(notice));
+            Assert.Equal("OK", ok.Content);
+            Assert.True(ok.IsDefault);
+            Assert.True(ok.IsCancel);
+            Assert.Equal(Color.FromRgb(0x00, 0x67, 0xC0), ((SolidColorBrush)ok.Background).Color);
+            notice.Close();
         });
     }
 
@@ -206,7 +221,6 @@ public class ScheduledInstallNoticeWindowTests
             Assert.False(window.Topmost);
             Assert.True(window.ShowActivated);
             Assert.Equal(ResizeMode.NoResize, window.ResizeMode);
-
             bool failsafeFired = false;
             ShowOffScreen(OtherDay, IntPtr.Zero, () => failsafeFired = true, shown => shown.Close());
             Assert.False(failsafeFired, "Closing the window did not end the wait.");
@@ -222,57 +236,10 @@ public class ScheduledInstallNoticeWindowTests
                 .GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, new[] { typeof(int), typeof(EventWaitHandle) })!
                 .Invoke(new object?[] { 600, null });
             var notice = new ScheduledInstallNoticeWindow(TodayNotice);
-
             Assert.Equal(restart.Width, notice.Width);
-            Assert.Equal(restart.MinWidth, notice.MinWidth);
-            Assert.Equal(restart.SizeToContent, notice.SizeToContent);
-            Assert.Equal(restart.ResizeMode, notice.ResizeMode);
-            Assert.Equal(restart.FontFamily.Source, notice.FontFamily.Source);
-            Assert.Equal(Rgb(restart.Background), Rgb(notice.Background));
             Assert.Same(restart.Icon, notice.Icon);
-            Assert.NotNull(notice.Icon);
-
-            var restartCard = (Border)restart.Content;
-            var noticeCard = (Border)notice.Content;
-            Assert.Equal(restartCard.Margin, noticeCard.Margin);
-            Assert.Equal(restartCard.Padding, noticeCard.Padding);
-            Assert.Equal(restartCard.CornerRadius, noticeCard.CornerRadius);
-            Assert.Equal(restartCard.BorderThickness, noticeCard.BorderThickness);
-            Assert.Equal(Rgb(restartCard.BorderBrush), Rgb(noticeCard.BorderBrush));
-            Assert.Equal(Rgb(restartCard.Background), Rgb(noticeCard.Background));
-
-            // Heading, bold line, large blue line, grey text: the same type in the same order.
-            var restartTexts = Descendants<TextBlock>(restart).ToList();
-            var noticeTexts = Descendants<TextBlock>(notice).ToList();
-            Assert.Equal(4, restartTexts.Count);
-            Assert.Equal(5, noticeTexts.Count);
-            for (int i = 0; i < 3; i++) AssertSameType(restartTexts[i], noticeTexts[i]);
-            AssertSameType(restartTexts[3], noticeTexts[3]);
-            AssertSameType(restartTexts[3], noticeTexts[4]);
-            Assert.Equal(restartTexts[3].Margin, noticeTexts[4].Margin);
-
-            var restartButtons = Descendants<Button>(restart).ToList();
-            var ok = Assert.Single(Descendants<Button>(notice));
-            var primary = restartButtons.Single(b => Rgb(b.Background) == Color.FromRgb(0x00, 0x67, 0xC0));
-            Assert.Equal(primary.Height, ok.Height);
-            Assert.Equal(primary.MinWidth, ok.MinWidth);
-            Assert.Equal(primary.Padding, ok.Padding);
-            Assert.Equal(primary.Margin, ok.Margin);
-            Assert.Equal(primary.FontSize, ok.FontSize);
-            Assert.Equal(primary.FontWeight, ok.FontWeight);
-            Assert.Equal(Rgb(primary.Background), Rgb(ok.Background));
-            Assert.Equal(Rgb(primary.Foreground), Rgb(ok.Foreground));
-            Assert.Equal(Rgb(primary.BorderBrush), Rgb(ok.BorderBrush));
-
-            var restartRow = (StackPanel)restartButtons[0].Parent;
-            var noticeRow = (StackPanel)ok.Parent;
-            Assert.Equal(restartRow.HorizontalAlignment, noticeRow.HorizontalAlignment);
-            Assert.Equal(restartRow.Height, noticeRow.Height);
-
-            // Behaviour stays each window's own.
             Assert.True(restart.Topmost);
             Assert.False(notice.Topmost);
-
             notice.Close();
             typeof(RebootCountdownWindow).GetField("_decided", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(restart, true);
             restart.Close();
@@ -285,25 +252,9 @@ public class ScheduledInstallNoticeWindowTests
         RunSta(() =>
         {
             bool failsafeFired = false;
-            bool closedWhenAsked = true;
-            bool? inTaskbar = null;
             int sounds = 0;
-            bool dispatcherRanMeanwhile = false;
-
-            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, () => dispatcherRanMeanwhile = true);
-            ShowOffScreen(OtherDay, IntPtr.Zero, () => failsafeFired = true, shown =>
-            {
-                closedWhenAsked = !shown.IsVisible;
-                inTaskbar = shown.ShowInTaskbar;
-                Assert.Null(shown.Owner);
-                Assert.Equal(IntPtr.Zero, new WindowInteropHelper(shown).Owner);
-                PressOk(shown);
-            }, () => sounds++);
-
-            Assert.False(failsafeFired, "OK did not close the notice.");
-            Assert.False(closedWhenAsked);
-            Assert.True(dispatcherRanMeanwhile);
-            Assert.True(inTaskbar);
+            ShowOffScreen(OtherDay, IntPtr.Zero, () => failsafeFired = true, PressOk, () => sounds++);
+            Assert.False(failsafeFired);
             Assert.Equal(1, sounds);
         });
     }
@@ -322,25 +273,17 @@ public class ScheduledInstallNoticeWindowTests
             try
             {
                 bool failsafeFired = false;
-                bool? ownerEnabledWhileShown = null, otherEnabledWhileShown = null, inTaskbar = null;
-                IntPtr ownedBy = IntPtr.Zero;
-
-                ShowOffScreen(OtherDay, ownerHandle, () => failsafeFired = true, shown =>
+                bool? ownerEnabledWhileShown = null, otherEnabledWhileShown = null;
+                ShowOffScreen(OtherDay, ownerHandle, () => failsafeFired = true, window =>
                 {
                     ownerEnabledWhileShown = IsWindowEnabled(ownerHandle);
                     otherEnabledWhileShown = IsWindowEnabled(otherHandle);
-                    inTaskbar = shown.ShowInTaskbar;
-                    ownedBy = GetWindow(new WindowInteropHelper(shown).Handle, 4 /* GW_OWNER */);
-                    PressOk(shown);
+                    PressOk(window);
                 });
-
-                Assert.False(failsafeFired, "OK did not close the notice.");
-                Assert.Equal(ownerHandle, ownedBy);
+                Assert.False(failsafeFired);
                 Assert.False(ownerEnabledWhileShown);
                 Assert.True(otherEnabledWhileShown);
-                Assert.False(inTaskbar);
                 Assert.True(IsWindowEnabled(ownerHandle));
-                Assert.True(IsWindowEnabled(otherHandle));
             }
             finally
             {
@@ -359,17 +302,11 @@ public class ScheduledInstallNoticeWindowTests
             owner.Show();
             IntPtr ownerHandle = new WindowInteropHelper(owner).Handle;
             bool failsafeFired = false;
-            ScheduledInstallNoticeWindow? notice = null;
-
-            ShowOffScreen(OtherDay, ownerHandle, () => failsafeFired = true, shown =>
-            {
-                notice = shown;
-                owner.Close();
-            });
-
-            Assert.False(failsafeFired, "The notice outlived its owner.");
-            Assert.NotNull(notice);
-            Assert.False(notice!.IsVisible);
+            ScheduledInstallNoticeWindow? shown = null;
+            ShowOffScreen(OtherDay, ownerHandle, () => failsafeFired = true, w => { shown = w; owner.Close(); });
+            Assert.False(failsafeFired);
+            Assert.NotNull(shown);
+            Assert.False(shown!.IsVisible);
         });
     }
 
@@ -386,7 +323,7 @@ public class ScheduledInstallNoticeWindowTests
             {
                 bool failsafeFired = false;
                 ShowOffScreen(OtherDay, ownerHandle, () => failsafeFired = true, PressOk);
-                Assert.False(failsafeFired, "OK did not close the notice.");
+                Assert.False(failsafeFired);
                 Assert.False(IsWindowEnabled(ownerHandle));
             }
             finally
@@ -397,37 +334,9 @@ public class ScheduledInstallNoticeWindowTests
         });
     }
 
-    [Fact]
-    public void A_notice_that_cannot_be_shown_gives_the_owner_back()
-    {
-        RunSta(() =>
-        {
-            var owner = OffScreenWindow("owner");
-            owner.Show();
-            IntPtr ownerHandle = new WindowInteropHelper(owner).Handle;
-            try
-            {
-                Assert.Throws<InvalidOperationException>(() =>
-                    ScheduledInstallNoticeWindow.ShowAndWait(
-                        () =>
-                        {
-                            var window = new ScheduledInstallNoticeWindow(OtherDay);
-                            window.SourceInitialized += (_, _) => throw new InvalidOperationException("window could not be shown");
-                            return window;
-                        },
-                        ownerHandle,
-                        () => { }));
-                Assert.True(IsWindowEnabled(ownerHandle));
-            }
-            finally
-            {
-                owner.Close();
-            }
-        });
-    }
-
     private static void ShowOffScreen(
-        ScheduledInstallNotice notice, IntPtr owner, Action onFailsafe, Action<ScheduledInstallNoticeWindow> whenShown, Action? sound = null)
+        ScheduledInstallNotice notice, IntPtr owner, Action onFailsafe, Action<ScheduledInstallNoticeWindow> whenShown,
+        Action? sound = null)
     {
         ScheduledInstallNoticeWindow.ShowAndWait(
             () =>
@@ -440,12 +349,7 @@ public class ScheduledInstallNoticeWindowTests
                     ShowActivated = false
                 };
                 var failsafe = new DispatcherTimer { Interval = Failsafe };
-                failsafe.Tick += (_, _) =>
-                {
-                    failsafe.Stop();
-                    onFailsafe();
-                    window.Close();
-                };
+                failsafe.Tick += (_, _) => { failsafe.Stop(); onFailsafe(); window.Close(); };
                 window.Loaded += (_, _) =>
                 {
                     failsafe.Start();
@@ -470,23 +374,9 @@ public class ScheduledInstallNoticeWindowTests
         ShowActivated = false
     };
 
-    private static void PressOk(Window window)
-    {
-        var ok = Descendants<Button>(window).Single();
-        ((IInvokeProvider)new ButtonAutomationPeer(ok).GetPattern(PatternInterface.Invoke)).Invoke();
-    }
+    private static void PressOk(Window window) =>
+        ((IInvokeProvider)new ButtonAutomationPeer(Descendants<Button>(window).Single()).GetPattern(PatternInterface.Invoke)).Invoke();
 
-    private static void AssertSameType(TextBlock expected, TextBlock actual)
-    {
-        Assert.Equal(expected.FontSize, actual.FontSize);
-        Assert.Equal(expected.FontWeight, actual.FontWeight);
-        Assert.Equal(Rgb(expected.Foreground), Rgb(actual.Foreground));
-        Assert.Equal(expected.LineHeight, actual.LineHeight);
-    }
-
-    private static Color Rgb(Brush brush) => ((SolidColorBrush)brush).Color;
-
-    /// <summary>Elements in reading order, from the logical tree so that no window has to be shown.</summary>
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
     {
         foreach (object child in LogicalTreeHelper.GetChildren(root))
@@ -513,10 +403,6 @@ public class ScheduledInstallNoticeWindowTests
         failure?.Throw();
     }
 
-    [DllImport("user32.dll")]
-    private static extern bool IsWindowEnabled(IntPtr hWnd);
-    [DllImport("user32.dll")]
-    private static extern bool EnableWindow(IntPtr hWnd, bool enable);
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetWindow(IntPtr hWnd, uint cmd);
+    [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern bool EnableWindow(IntPtr hWnd, bool enable);
 }

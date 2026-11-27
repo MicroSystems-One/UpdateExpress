@@ -243,26 +243,35 @@ internal static class MaintenanceSetup
     internal static string EveningNoticeTitle(bool norwegian) =>
         norwegian ? "Oppdateringer planlagt i kveld" : "Updates scheduled for this evening";
 
+    internal static string ScheduledNoticeTitle(bool norwegian, bool installToday) =>
+        installToday
+            ? EveningNoticeTitle(norwegian)
+            : (norwegian ? "Oppdateringer planlagt" : "Updates scheduled");
+
     /// <summary>
     /// The notice shown when downloaded updates are set to install at the next install window,
     /// worded for an installation later today or on another day.
     /// </summary>
     internal static ScheduledInstallNotice ScheduledNotice(DateTime when, DateTime today, bool norwegian, bool autoReboot)
     {
-        string title = EveningNoticeTitle(norwegian);
-        if (when.Date != today.Date)
+        bool installToday = when.Date == today.Date;
+        string title = ScheduledNoticeTitle(norwegian, installToday);
+        if (!installToday)
         {
+            string whenLine = norwegian
+                ? "Installasjon er satt til " + NoticeDates.DayAndTime(when, norwegian: true)
+                : "Installation is set for " + NoticeDates.DayAndTime(when, norwegian: false);
             return norwegian
                 ? new ScheduledInstallNotice(
                     title,
                     "Nye Windows-oppdateringer er lastet ned og klare.",
-                    $"Installasjon er satt til {when:ddd dd.MM} kl. {when:HH:mm}.",
+                    whenLine,
                     null,
                     "Tips: Lagre åpne dokumenter før PC-en installerer og eventuelt restarter.")
                 : new ScheduledInstallNotice(
                     title,
                     "New Windows updates are downloaded and ready.",
-                    $"Installation is set for {when:ddd dd MMM} at {when:HH:mm}.",
+                    whenLine,
                     null,
                     "Tip: Save open files before the PC installs and possibly restarts.");
         }

@@ -65,6 +65,25 @@ public sealed class ReminderSchedule
         return date + " " + clock;
     }
 
+    /// <summary>Date and clock without the leading weekday (for "Today …" / "I dag …" on the reminder line).</summary>
+    public string FormatWithoutWeekday(DateTime time)
+    {
+        var culture = string.Equals(Language, "no", StringComparison.OrdinalIgnoreCase)
+            ? CultureInfo.GetCultureInfo("nb-NO")
+            : CultureInfo.GetCultureInfo("en-US");
+        string date = (DateFormat ?? "text").Trim().ToLowerInvariant() switch
+        {
+            "dmy" => time.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture),
+            "iso" => time.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            "mdy" => time.ToString("MM/dd/yyyy", CultureInfo.InvariantCulture),
+            _ => time.ToString("dd MMM yyyy", culture)
+        };
+        string clock = Use24HourClock
+            ? time.ToString("HH:mm", CultureInfo.InvariantCulture)
+            : time.ToString("h:mm tt", CultureInfo.GetCultureInfo("en-US"));
+        return date + " " + clock;
+    }
+
     /// <summary>
     /// Parse a stored or previously displayed Date/Time (ISO with optional seconds, or Settings formats).
     /// </summary>
