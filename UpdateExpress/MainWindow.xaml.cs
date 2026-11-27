@@ -2830,7 +2830,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            var stored = await Task.Run(() => UpdateExpress.Services.Security.SecurityResultCache.TryLoad());
+            var stored = await Task.Run(() => UpdateExpress.Services.Security.SecurityAssessmentRunner.LoadStored(
+                UpdateExpress.Services.Security.SecurityBaselineV1.Create()));
             // An assessment finished in the meantime is newer than the file was.
             _securitySnapshot ??= stored;
         }

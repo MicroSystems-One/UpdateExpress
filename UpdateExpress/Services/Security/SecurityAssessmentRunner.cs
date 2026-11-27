@@ -48,6 +48,34 @@ internal static class SecurityAssessmentRunner
     internal static bool ReplacesEarlier(SecurityAssessmentSnapshot? snapshot) =>
         snapshot is { Completed: true } && snapshot.Results.Count > 0;
 
+    /// <summary>
+    /// The stored assessment, when it is one of this PC and of the baseline this version
+    /// assesses. A file that came with a copied profile or a cloned disk describes another PC,
+    /// and one from another baseline answers other checks; both are "not assessed yet".
+    /// </summary>
+    internal static SecurityAssessmentSnapshot? LoadStored(SecurityBaseline baseline, string? path = null, string? computerName = null)
+    {
+        var stored = SecurityResultCache.TryLoad(path);
+        return DescribesThisPc(stored, baseline, computerName ?? ReadComputerName()) ? stored : null;
+    }
+
+    internal static bool DescribesThisPc(SecurityAssessmentSnapshot? stored, SecurityBaseline baseline, string computerName)
+    {
+        if (stored is null || baseline is null) return false;
+        if (!string.Equals(stored.BaselineId.Trim(), baseline.Id, StringComparison.OrdinalIgnoreCase)) return false;
+        // Without a name on either side nothing says whose assessment it is. The stored name
+        // went through the same cleaning when it was read.
+        string current = SecurityTextSanitizer.Clean(computerName);
+        return current.Length > 0
+               && string.Equals(stored.ComputerName.Trim(), current, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ReadComputerName()
+    {
+        try { return Environment.MachineName; }
+        catch (InvalidOperationException) { return ""; }
+    }
+
     internal static Task<SecurityAssessmentSnapshot> RunAsync(
         SecurityBaseline baseline,
         IProgress<SecurityCheckResult>? progress,

@@ -192,6 +192,64 @@ public class SecurityAssessmentRunnerTests
     }
 
     [Fact]
+    public async Task The_stored_assessment_of_this_PC_and_this_baseline_is_shown_again()
+    {
+        using var sandbox = new SecurityOverviewSandbox(FakeSecurityProvider.Answers(Status.Protected, "NET-001"));
+        await SecurityAssessmentRunner.RunAsync(Baseline, null, CancellationToken.None);
+
+        var stored = SecurityAssessmentRunner.LoadStored(Baseline, sandbox.CachePath, "test-pc ");
+
+        Assert.NotNull(stored);
+        Assert.Equal(Status.Protected, stored!.Results.Single().Status);
+    }
+
+    [Theory]
+    [InlineData("OTHER-PC")]
+    [InlineData("TEST-PC2")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task An_assessment_stored_on_another_PC_is_not_shown_as_this_one(string thisPc)
+    {
+        using var sandbox = new SecurityOverviewSandbox(FakeSecurityProvider.Answers(Status.Protected, "NET-001"));
+        await SecurityAssessmentRunner.RunAsync(Baseline, null, CancellationToken.None);
+        Assert.NotNull(SecurityResultCache.TryLoad(sandbox.CachePath));
+
+        Assert.Null(SecurityAssessmentRunner.LoadStored(Baseline, sandbox.CachePath, thisPc));
+    }
+
+    [Fact]
+    public void An_assessment_stored_without_a_computer_name_or_for_another_baseline_is_not_shown()
+    {
+        using var sandbox = new SecurityOverviewSandbox();
+        var result = new[] { new SecurityCheckResult { Id = "NET-001", Status = Status.Protected, CheckedAt = DateTimeOffset.Now } };
+        var unnamed = new SecurityAssessmentSnapshot
+        {
+            BaselineId = SecurityBaselineV1.BaselineId, Completed = true, StartedAt = DateTimeOffset.Now, CompletedAt = DateTimeOffset.Now,
+            Results = result
+        };
+        var otherBaseline = unnamed with { BaselineId = "UpdateExpress.SecurityBaseline.v0", ComputerName = "TEST-PC" };
+
+        Assert.True(SecurityResultCache.TrySave(unnamed, sandbox.CachePath));
+        Assert.Null(SecurityAssessmentRunner.LoadStored(Baseline, sandbox.CachePath, "TEST-PC"));
+        Assert.Null(SecurityAssessmentRunner.LoadStored(Baseline, sandbox.CachePath, ""));
+
+        Assert.True(SecurityResultCache.TrySave(otherBaseline, sandbox.CachePath));
+        Assert.Null(SecurityAssessmentRunner.LoadStored(Baseline, sandbox.CachePath, "TEST-PC"));
+
+        Assert.True(SecurityResultCache.TrySave(otherBaseline with { BaselineId = SecurityBaselineV1.BaselineId }, sandbox.CachePath));
+        Assert.NotNull(SecurityAssessmentRunner.LoadStored(Baseline, sandbox.CachePath, "TEST-PC"));
+    }
+
+    [Fact]
+    public void No_stored_file_is_no_stored_assessment()
+    {
+        using var sandbox = new SecurityOverviewSandbox();
+
+        Assert.Null(SecurityAssessmentRunner.LoadStored(Baseline, sandbox.CachePath, "TEST-PC"));
+        Assert.Null(SecurityAssessmentRunner.LoadStored(Baseline));
+    }
+
+    [Fact]
     public async Task A_result_that_cannot_be_stored_is_still_returned_and_the_failure_is_logged()
     {
         using var sandbox = new SecurityOverviewSandbox(FakeSecurityProvider.Answers(Status.Protected, "NET-001"));

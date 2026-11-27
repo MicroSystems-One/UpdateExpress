@@ -67,6 +67,11 @@ internal static class SecurityPowerShell
             try
             {
                 await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+                // Something PowerShell started may still hold the pipes open after PowerShell
+                // itself has ended; the caller's token ends that wait too.
+                string printed = await output.WaitAsync(cancellationToken).ConfigureAwait(false);
+                string failed = await error.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return new PowerShellAnswer(true, process.ExitCode, printed, FirstLine(failed));
             }
             catch (OperationCanceledException)
             {
@@ -75,7 +80,6 @@ internal static class SecurityPowerShell
                 _ = error.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
                 throw;
             }
-            return new PowerShellAnswer(true, process.ExitCode, await output.ConfigureAwait(false), FirstLine(await error.ConfigureAwait(false)));
         }
     }
 
