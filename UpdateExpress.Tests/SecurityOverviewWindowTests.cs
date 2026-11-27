@@ -319,6 +319,10 @@ public class SecurityOverviewWindowTests
     private static System.Windows.Controls.Primitives.ToggleButton CardButton(SecurityOverviewWindow window, int index) =>
         (System.Windows.Controls.Primitives.ToggleButton)((System.Windows.Controls.Primitives.UniformGrid)window.FindName("CardsHost")).Children[index];
 
+    /// <summary>Flips a summary card the way a click or UI Automation toggle does.</summary>
+    private static void PressCard(SecurityOverviewWindow window, int index) =>
+        CardButton(window, index).IsChecked = !CardButton(window, index).IsChecked;
+
     private static string Card(SecurityOverviewWindow window, int index) =>
         AutomationProperties.GetName(CardButton(window, index));
 
@@ -671,6 +675,31 @@ public class SecurityOverviewWindowTests
     }
 
     [Fact]
+    public void The_summary_card_filter_follows_a_toggle_without_a_click_event()
+    {
+        using var sandbox = new SecurityOverviewSandbox();
+
+        RunSta(async () =>
+        {
+            var window = Window(CardFilterSnapshot());
+            var list = (ItemsControl)window.FindName("ChecksHost");
+            var card = CardButton(window, 0);
+            await Settle();
+
+            card.IsChecked = true;
+            await Settle();
+
+            Assert.Equal(15, list.Items.Count);
+            Assert.True(card.IsChecked);
+
+            card.IsChecked = false;
+            await Settle();
+            Assert.Equal(window.Rows.Count, list.Items.Count);
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void The_summary_card_filter_updates_as_answers_arrive_during_a_scan()
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -684,7 +713,7 @@ public class SecurityOverviewWindowTests
             var list = (ItemsControl)window.FindName("ChecksHost");
             await Settle();
 
-            CardButton(window, 0).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            PressCard(window, 0);
             await Settle();
             var ids = () => list.Items.Cast<SecurityCheckRowView>().Select(r => r.Definition.Id).ToArray();
             Assert.Equal(new[] { "NET-001" }, ids());
@@ -717,7 +746,7 @@ public class SecurityOverviewWindowTests
 
             Assert.Equal(window.Rows.Count, list.Items.Count);
 
-            protectedCard.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            PressCard(window, 0);
             await Settle();
 
             Assert.True(protectedCard.IsChecked);
@@ -727,19 +756,19 @@ public class SecurityOverviewWindowTests
             Assert.DoesNotContain("UPD-SEC-002", protectedIds);
             Assert.Contains("Press again to show all checks", Card(window, 0));
 
-            protectedCard.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            PressCard(window, 0);
             await Settle();
 
             Assert.False(protectedCard.IsChecked);
             Assert.Equal(window.Rows.Count, list.Items.Count);
             Assert.Contains("Press to show only these checks", Card(window, 0));
 
-            unknownCard.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            PressCard(window, 3);
             await Settle();
             Assert.Single(list.Items.Cast<SecurityCheckRowView>());
             Assert.Equal("UPD-SEC-002", list.Items.Cast<SecurityCheckRowView>().Single().Definition.Id);
 
-            CardButton(window, 1).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            PressCard(window, 1);
             await Settle();
             Assert.True(list.Items.IsEmpty);
             Assert.Equal(System.Windows.Visibility.Visible, empty.Visibility);
@@ -760,20 +789,20 @@ public class SecurityOverviewWindowTests
             var chips = ((WrapPanel)window.FindName("ChipsHost")).Children.OfType<System.Windows.Controls.RadioButton>().ToList();
             await Settle();
 
-            CardButton(window, 0).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            PressCard(window, 0);
             chips[1].IsChecked = true; // Network Security
             await Settle();
 
             Assert.Equal(new[] { "NET-001", "NET-002", "NET-003" },
                 list.Items.Cast<SecurityCheckRowView>().Select(r => r.Definition.Id).ToArray());
 
-            CardButton(window, 1).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            PressCard(window, 1);
             await Settle();
             chips[1].IsChecked = true; // Network Security, all protected in this snapshot
             await Settle();
             Assert.True(list.Items.IsEmpty);
 
-            CardButton(window, 1).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            PressCard(window, 1);
             chips[0].IsChecked = true;
             await Settle();
             Assert.Equal(window.Rows.Count, list.Items.Count);
@@ -796,7 +825,7 @@ public class SecurityOverviewWindowTests
                 window.Rows.Where(r => r.Text.StatusText == "Information").Select(r => r.Definition.Id).ToArray());
             Assert.Contains("END-004", list.Items.Cast<SecurityCheckRowView>().Select(r => r.Definition.Id));
 
-            CardButton(window, 0).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            PressCard(window, 0);
             await Settle();
             Assert.DoesNotContain("END-004", list.Items.Cast<SecurityCheckRowView>().Select(r => r.Definition.Id));
             window.Close();

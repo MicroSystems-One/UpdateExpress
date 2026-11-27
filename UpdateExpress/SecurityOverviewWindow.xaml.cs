@@ -44,6 +44,7 @@ public partial class SecurityOverviewWindow : Window
     private int _answered;
     private bool _cancelledNote;
     private bool _closed;
+    private bool _syncingCardChecks;
 
     /// <param name="lastCompleted">The last finished assessment the caller knows of, shown until a fresh one answers.</param>
     /// <param name="formatTime">How the main window writes a date and time.</param>
@@ -288,20 +289,20 @@ public partial class SecurityOverviewWindow : Window
     private void SetBucketFilter(SecuritySummaryBucket? bucket)
     {
         if (_bucketFilter == bucket) return;
-        if (_bucketFilter is SecuritySummaryBucket previous)
-            _cards[previous].Card.IsChecked = false;
-        _bucketFilter = bucket;
-        if (bucket is SecuritySummaryBucket selected)
-            _cards[selected].Card.IsChecked = true;
-        RefreshCardAccessibility();
-        SyncCardChecks();
-        RefreshList();
-    }
-
-    private void ToggleBucketFilter(SecuritySummaryBucket bucket)
-    {
-        if (_bucketFilter == bucket) SetBucketFilter(null);
-        else SetBucketFilter(bucket);
+        _syncingCardChecks = true;
+        try
+        {
+            if (_bucketFilter is SecuritySummaryBucket previous)
+                _cards[previous].Card.IsChecked = false;
+            _bucketFilter = bucket;
+            if (bucket is SecuritySummaryBucket selected)
+                _cards[selected].Card.IsChecked = true;
+            else
+                SyncCardChecks();
+            RefreshCardAccessibility();
+            RefreshList();
+        }
+        finally { _syncingCardChecks = false; }
     }
 
     private void SyncCardChecks()
@@ -345,7 +346,16 @@ public partial class SecurityOverviewWindow : Window
                 Content = content,
                 IsChecked = _bucketFilter == bucket
             };
-            card.Click += (_, _) => ToggleBucketFilter(bucket);
+            card.Checked += (_, _) =>
+            {
+                if (_syncingCardChecks) return;
+                SetBucketFilter(bucket);
+            };
+            card.Unchecked += (_, _) =>
+            {
+                if (_syncingCardChecks) return;
+                if (_bucketFilter == bucket) SetBucketFilter(null);
+            };
             _cards[bucket] = (card, number);
             CardsHost.Children.Add(card);
         }
