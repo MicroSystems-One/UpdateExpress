@@ -60,6 +60,42 @@ public class AntivirusReaderTests
         Assert.True(Assert.Single(reading.Products!).IsDefender);
     }
 
+    [Theory]
+    [InlineData("Bitdefender Antivirus", "{A1B2C3D4-0000-1111-2222-333344445555}", false)]
+    [InlineData("Bitdefender Antivirus", "", false)]
+    [InlineData("Contoso Defender Pro", "", false)]
+    [InlineData("Windows Defender", "{A1B2C3D4-0000-1111-2222-333344445555}", false)]
+    [InlineData("Windows Defender", "", true)]
+    [InlineData("microsoft defender antivirus", "", true)]
+    [InlineData("Anything", "{D68DDC3A-831F-4fae-9E44-DA132C1ACF46}", true)]
+    [InlineData("Anything", "d68ddc3a-831f-4fae-9e44-da132c1acf46", true)]
+    public void Defender_is_known_by_its_id_and_never_by_a_name_that_merely_contains_the_word(string name, string id, bool expected) =>
+        Assert.Equal(expected, AntivirusReader.IsDefender(name, id));
+
+    [Fact]
+    public void Bitdefender_beside_a_Defender_that_stepped_back_is_another_product()
+    {
+        var reading = AntivirusReader.Parse(Answered(
+            "{\"Defender\":{\"AntivirusEnabled\":false,\"RealTimeProtectionEnabled\":false,\"ServiceEnabled\":true,\"RunningMode\":\"Not running\"},\"DefenderError\":null,\"Products\":[" +
+            "{\"Name\":\"Windows Defender\",\"State\":393472,\"Id\":\"{D68DDC3A-831F-4fae-9E44-DA132C1ACF46}\"}," +
+            "{\"Name\":\"Bitdefender Antivirus\",\"State\":266240,\"Id\":\"{A1B2C3D4-0000-1111-2222-333344445555}\"}]}")) with
+        {
+            Policy = new DefenderPolicyReading
+            {
+                Antivirus = new DefenderPolicySetting { Complete = true },
+                RealTimeProtection = new DefenderPolicySetting { Complete = true }
+            }
+        };
+
+        Assert.Equal(new[] { true, false }, reading.Products!.Select(p => p.IsDefender));
+        var protection = AntivirusCheckProvider.Judge("END-002", reading, DateTimeOffset.Now);
+        Assert.Equal(Status.Unknown, protection.Status);
+        Assert.True(protection.ManualReview);
+        Assert.Equal("Bitdefender Antivirus", protection.DetectedValue);
+        Assert.Equal(Status.Unknown, AntivirusCheckProvider.Judge("END-003", reading, DateTimeOffset.Now).Status);
+        Assert.Equal(Status.NotApplicable, AntivirusCheckProvider.Judge("END-006", reading, DateTimeOffset.Now).Status);
+    }
+
     [Fact]
     public void A_machine_without_Security_Center_still_gives_Defenders_answer()
     {

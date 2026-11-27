@@ -163,8 +163,7 @@ internal static class AntivirusReader
                     string name = Text(item, "Name");
                     string id = Text(item, "Id").Trim('{', '}');
                     if (name.Length == 0 && id.Length == 0) continue;
-                    bool isDefender = id.Equals(DefenderProductId, StringComparison.OrdinalIgnoreCase) ||
-                                      name.Contains("Defender", StringComparison.OrdinalIgnoreCase);
+                    bool isDefender = IsDefender(name, id);
                     long? state = item.TryGetProperty("State", out var number) && number.TryGetInt64(out long value) ? value : null;
                     if (products.Any(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && p.IsDefender == isDefender)) continue;
                     products.Add(new AntivirusProduct(name.Length > 0 ? name : id, state, isDefender));
@@ -181,6 +180,20 @@ internal static class AntivirusReader
                 Products = products
             };
         }
+    }
+
+    /// <summary>
+    /// Whether a registered product is Microsoft Defender Antivirus. The id decides. The name
+    /// only counts when there is no id, and then only as the whole name: "Bitdefender" has
+    /// "defender" in it and is another product.
+    /// </summary>
+    internal static bool IsDefender(string name, string id)
+    {
+        id = (id ?? "").Trim().Trim('{', '}');
+        if (id.Length > 0) return id.Equals(DefenderProductId, StringComparison.OrdinalIgnoreCase);
+        name = (name ?? "").Trim();
+        return name.Equals("Windows Defender", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals(AntivirusCheckProvider.DefenderName, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
