@@ -110,7 +110,7 @@ public class WindowsSupportReaderTests
         var windows11 = WindowsSupportReader.Describe(new OsFacts(26200, 1, "Professional", "25H2", "2009", "Windows 10 Pro"), Today);
         Assert.Equal("Windows 11 Pro 25H2", windows11.Name);
         Assert.Equal("supported", windows11.Status);
-        Assert.Contains(new DateTime(2027, 10, 12).ToString("dd MMMM yyyy"), windows11.Details);
+        Assert.Contains("scheduled through 12 October 2027.", windows11.Details);
         Assert.Equal(WindowsSupportReader.ClientReferenceUrl, windows11.ReferenceUrl);
 
         var ltsc = WindowsSupportReader.Describe(new OsFacts(19044, 1, "EnterpriseS", "21H2", "2009", "Windows 10 Enterprise LTSC 2021"), Today);
@@ -120,6 +120,26 @@ public class WindowsSupportReaderTests
         var home = WindowsSupportReader.Describe(new OsFacts(22631, 1, "Core", "23H2", "2009", "Windows 10 Home"), Today);
         Assert.Equal("Windows 11 Home 23H2", home.Name);
         Assert.Equal("expired", home.Status);
+    }
+
+    [Fact]
+    public void Client_EndDateIsEnglishLikeItsSentence_WhateverTheRegionalSettingsAre()
+    {
+        var before = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("nb-NO");
+
+            var supported = WindowsSupportReader.Describe(new OsFacts(26200, 1, "Professional", "25H2", "2009", "Windows 10 Pro"), Today);
+            var expired = WindowsSupportReader.Describe(new OsFacts(22631, 1, "Core", "23H2", "2009", "Windows 10 Home"), Today);
+
+            Assert.Contains("scheduled through 12 October 2027.", supported.Details);
+            Assert.Contains("ended on 11 November 2025.", expired.Details);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = before;
+        }
     }
 
     [Fact]

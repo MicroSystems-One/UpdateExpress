@@ -1,0 +1,201 @@
+<Window x:Class="UpdateExpress.SecurityOverviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Security Overview"
+        Width="900" Height="720" MinWidth="640" MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        Background="#F3F3F3" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12"
+        ShowInTaskbar="False"
+        Loaded="Window_Loaded" Closed="Window_Closed">
+  <Window.Resources>
+    <!-- Category filter: a radio group drawn as chips. -->
+    <Style x:Key="CategoryChip" TargetType="RadioButton">
+      <Setter Property="Margin" Value="0,0,8,8"/>
+      <Setter Property="Padding" Value="12,5"/>
+      <Setter Property="MinHeight" Value="30"/>
+      <Setter Property="Foreground" Value="#1C1C1C"/>
+      <Setter Property="Background" Value="#FFFFFF"/>
+      <Setter Property="BorderBrush" Value="#D0D5DB"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="Outer" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="1" CornerRadius="15" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Outer" Property="Background" Value="#EBF2FA"/>
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Outer" Property="Background" Value="#0067C0"/>
+                <Setter TargetName="Outer" Property="BorderBrush" Value="#0055A8"/>
+                <Setter Property="Foreground" Value="#FFFFFF"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="DetailsToggle" TargetType="ToggleButton">
+      <Setter Property="Padding" Value="10,4"/>
+      <Setter Property="MinHeight" Value="28"/>
+      <Setter Property="Margin" Value="12,0,0,0"/>
+      <Setter Property="Foreground" Value="#1C1C1C"/>
+      <Setter Property="Background" Value="#FFFFFF"/>
+      <Setter Property="BorderBrush" Value="#D0D5DB"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ToggleButton">
+            <Border x:Name="Outer" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Path x:Name="Arrow" Data="M0,0 L8,0 L4,5 Z" Fill="#5D5D5D" Width="8" Height="5" Stretch="Fill"
+                      VerticalAlignment="Center" Margin="0,1,7,0" RenderTransformOrigin="0.5,0.5"/>
+                <ContentPresenter VerticalAlignment="Center"/>
+              </StackPanel>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Outer" Property="Background" Value="#EBF2FA"/>
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Outer" Property="Background" Value="#EBF2FA"/>
+                <Setter TargetName="Arrow" Property="RenderTransform">
+                  <Setter.Value><RotateTransform Angle="180"/></Setter.Value>
+                </Setter>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <DataTemplate x:Key="FactTemplate">
+      <StackPanel Margin="0,0,24,6" MaxWidth="330">
+        <TextBlock Text="{Binding Label}" FontSize="11" Foreground="#5D5D5D"/>
+        <TextBlock Text="{Binding Value}" Foreground="#1C1C1C" TextWrapping="Wrap"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="DetailTemplate">
+      <StackPanel Margin="0,0,0,8">
+        <TextBlock Text="{Binding Label}" FontSize="11" FontWeight="SemiBold" Foreground="#5D5D5D"/>
+        <TextBlock Text="{Binding Value}" Foreground="#1C1C1C" TextWrapping="Wrap" LineHeight="17"/>
+      </StackPanel>
+    </DataTemplate>
+
+    <DataTemplate x:Key="CheckRowTemplate">
+      <Border Background="#FFFFFF" BorderBrush="#E5E5E5" BorderThickness="1" CornerRadius="6" Padding="14,12" Margin="0,0,0,8"
+              AutomationProperties.Name="{Binding Text.AccessibleName}">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <WrapPanel Grid.Row="0" Grid.Column="0">
+            <TextBlock Text="{Binding Text.Name}" FontSize="13.5" FontWeight="SemiBold" Foreground="#1C1C1C"
+                       Margin="0,0,10,3" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            <!-- The status is always text; the dot only repeats it in colour. -->
+            <Border CornerRadius="10" Padding="8,2,10,3" Margin="0,0,0,3" Background="{Binding StatusTint}" VerticalAlignment="Center">
+              <StackPanel Orientation="Horizontal">
+                <Ellipse Width="8" Height="8" Fill="{Binding StatusBrush}" Margin="0,1,6,0" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding Text.StatusText}" FontWeight="SemiBold" Foreground="#1C1C1C"/>
+              </StackPanel>
+            </Border>
+          </WrapPanel>
+          <ToggleButton Grid.Row="0" Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Top"
+                        Style="{StaticResource DetailsToggle}" Content="{Binding Labels.Details}"
+                        IsChecked="{Binding IsExpanded, Mode=TwoWay}"
+                        AutomationProperties.Name="{Binding DetailsName}"/>
+          <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding Text.Description}" Foreground="#5D5D5D"
+                     TextWrapping="Wrap" Margin="0,2,0,0"/>
+          <ItemsControl Grid.Row="2" Grid.ColumnSpan="2" Margin="0,10,0,0" Focusable="False"
+                        ItemsSource="{Binding Facts}" ItemTemplate="{StaticResource FactTemplate}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+          </ItemsControl>
+          <Border Grid.Row="3" Grid.ColumnSpan="2" Visibility="{Binding DetailsVisibility}" Margin="0,6,0,0"
+                  Padding="12,10,12,4" Background="#F7FAFD" BorderBrush="#D6E4F0" BorderThickness="1" CornerRadius="6">
+            <StackPanel>
+              <ItemsControl Focusable="False" ItemsSource="{Binding Details}" ItemTemplate="{StaticResource DetailTemplate}"/>
+              <TextBlock Visibility="{Binding LinkVisibility}" Margin="0,0,0,8" TextWrapping="Wrap">
+                <Hyperlink NavigateUri="{Binding ReferenceUri}" RequestNavigate="Reference_RequestNavigate">
+                  <Run Text="{Binding Labels.MoreInformation, Mode=OneWay}"/>
+                </Hyperlink>
+                <Run Text="{Binding ReferenceHost, Mode=OneWay}" Foreground="#5D5D5D"/>
+              </TextBlock>
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Border>
+    </DataTemplate>
+  </Window.Resources>
+
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <Grid Grid.Row="0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+      <!-- Same outlined shield as the one in the main window's header. -->
+      <Viewbox Width="36" Height="36" Margin="0,2,14,0" VerticalAlignment="Top">
+        <Canvas Width="24" Height="24">
+          <Path x:Name="OverallShieldOutline" Stroke="#9099A6" StrokeThickness="2" StrokeLineJoin="Round" Fill="#FFFFFF"
+                Data="M12,1.6 L21.2,5 L21.2,11.6 C21.2,17.2 17.4,21.2 12,22.6 C6.6,21.2 2.8,17.2 2.8,11.6 L2.8,5 Z"/>
+          <Path x:Name="OverallShieldLines" Stroke="#9099A6" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                Data="M7.4,8.6 L16.6,8.6 M7.4,12.4 L16.6,12.4 M9.2,16.2 L14.8,16.2"/>
+        </Canvas>
+      </Viewbox>
+      <StackPanel Grid.Column="1">
+        <TextBlock x:Name="TitleText" Text="Security Overview" FontSize="20" FontWeight="SemiBold" Foreground="#1C1C1C"/>
+        <TextBlock x:Name="HonestyText" Margin="0,2,0,0" Foreground="#5D5D5D" TextWrapping="Wrap"/>
+        <TextBlock x:Name="OverallText" Margin="0,8,0,0" FontSize="13" Foreground="#1C1C1C" TextWrapping="Wrap"
+                   AutomationProperties.LiveSetting="Polite"/>
+        <ProgressBar x:Name="ScanProgress" Height="4" Margin="0,8,0,0" Visibility="Hidden" Minimum="0"
+                     Foreground="#0067C0" Background="#E5E5E5" BorderThickness="0"/>
+      </StackPanel>
+    </Grid>
+
+    <UniformGrid x:Name="CardsHost" Grid.Row="1" Rows="1" Margin="0,10,-8,0"/>
+
+    <WrapPanel x:Name="ChipsHost" Grid.Row="2" Margin="0,14,0,0"
+               KeyboardNavigation.TabNavigation="Once" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+
+    <ScrollViewer x:Name="ChecksScroll" Grid.Row="3" Margin="0,4,0,0" VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled" Focusable="False" CanContentScroll="False">
+      <StackPanel Margin="0,0,4,0">
+        <ItemsControl x:Name="ChecksHost" Focusable="False" ItemTemplate="{StaticResource CheckRowTemplate}"/>
+        <TextBlock x:Name="EmptyCategoryText" Visibility="Collapsed" Margin="2,10,0,0" Foreground="#5D5D5D" TextWrapping="Wrap"/>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Grid Grid.Row="4" Margin="0,12,0,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <TextBlock x:Name="BaselineText" FontSize="11" Foreground="#5D5D5D" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>
+      <StackPanel x:Name="ButtonsHost" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"/>
+    </Grid>
+  </Grid>
+</Window>
