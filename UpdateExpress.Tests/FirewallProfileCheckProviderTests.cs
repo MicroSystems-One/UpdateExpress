@@ -147,6 +147,10 @@ public class FirewallReaderTests
             Assert.Equal("EnableFirewall", name);
             return _keys.TryGetValue(key, out int? value) ? value : null;
         }
+
+        public string? ReadText(string key, string name) => throw new NotSupportedException();
+        public IReadOnlyList<string>? ValueNames(string key) => throw new NotSupportedException();
+        public int? CountLines(string key, string name) => throw new NotSupportedException();
     }
 
     private const string Gp = FirewallReader.GroupPolicyKey;
@@ -230,6 +234,9 @@ public class FirewallReaderTests
         internal LockedStore(Exception failure) => _failure = failure;
         public bool KeyExists(string key) => throw _failure;
         public int? ReadNumber(string key, string name) => throw _failure;
+        public string? ReadText(string key, string name) => throw _failure;
+        public IReadOnlyList<string>? ValueNames(string key) => throw _failure;
+        public int? CountLines(string key, string name) => throw _failure;
     }
 
     [Theory]
@@ -448,6 +455,9 @@ public class FirewallProfileCheckProviderTests
             key.Equals(FirewallReader.GroupPolicyKey + @"\StandardProfile", StringComparison.OrdinalIgnoreCase) ? 0
             : key.Equals(FirewallReader.GroupPolicyKey + @"\PublicProfile", StringComparison.OrdinalIgnoreCase) ? 1
             : null;
+        public string? ReadText(string key, string name) => throw new NotSupportedException();
+        public IReadOnlyList<string>? ValueNames(string key) => throw new NotSupportedException();
+        public int? CountLines(string key, string name) => throw new NotSupportedException();
     }
 
     [Fact]

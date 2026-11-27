@@ -147,6 +147,13 @@ internal static class SecurityOverviewStrings
         SecurityStateCodes.NoneRegistered => "None registered",
         SecurityStateCodes.AgeHours => "Updated {0} h ago",
         SecurityStateCodes.AgeDays => "Updated {0} days ago",
+        SecurityStateCodes.Configured => "Configured",
+        SecurityStateCodes.NotFound => "Not found",
+        SecurityStateCodes.Tpm12 => "TPM 1.2",
+        SecurityStateCodes.InstalledOn => "Installed {0}",
+        SecurityStateCodes.SecurityUpdatesWaiting => "Waiting: {0}",
+        SecurityStateCodes.RestartPending => "Restart pending",
+        SecurityStateCodes.SupportEnded => "Support has ended",
         _ => null
     };
 
@@ -190,6 +197,44 @@ internal static class SecurityOverviewStrings
             "Microsoft Defender Antivirus did not answer. On Windows Server it can be removed or replaced by another product, and Windows Server keeps no list of antivirus products.",
         SecurityReasonCodes.DefenderOffByPolicy =>
             "A policy holds this Microsoft Defender Antivirus setting off. Update Express does not override policy.",
+        SecurityReasonCodes.SecureBootLegacyBios => "This PC starts in legacy BIOS mode, which cannot use Secure Boot.",
+        SecurityReasonCodes.SecureBootNotReported =>
+            "Windows holds no Secure Boot state for this PC. Its firmware may not offer Secure Boot.",
+        SecurityReasonCodes.SecureBootUnreadable => "The Secure Boot state could not be read.",
+        SecurityReasonCodes.SecureBootOff =>
+            "Secure Boot is switched off. It is switched on in the firmware setup of the PC, not in Windows.",
+        SecurityReasonCodes.TpmNotRead => "Windows did not answer the question about the TPM.",
+        SecurityReasonCodes.TpmNotFound => "Windows finds no TPM. The PC has none, or it is switched off in the firmware setup.",
+        SecurityReasonCodes.TpmOlderVersion => "The TPM follows version 1.2 of the specification. Windows 11 requires version 2.0.",
+        SecurityReasonCodes.TpmVersionNotKnown => "The TPM reports a specification version that Update Express does not know.",
+        SecurityReasonCodes.AutoLogonUnreadable => "The settings for automatic logon could not be read.",
+        SecurityReasonCodes.AutoLogonValueUnclear => "Windows holds a value for automatic logon that is neither on nor off.",
+        SecurityReasonCodes.AutoLogonOn =>
+            "Automatic logon is on: anyone who can switch this PC on is signed in. That can be intended, for instance on a kiosk or a display PC.",
+        SecurityReasonCodes.AutoLogonPasswordInRegistry =>
+            "Automatic logon is on, and its password is stored in the registry, where it can be read. Update Express has not read it.",
+        SecurityReasonCodes.AutoLogonPasswordLeftBehind =>
+            "Automatic logon is off, but a stored password is left in the registry, where it can be read. Update Express has not read it.",
+        SecurityReasonCodes.InstalledUpdatesReadFailed => "Windows did not answer the question about installed updates.",
+        SecurityReasonCodes.NoSecurityUpdateListed =>
+            "Windows lists no installed security update. That can be so right after Windows was installed or upgraded, so it is not a sign that updates are missing.",
+        SecurityReasonCodes.SecurityUpdateDateUnclear => "Windows gave no usable date for its installed security updates.",
+        SecurityReasonCodes.SecurityUpdateOverdue =>
+            "No security update has been installed within the recommended time. Search for updates in the main window.",
+        SecurityReasonCodes.NoUpdateSearchYet =>
+            "Update Express has not searched for updates since it was started. Search for updates in the main window, then scan again here.",
+        SecurityReasonCodes.UpdateSearchTooOld =>
+            "The last search for updates in Update Express is too old to rely on. Search again in the main window, then scan again here.",
+        SecurityReasonCodes.SecurityUpdatesNotInstalled =>
+            "Security updates are offered and not installed yet. Install them from the main window.",
+        SecurityReasonCodes.RestartIndicatorsUnreadable => "The restart indicators of Windows could not be read.",
+        SecurityReasonCodes.RestartForFileOperations =>
+            "File operations wait for the next restart. An installer left them; they are not always from a Windows update.",
+        SecurityReasonCodes.WindowsVersionUnreadable => "Windows did not say which edition and version it is.",
+        SecurityReasonCodes.WindowsSupportNotVerified =>
+            "Whether this Windows release still gets security updates could not be verified here. The technical detail says why.",
+        SecurityReasonCodes.WindowsSupportEnded =>
+            "Microsoft's regular security updates for this Windows release have ended. A separate agreement such as Extended Security Updates cannot be verified here.",
         _ => null
     };
 
@@ -294,6 +339,12 @@ internal static class SecurityOverviewStrings
         ["None registered"] = "Ingen registrert",
         ["Updated {0} h ago"] = "Oppdatert for {0} t siden",
         ["Updated {0} days ago"] = "Oppdatert for {0} dager siden",
+        ["Configured"] = "Konfigurert",
+        ["Not found"] = "Ikke funnet",
+        ["Installed {0}"] = "Installert {0}",
+        ["Waiting: {0}"] = "Venter: {0}",
+        ["Restart pending"] = "Omstart venter",
+        ["Support has ended"] = "Støtten er avsluttet",
 
         // Reasons
         ["The check did not answer in time."] = "Sjekken svarte ikke i tide.",
@@ -334,6 +385,50 @@ internal static class SecurityOverviewStrings
             "Microsoft Defender Antivirus svarte ikke. På Windows Server kan det være fjernet eller erstattet av et annet produkt, og Windows Server har ingen liste over antivirusprodukter.",
         ["A policy holds this Microsoft Defender Antivirus setting off. Update Express does not override policy."] =
             "En policy holder denne innstillingen i Microsoft Defender Antivirus av. Update Express overstyrer ikke policy.",
+        ["This PC starts in legacy BIOS mode, which cannot use Secure Boot."] =
+            "Denne PC-en starter i eldre BIOS-modus, som ikke kan bruke sikker oppstart.",
+        ["Windows holds no Secure Boot state for this PC. Its firmware may not offer Secure Boot."] =
+            "Windows har ingen tilstand for sikker oppstart for denne PC-en. Fastvaren tilbyr kanskje ikke sikker oppstart.",
+        ["The Secure Boot state could not be read."] = "Tilstanden for sikker oppstart kunne ikke leses.",
+        ["Secure Boot is switched off. It is switched on in the firmware setup of the PC, not in Windows."] =
+            "Sikker oppstart er slått av. Den slås på i PC-ens fastvareoppsett, ikke i Windows.",
+        ["Windows did not answer the question about the TPM."] = "Windows svarte ikke på spørsmålet om TPM.",
+        ["Windows finds no TPM. The PC has none, or it is switched off in the firmware setup."] =
+            "Windows finner ingen TPM. PC-en har ingen, eller den er slått av i fastvareoppsettet.",
+        ["The TPM follows version 1.2 of the specification. Windows 11 requires version 2.0."] =
+            "TPM-en følger versjon 1.2 av spesifikasjonen. Windows 11 krever versjon 2.0.",
+        ["The TPM reports a specification version that Update Express does not know."] =
+            "TPM-en oppgir en spesifikasjonsversjon som Update Express ikke kjenner.",
+        ["The settings for automatic logon could not be read."] = "Innstillingene for automatisk pålogging kunne ikke leses.",
+        ["Windows holds a value for automatic logon that is neither on nor off."] =
+            "Windows har en verdi for automatisk pålogging som verken er på eller av.",
+        ["Automatic logon is on: anyone who can switch this PC on is signed in. That can be intended, for instance on a kiosk or a display PC."] =
+            "Automatisk pålogging er på: alle som kan slå på denne PC-en, blir logget på. Det kan være tilsiktet, for eksempel på en kiosk- eller skjerm-PC.",
+        ["Automatic logon is on, and its password is stored in the registry, where it can be read. Update Express has not read it."] =
+            "Automatisk pålogging er på, og passordet er lagret i registeret, der det kan leses. Update Express har ikke lest det.",
+        ["Automatic logon is off, but a stored password is left in the registry, where it can be read. Update Express has not read it."] =
+            "Automatisk pålogging er av, men et lagret passord ligger igjen i registeret, der det kan leses. Update Express har ikke lest det.",
+        ["Windows did not answer the question about installed updates."] = "Windows svarte ikke på spørsmålet om installerte oppdateringer.",
+        ["Windows lists no installed security update. That can be so right after Windows was installed or upgraded, so it is not a sign that updates are missing."] =
+            "Windows viser ingen installert sikkerhetsoppdatering. Slik kan det være rett etter at Windows ble installert eller oppgradert, så det er ikke et tegn på at oppdateringer mangler.",
+        ["Windows gave no usable date for its installed security updates."] =
+            "Windows oppga ingen brukbar dato for de installerte sikkerhetsoppdateringene.",
+        ["No security update has been installed within the recommended time. Search for updates in the main window."] =
+            "Ingen sikkerhetsoppdatering er installert innen den anbefalte tiden. Søk etter oppdateringer i hovedvinduet.",
+        ["Update Express has not searched for updates since it was started. Search for updates in the main window, then scan again here."] =
+            "Update Express har ikke søkt etter oppdateringer siden programmet ble startet. Søk etter oppdateringer i hovedvinduet, og skann deretter på nytt her.",
+        ["The last search for updates in Update Express is too old to rely on. Search again in the main window, then scan again here."] =
+            "Det siste søket etter oppdateringer i Update Express er for gammelt til å stole på. Søk på nytt i hovedvinduet, og skann deretter på nytt her.",
+        ["Security updates are offered and not installed yet. Install them from the main window."] =
+            "Sikkerhetsoppdateringer tilbys og er ikke installert ennå. Installer dem fra hovedvinduet.",
+        ["The restart indicators of Windows could not be read."] = "Omstartsindikatorene i Windows kunne ikke leses.",
+        ["File operations wait for the next restart. An installer left them; they are not always from a Windows update."] =
+            "Filoperasjoner venter på neste omstart. Et installasjonsprogram har lagt dem igjen; de kommer ikke alltid fra en Windows-oppdatering.",
+        ["Windows did not say which edition and version it is."] = "Windows oppga ikke hvilken utgave og versjon det er.",
+        ["Whether this Windows release still gets security updates could not be verified here. The technical detail says why."] =
+            "Om denne Windows-versjonen fortsatt får sikkerhetsoppdateringer, kunne ikke bekreftes her. Den tekniske detaljen sier hvorfor.",
+        ["Microsoft's regular security updates for this Windows release have ended. A separate agreement such as Extended Security Updates cannot be verified here."] =
+            "Microsofts vanlige sikkerhetsoppdateringer for denne Windows-versjonen er avsluttet. En egen avtale som Extended Security Updates kan ikke bekreftes her.",
 
         // Overall status
         ["Not assessed yet."] = "Ikke vurdert ennå.",

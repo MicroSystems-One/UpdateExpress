@@ -7,7 +7,7 @@ namespace UpdateExpress.Tests;
 public class SecurityOverviewStringsTests
 {
     /// <summary>Texts that read the same in both languages.</summary>
-    private static readonly HashSet<string> SameInBothLanguages = new(StringComparer.Ordinal) { "{0}", "TPM 2.0" };
+    private static readonly HashSet<string> SameInBothLanguages = new(StringComparer.Ordinal) { "{0}", "TPM 2.0", "TPM 1.2" };
 
     private static void AssertHasNorwegian(string english, string what)
     {

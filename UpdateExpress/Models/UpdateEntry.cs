@@ -5,6 +5,11 @@ public sealed class UpdateEntry
     public string UpdateId { get; set; } = "";
     public string Category { get; set; } = "";
     public bool SafeDefault { get; set; } = false;
+    /// <summary>
+    /// Windows Update classifies the update as a security update or gives it an MSRC severity.
+    /// Only counted by the Security Overview; it selects and rates nothing.
+    /// </summary>
+    public bool IsSecurityUpdate { get; set; } = false;
     public bool DriverAssigned { get; set; } = false;
     public string DriverClassification { get; set; } = "";
     public string KB { get; set; } = "";
@@ -175,6 +180,7 @@ public sealed class UpdateEntry
         UpdateId = UpdateId,
         Category = Category,
         SafeDefault = SafeDefault,
+        IsSecurityUpdate = IsSecurityUpdate,
         DriverAssigned = DriverAssigned,
         DriverClassification = DriverClassification,
         KB = KB,

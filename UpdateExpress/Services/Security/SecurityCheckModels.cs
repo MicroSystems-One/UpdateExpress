@@ -32,6 +32,15 @@ internal static class SecurityStateCodes
     internal const string AgeHours = "age_hours";
     /// <summary>Value: whole days since the last update.</summary>
     internal const string AgeDays = "age_days";
+    internal const string Configured = "configured";
+    internal const string NotFound = "not_found";
+    internal const string Tpm12 = "tpm_1_2";
+    /// <summary>Value: the day, and the update it was.</summary>
+    internal const string InstalledOn = "installed_on";
+    /// <summary>Value: how many.</summary>
+    internal const string SecurityUpdatesWaiting = "security_updates_waiting";
+    internal const string RestartPending = "restart_pending";
+    internal const string SupportEnded = "support_ended";
 }
 
 /// <summary>Why a check ended without a judgement of the setting itself.</summary>
@@ -67,6 +76,34 @@ internal static class SecurityReasonCodes
     internal const string DefenderSilentOtherProduct = "defender_silent_other_product";
     internal const string DefenderSilentOnServer = "defender_silent_on_server";
     internal const string DefenderOffByPolicy = "defender_off_by_policy";
+
+    internal const string SecureBootLegacyBios = "secure_boot_legacy_bios";
+    internal const string SecureBootNotReported = "secure_boot_not_reported";
+    internal const string SecureBootUnreadable = "secure_boot_unreadable";
+    internal const string SecureBootOff = "secure_boot_off";
+    internal const string TpmNotRead = "tpm_not_read";
+    internal const string TpmNotFound = "tpm_not_found";
+    internal const string TpmOlderVersion = "tpm_older_version";
+    internal const string TpmVersionNotKnown = "tpm_version_not_known";
+
+    internal const string AutoLogonUnreadable = "auto_logon_unreadable";
+    internal const string AutoLogonValueUnclear = "auto_logon_value_unclear";
+    internal const string AutoLogonOn = "auto_logon_on";
+    internal const string AutoLogonPasswordInRegistry = "auto_logon_password_in_registry";
+    internal const string AutoLogonPasswordLeftBehind = "auto_logon_password_left_behind";
+
+    internal const string InstalledUpdatesReadFailed = "installed_updates_read_failed";
+    internal const string NoSecurityUpdateListed = "no_security_update_listed";
+    internal const string SecurityUpdateDateUnclear = "security_update_date_unclear";
+    internal const string SecurityUpdateOverdue = "security_update_overdue";
+    internal const string NoUpdateSearchYet = "no_update_search_yet";
+    internal const string UpdateSearchTooOld = "update_search_too_old";
+    internal const string SecurityUpdatesNotInstalled = "security_updates_not_installed";
+    internal const string RestartIndicatorsUnreadable = "restart_indicators_unreadable";
+    internal const string RestartForFileOperations = "restart_for_file_operations";
+    internal const string WindowsVersionUnreadable = "windows_version_unreadable";
+    internal const string WindowsSupportNotVerified = "windows_support_not_verified";
+    internal const string WindowsSupportEnded = "windows_support_ended";
 }
 
 /// <summary>
