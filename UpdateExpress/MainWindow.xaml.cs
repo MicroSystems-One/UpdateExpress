@@ -4867,6 +4867,7 @@ public partial class MainWindow : Window
                     return;
                 }
                 ReconcileWindowsPromptsWithScan(pending);
+                UpdateExpress.Services.Security.WindowsUpdateSearchMemory.Learn(pending, DateTimeOffset.Now);
 
                 var matches = pending.Where(UpdateUntilCurrent.IsInCycle).ToList();
                 if (matches.Count == 0)
@@ -4926,15 +4927,19 @@ public partial class MainWindow : Window
                     IProgress<string> progress = new Progress<string>(stage => AgentLog.Write("Update until current: " + stage));
                     results = await WindowsUpdateReader.RunStaAsync(() =>
                         WindowsUpdateReader.InstallSelected(matches, progress.Report, activity.Report));
+                    // This cycle has no list on screen to prune, so it tells the Security Overview itself.
+                    var installed = new List<UpdateEntry>();
                     for (int i = 0; i < matches.Count; i++)
                     {
                         var result = WindowsUpdateReader.MatchInstallResult(results, matches[i], i, matches.Count);
+                        if (result?.Status is "Installert" or "Already up to date") installed.Add(matches[i]);
                         string itemState = result == null ? InstallationManagerWindow.StatusNotVerified(norwegian) :
                             result.Status is "Installert" or "Already up to date" ? InstallationManagerWindow.StatusCompleted(norwegian) :
                             result.Status == "Delvis fullført" ? InstallationManagerWindow.StatusNotVerified(norwegian) :
                             "Failed" + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " " + result.ErrorCode);
                         manager.CompleteItem(i, itemState, itemState.StartsWith("Failed", StringComparison.Ordinal));
                     }
+                    UpdateExpress.Services.Security.WindowsUpdateSearchMemory.Remove(installed);
                     var outcome = manager.Finish(norwegian);
                     SetInstallOutcome(outcome.Completed, outcome.Failed, queue);
                 }
