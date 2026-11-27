@@ -248,7 +248,7 @@ public partial class SecurityOverviewWindow : Window
             SetBucketFilter(null);
         _cards[SecuritySummaryBucket.RestartRequired].Card.Visibility =
             summary.RestartRequired > 0 ? Visibility.Visible : Visibility.Collapsed;
-        RefreshListEmpty();
+        RefreshListFilter();
     }
 
     private bool RowPassesFilter(object item)
@@ -260,9 +260,14 @@ public partial class SecurityOverviewWindow : Window
 
     private void RefreshList()
     {
+        RefreshListFilter();
+        ChecksScroll.ScrollToTop();
+    }
+
+    private void RefreshListFilter()
+    {
         _view.Refresh();
         RefreshListEmpty();
-        ChecksScroll.ScrollToTop();
     }
 
     private void RefreshListEmpty()

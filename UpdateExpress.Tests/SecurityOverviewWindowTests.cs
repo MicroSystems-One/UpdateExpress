@@ -671,6 +671,37 @@ public class SecurityOverviewWindowTests
     }
 
     [Fact]
+    public void The_summary_card_filter_updates_as_answers_arrive_during_a_scan()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var sandbox = new SecurityOverviewSandbox(
+            FakeSecurityProvider.Answers(Status.Protected, "NET-001", "NET-002"),
+            FakeSecurityProvider.Waits(gate.Task, "NET-003"));
+
+        RunSta(async () =>
+        {
+            var window = Window(EarlierSnapshot(("NET-001", Status.Protected), ("NET-003", Status.NotProtected)));
+            var list = (ItemsControl)window.FindName("ChecksHost");
+            await Settle();
+
+            CardButton(window, 0).RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            await Settle();
+            var ids = () => list.Items.Cast<SecurityCheckRowView>().Select(r => r.Definition.Id).ToArray();
+            Assert.Equal(new[] { "NET-001" }, ids());
+
+            var scan = window.StartScanAsync();
+            await Until(() => Row(window, "NET-003").Checking, "the slow check to start");
+            Assert.Equal(new[] { "NET-001" }, ids());
+
+            gate.SetResult();
+            await Until(() => !window.IsScanning, "the assessment to finish");
+            await Settle();
+            Assert.Contains("NET-003", ids());
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void The_summary_cards_filter_the_list_to_one_group_and_toggle_off_to_show_all()
     {
         using var sandbox = new SecurityOverviewSandbox();
