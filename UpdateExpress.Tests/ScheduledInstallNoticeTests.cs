@@ -351,6 +351,29 @@ public class ScheduledInstallNoticeWindowTests
     }
 
     [Fact]
+    public void An_owner_that_goes_away_takes_the_notice_with_it_and_ends_the_wait()
+    {
+        RunSta(() =>
+        {
+            var owner = OffScreenWindow("owner");
+            owner.Show();
+            IntPtr ownerHandle = new WindowInteropHelper(owner).Handle;
+            bool failsafeFired = false;
+            ScheduledInstallNoticeWindow? notice = null;
+
+            ShowOffScreen(OtherDay, ownerHandle, () => failsafeFired = true, shown =>
+            {
+                notice = shown;
+                owner.Close();
+            });
+
+            Assert.False(failsafeFired, "The notice outlived its owner.");
+            Assert.NotNull(notice);
+            Assert.False(notice!.IsVisible);
+        });
+    }
+
+    [Fact]
     public void An_owner_that_was_already_waiting_is_left_as_it_was()
     {
         RunSta(() =>
