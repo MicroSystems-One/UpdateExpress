@@ -280,22 +280,15 @@ internal static class DownloadPromptAutomation
                 when);
             ActivityLog.TryWrite(displayName + "Automation", "ScheduledWindow", new { At = when }, mode: "Automatic", source: "TrayAgent");
 
-            string title = MaintenanceSetup.EveningNoticeTitle(norwegian);
-            string body = when.Date == DateTime.Today
-                ? MaintenanceSetup.EveningNoticeBody(when, norwegian, autoReboot)
-                : (norwegian
-                    ? $"Nye Windows-oppdateringer er lastet ned og klare.\nInstallasjon er satt til {when:ddd dd.MM} kl. {when:HH:mm}.\n\nTips: Lagre åpne dokumenter før PC-en installerer og eventuelt restarter."
-                    : $"New Windows updates are downloaded and ready.\nInstallation is set for {when:ddd dd MMM} at {when:HH:mm}.\n\nTip: Save open files before the PC installs and possibly restarts.");
+            var notice = MaintenanceSetup.ScheduledNotice(when, DateTime.Today, norwegian, autoReboot);
 
-            try { _balloon?.Invoke(title, MaintenanceSetup.EveningBalloon(when, norwegian)); }
+            try { _balloon?.Invoke(notice.Title, MaintenanceSetup.EveningBalloon(when, norwegian)); }
             catch { }
 
             try
             {
-                await dispatcher.InvokeAsync(() =>
-                {
-                    System.Windows.MessageBox.Show(body, title, System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
-                }).Task.ConfigureAwait(false);
+                await dispatcher.InvokeAsync(() => ScheduledInstallNoticeWindow.ShowAndWait(notice))
+                    .Task.ConfigureAwait(false);
             }
             catch (Exception ex)
             {

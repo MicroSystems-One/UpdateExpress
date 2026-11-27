@@ -243,27 +243,51 @@ internal static class MaintenanceSetup
     internal static string EveningNoticeTitle(bool norwegian) =>
         norwegian ? "Oppdateringer planlagt i kveld" : "Updates scheduled for this evening";
 
-    internal static string EveningNoticeBody(DateTime when, bool norwegian, bool autoReboot)
+    /// <summary>
+    /// The notice shown when downloaded updates are set to install at the next install window,
+    /// worded for an installation later today or on another day.
+    /// </summary>
+    internal static ScheduledInstallNotice ScheduledNotice(DateTime when, DateTime today, bool norwegian, bool autoReboot)
     {
+        string title = EveningNoticeTitle(norwegian);
+        if (when.Date != today.Date)
+        {
+            return norwegian
+                ? new ScheduledInstallNotice(
+                    title,
+                    "Nye Windows-oppdateringer er lastet ned og klare.",
+                    $"Installasjon er satt til {when:ddd dd.MM} kl. {when:HH:mm}.",
+                    null,
+                    "Tips: Lagre åpne dokumenter før PC-en installerer og eventuelt restarter.")
+                : new ScheduledInstallNotice(
+                    title,
+                    "New Windows updates are downloaded and ready.",
+                    $"Installation is set for {when:ddd dd MMM} at {when:HH:mm}.",
+                    null,
+                    "Tip: Save open files before the PC installs and possibly restarts.");
+        }
+
         string clock = when.ToString("HH:mm", CultureInfo.InvariantCulture);
         if (norwegian)
         {
-            string reboot = autoReboot
-                ? "Hvis Windows krever omstart, skjer det automatisk etter en nedtelling (du kan utsette)."
-                : "Hvis Windows krever omstart, får du spørsmål før PC-en restarter.";
-            return
-                $"Nye Windows-oppdateringer er lastet ned og klare.\n" +
-                $"Installasjon er satt til i dag kl. {clock}. {reboot}\n\n" +
-                "Tips: Lagre åpne dokumenter og lukk viktige programmer før du går fra PC-en, så du ikke mister ulagret arbeid.";
+            return new ScheduledInstallNotice(
+                title,
+                "Nye Windows-oppdateringer er lastet ned og klare.",
+                $"Installasjon er satt til i dag kl. {clock}.",
+                autoReboot
+                    ? "Hvis Windows krever omstart, skjer det automatisk etter en nedtelling (du kan utsette)."
+                    : "Hvis Windows krever omstart, får du spørsmål før PC-en restarter.",
+                "Tips: Lagre åpne dokumenter og lukk viktige programmer før du går fra PC-en, så du ikke mister ulagret arbeid.");
         }
 
-        string rebootEn = autoReboot
-            ? "If Windows requires a restart, it will happen automatically after a countdown (you can postpone)."
-            : "If Windows requires a restart, you will be asked before the PC restarts.";
-        return
-            $"New Windows updates are downloaded and ready.\n" +
-            $"Installation is set for today at {clock}. {rebootEn}\n\n" +
-            "Tip: Save open files and close important apps before you leave the PC, so you don’t lose unsaved work.";
+        return new ScheduledInstallNotice(
+            title,
+            "New Windows updates are downloaded and ready.",
+            $"Installation is set for today at {clock}.",
+            autoReboot
+                ? "If Windows requires a restart, it will happen automatically after a countdown (you can postpone)."
+                : "If Windows requires a restart, you will be asked before the PC restarts.",
+            "Tip: Save open files and close important apps before you leave the PC, so you don’t lose unsaved work.");
     }
 
     internal static string EveningBalloon(DateTime when, bool norwegian) =>
