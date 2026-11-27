@@ -2521,6 +2521,8 @@ public partial class MainWindow : Window
             TrySyncAppsFromWingetCache();
             bool defenderMoved = SyncDefenderHeaderFromHistory();
             _ = ReconcilePendingFromHistoryAsync();
+            // No read and no assessment: an assessment that has grown old in the meantime changes the shield.
+            RefreshSecurityShield();
             // Activated also fires before Loaded (which reads Defender itself) and when one of our
             // own dialogs closes; do not start PowerShell each time.
             if (IsLoaded && (defenderMoved || DateTime.Now - _lastActivationDefenderRead >= TimeSpan.FromSeconds(10)))
@@ -2556,6 +2558,7 @@ public partial class MainWindow : Window
             CheckReminder();
             _ = LoadMachineIdentityAsync();
             _ = LoadWindows11EligibilityAsync();
+            _ = LoadSecurityShieldAsync();
             // Read Historikk alongside Defender so «Sjekket» can use the latest Defender success
             // without waiting for a later history load. Whichever finishes last applies both.
             var defenderTask = RefreshDefenderAsync();
@@ -2806,6 +2809,56 @@ public partial class MainWindow : Window
         var dlg = new ProductOverviewWindow(norwegian) { Owner = this };
         dlg.ShowDialog();
     }
+
+    /// <summary>The last finished security assessment this window knows of; null until one is stored or run.</summary>
+    private UpdateExpress.Services.Security.SecurityAssessmentSnapshot? _securitySnapshot;
+
+    /// <summary>
+    /// Reads the stored assessment for the header shield. Nothing is assessed here: without a
+    /// stored result the shield stays grey until the user opens the Security Overview.
+    /// </summary>
+    private async Task LoadSecurityShieldAsync()
+    {
+        try
+        {
+            var stored = await Task.Run(() => UpdateExpress.Services.Security.SecurityResultCache.TryLoad());
+            // An assessment finished in the meantime is newer than the file was.
+            _securitySnapshot ??= stored;
+        }
+        catch (Exception ex)
+        {
+            AgentLog.Write("Reading the stored security assessment failed: " + ex.GetType().Name);
+        }
+        RefreshSecurityShield();
+    }
+
+    private void RefreshSecurityShield()
+    {
+        if (SecurityOverviewShield is null) return;
+        bool norwegian = _schedule.Language == "no";
+        var overall = UpdateExpress.Services.Security.SecurityOverallStatus.Evaluate(_securitySnapshot, DateTimeOffset.Now);
+        var brush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
+            UpdateExpress.Services.Security.SecurityOverviewPresentation.LevelColor(overall.Level)));
+        SecurityOverviewShieldOutline.Stroke = brush;
+        SecurityOverviewShieldLines.Stroke = brush;
+        SecurityOverviewShield.ToolTip =
+            UpdateExpress.Services.Security.SecurityOverviewPresentation.ShieldToolTip(overall, norwegian, FormatTime);
+        System.Windows.Automation.AutomationProperties.SetName(SecurityOverviewShield,
+            UpdateExpress.Services.Security.SecurityOverviewPresentation.ShieldAccessibleName(overall, norwegian));
+    }
+
+    private void SecurityOverviewShield_Click(object sender, RoutedEventArgs e)
+    {
+        bool norwegian = _schedule.Language == "no";
+        var dlg = new SecurityOverviewWindow(norwegian, _securitySnapshot, FormatTime) { Owner = this };
+        dlg.AssessmentCompleted += snapshot =>
+        {
+            _securitySnapshot = snapshot;
+            RefreshSecurityShield();
+        };
+        dlg.ShowDialog();
+        RefreshSecurityShield();
+    }
     private string FormatTime(DateTime time) => _schedule.Format(time);
     private void ReloadDisplaySettings()
     {
@@ -3000,6 +3053,7 @@ public partial class MainWindow : Window
         if (RebootNeededBanner is not null) RebootNeededBanner.Text = RebootBannerText();
         RefreshLongUptimeHint();
         RefreshAppChromeLanguage();
+        RefreshSecurityShield();
         // StatusFixItCta label stays English ("Fix Update issues here") per SVHA.
         if (StatusFixItCta is not null)
             StatusFixItCta.ToolTip = norwegian
