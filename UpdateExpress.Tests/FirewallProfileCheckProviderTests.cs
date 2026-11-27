@@ -131,7 +131,7 @@ public class FirewallReaderTests
     }
 
     /// <summary>Policy keys with the value of EnableFirewall in each; null for a key that exists without the value.</summary>
-    private sealed class FakeStore : IFirewallPolicyStore
+    private sealed class FakeStore : IMachineRegistry
     {
         private readonly Dictionary<string, int?> _keys = new(StringComparer.OrdinalIgnoreCase);
 
@@ -224,7 +224,7 @@ public class FirewallReaderTests
         Assert.Empty(policy.For("Public"));
     }
 
-    private sealed class LockedStore : IFirewallPolicyStore
+    private sealed class LockedStore : IMachineRegistry
     {
         private readonly Exception _failure;
         internal LockedStore(Exception failure) => _failure = failure;
@@ -441,7 +441,7 @@ public class FirewallProfileCheckProviderTests
         Assert.Equal(SecurityPolicyState.NotManaged, result.Policy);
     }
 
-    private sealed class IgnoredStandardProfile : IFirewallPolicyStore
+    private sealed class IgnoredStandardProfile : IMachineRegistry
     {
         public bool KeyExists(string key) => key.EndsWith(@"\PublicProfile", StringComparison.OrdinalIgnoreCase) && key.StartsWith(FirewallReader.GroupPolicyKey, StringComparison.OrdinalIgnoreCase);
         public int? ReadNumber(string key, string name) =>

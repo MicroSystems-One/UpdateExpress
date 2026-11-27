@@ -1,6 +1,4 @@
-using System.IO;
 using System.Text.Json;
-using Microsoft.Win32;
 
 namespace UpdateExpress.Services.Security.Providers;
 
@@ -23,15 +21,6 @@ internal sealed record FirewallPolicyReading
 
     internal IReadOnlyList<FirewallPolicyValue> For(string profile) =>
         Values.TryGetValue(profile, out var values) ? values : Array.Empty<FirewallPolicyValue>();
-}
-
-/// <summary>Where policy values are read from. Both members throw when the key may not be read.</summary>
-internal interface IFirewallPolicyStore
-{
-    /// <summary>Whether a key exists under HKEY_LOCAL_MACHINE.</summary>
-    bool KeyExists(string key);
-    /// <summary>A number under HKEY_LOCAL_MACHINE, or null when the key or the value is absent.</summary>
-    int? ReadNumber(string key, string name);
 }
 
 /// <summary>One read of the Windows Firewall profiles.</summary>
@@ -171,7 +160,7 @@ internal static class FirewallReader
     /// neither of those two has a policy key of its own; otherwise it is ignored ([MS-GPFAS],
     /// Per-Profile Policy Configuration Options).
     /// </summary>
-    internal static FirewallPolicyReading ReadPolicy(IFirewallPolicyStore store)
+    internal static FirewallPolicyReading ReadPolicy(IMachineRegistry store)
     {
         var values = new Dictionary<string, IReadOnlyList<FirewallPolicyValue>>(StringComparer.OrdinalIgnoreCase);
         try
@@ -187,41 +176,17 @@ internal static class FirewallReader
                 if (found.Count > 0) values[profile] = found;
             }
         }
-        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        catch (Exception ex) when (MachineRegistry.IsReadFailure(ex))
         {
             return new FirewallPolicyReading { Readable = false };
         }
         return new FirewallPolicyReading { Readable = true, Values = values };
     }
 
-    private static void Add(List<FirewallPolicyValue> found, IFirewallPolicyStore store, string key, string source)
+    private static void Add(List<FirewallPolicyValue> found, IMachineRegistry store, string key, string source)
     {
         if (store.ReadNumber(key, EnableFirewall) is int value)
             found.Add(new FirewallPolicyValue(value != 0, source, @"HKLM\" + key));
-    }
-
-    /// <summary>HKEY_LOCAL_MACHINE, opened for reading only.</summary>
-    private sealed class MachineRegistry : IFirewallPolicyStore
-    {
-        public bool KeyExists(string key)
-        {
-            using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-            using var opened = machine.OpenSubKey(key, writable: false);
-            return opened is not null;
-        }
-
-        public int? ReadNumber(string key, string name)
-        {
-            using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-            using var opened = machine.OpenSubKey(key, writable: false);
-            return opened?.GetValue(name) switch
-            {
-                int number => number,
-                long number => (int)number,
-                string text when int.TryParse(text, out int number) => number,
-                _ => null
-            };
-        }
     }
 
     private static IEnumerable<JsonElement> Items(JsonElement element) =>

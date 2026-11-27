@@ -27,6 +27,11 @@ internal static class SecurityStateCodes
     internal const string NoRestartPending = "no_restart_pending";
     /// <summary>Value: the number of days.</summary>
     internal const string WithinDays = "within_days";
+    internal const string NoneRegistered = "none_registered";
+    /// <summary>Value: whole hours since the last update.</summary>
+    internal const string AgeHours = "age_hours";
+    /// <summary>Value: whole days since the last update.</summary>
+    internal const string AgeDays = "age_days";
 }
 
 /// <summary>Why a check ended without a judgement of the setting itself.</summary>
@@ -44,6 +49,24 @@ internal static class SecurityReasonCodes
     internal const string FirewallProfileNotReported = "firewall_profile_not_reported";
     internal const string FirewallOffByPolicy = "firewall_off_by_policy";
     internal const string FirewallOffOtherProduct = "firewall_off_other_product";
+
+    /// <summary>The check reports a value and judges nothing. Goes with the status "not applicable".</summary>
+    internal const string Informational = "informational";
+
+    internal const string AntivirusReadFailed = "antivirus_read_failed";
+    internal const string AntivirusProductsUnreadable = "antivirus_products_unreadable";
+    internal const string AntivirusNoneRegistered = "antivirus_none_registered";
+    internal const string AntivirusOtherProduct = "antivirus_other_product";
+    internal const string AntivirusOtherProductValue = "antivirus_other_product_value";
+    internal const string DefenderReadFailed = "defender_read_failed";
+    internal const string DefenderValueMissing = "defender_value_missing";
+    internal const string DefenderStateUnclear = "defender_state_unclear";
+    internal const string DefenderPassiveNoProduct = "defender_passive_no_product";
+    internal const string DefenderOffOtherProduct = "defender_off_other_product";
+    internal const string DefenderOffNoProduct = "defender_off_no_product";
+    internal const string DefenderSilentOtherProduct = "defender_silent_other_product";
+    internal const string DefenderSilentOnServer = "defender_silent_on_server";
+    internal const string DefenderOffByPolicy = "defender_off_by_policy";
 }
 
 /// <summary>
