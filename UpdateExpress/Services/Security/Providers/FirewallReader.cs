@@ -14,11 +14,24 @@ internal sealed record FirewallPolicyReading
 {
     /// <summary>False when the policy keys could not be read; then nothing is known about policy.</summary>
     public bool Readable { get; init; }
-    /// <summary>By profile name. A profile without an entry has no policy value.</summary>
-    public IReadOnlyDictionary<string, FirewallPolicyValue> Values { get; init; } =
-        new Dictionary<string, FirewallPolicyValue>(StringComparer.OrdinalIgnoreCase);
-    /// <summary>Profiles for which a value was found that may or may not apply to them.</summary>
-    public IReadOnlyCollection<string> Unclear { get; init; } = Array.Empty<string>();
+    /// <summary>
+    /// By profile name: the values that apply to the profile, Group Policy before MDM.
+    /// A profile without an entry has no policy value.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<FirewallPolicyValue>> Values { get; init; } =
+        new Dictionary<string, IReadOnlyList<FirewallPolicyValue>>(StringComparer.OrdinalIgnoreCase);
+
+    internal IReadOnlyList<FirewallPolicyValue> For(string profile) =>
+        Values.TryGetValue(profile, out var values) ? values : Array.Empty<FirewallPolicyValue>();
+}
+
+/// <summary>Where policy values are read from. Both members throw when the key may not be read.</summary>
+internal interface IFirewallPolicyStore
+{
+    /// <summary>Whether a key exists under HKEY_LOCAL_MACHINE.</summary>
+    bool KeyExists(string key);
+    /// <summary>A number under HKEY_LOCAL_MACHINE, or null when the key or the value is absent.</summary>
+    int? ReadNumber(string key, string name);
 }
 
 /// <summary>One read of the Windows Firewall profiles.</summary>
@@ -82,7 +95,7 @@ internal static class FirewallReader
         var answer = await SecurityPowerShell.RunAsync(Script, cancellationToken).ConfigureAwait(false);
         var reading = Parse(answer);
         if (!reading.Succeeded) return reading;
-        return reading with { Policy = ReadPolicy(ReadRegistryValue) };
+        return reading with { Policy = ReadPolicy(new MachineRegistry()) };
     }
 
     /// <summary>Turns PowerShell's answer into a reading. Anything it cannot make sense of is a failed read, never "off".</summary>
@@ -151,54 +164,64 @@ internal static class FirewallReader
     }
 
     /// <summary>
-    /// Looks for a policy value per profile. Group Policy keeps its values under
-    /// SOFTWARE\Policies, an MDM service under the firewall service's Mdm key.
+    /// Looks for the policy values that decide each profile. Group Policy keeps its values
+    /// under SOFTWARE\Policies, an MDM service under the firewall service's Mdm key.
+    /// The older policy template has one "standard" profile for every network that is not the
+    /// domain. Windows applies it to the private and the public profile, but only when
+    /// neither of those two has a policy key of its own; otherwise it is ignored ([MS-GPFAS],
+    /// Per-Profile Policy Configuration Options).
     /// </summary>
-    /// <param name="readValue">Reads a DWORD under HKEY_LOCAL_MACHINE: key path, value name; null when the key or value is absent. Throws when it may not be read.</param>
-    internal static FirewallPolicyReading ReadPolicy(Func<string, string, int?> readValue)
+    internal static FirewallPolicyReading ReadPolicy(IFirewallPolicyStore store)
     {
-        var values = new Dictionary<string, FirewallPolicyValue>(StringComparer.OrdinalIgnoreCase);
-        var unclear = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var values = new Dictionary<string, IReadOnlyList<FirewallPolicyValue>>(StringComparer.OrdinalIgnoreCase);
         try
         {
+            bool standardApplies = !store.KeyExists(GroupPolicyKey + @"\PrivateProfile") &&
+                                   !store.KeyExists(GroupPolicyKey + @"\PublicProfile");
             foreach (string profile in ProfileNames)
             {
-                var found = Find(readValue, GroupPolicyKey + @"\" + profile + "Profile", "Group Policy")
-                            ?? Find(readValue, MdmKey + @"\" + profile + "Profile", "MDM");
-                if (found is not null) values[profile] = found;
-            }
-
-            // The older policy template has one "standard" profile for every network that is
-            // not the domain. Windows keeps the private profile under that name. Whether such a
-            // value also decides the public profile is not something to assume.
-            var standard = Find(readValue, GroupPolicyKey + @"\StandardProfile", "Group Policy");
-            if (standard is not null)
-            {
-                values.TryAdd(Private, standard);
-                if (!values.ContainsKey(Public)) unclear.Add(Public);
+                var found = new List<FirewallPolicyValue>();
+                string groupPolicy = profile != Domain && standardApplies ? "StandardProfile" : profile + "Profile";
+                Add(found, store, GroupPolicyKey + @"\" + groupPolicy, "Group Policy");
+                Add(found, store, MdmKey + @"\" + profile + "Profile", "MDM");
+                if (found.Count > 0) values[profile] = found;
             }
         }
         catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
         {
             return new FirewallPolicyReading { Readable = false };
         }
-        return new FirewallPolicyReading { Readable = true, Values = values, Unclear = unclear };
+        return new FirewallPolicyReading { Readable = true, Values = values };
     }
 
-    private static FirewallPolicyValue? Find(Func<string, string, int?> readValue, string key, string source) =>
-        readValue(key, EnableFirewall) is int value ? new FirewallPolicyValue(value != 0, source, @"HKLM\" + key) : null;
-
-    private static int? ReadRegistryValue(string key, string name)
+    private static void Add(List<FirewallPolicyValue> found, IFirewallPolicyStore store, string key, string source)
     {
-        using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-        using var opened = machine.OpenSubKey(key, writable: false);
-        return opened?.GetValue(name) switch
+        if (store.ReadNumber(key, EnableFirewall) is int value)
+            found.Add(new FirewallPolicyValue(value != 0, source, @"HKLM\" + key));
+    }
+
+    /// <summary>HKEY_LOCAL_MACHINE, opened for reading only.</summary>
+    private sealed class MachineRegistry : IFirewallPolicyStore
+    {
+        public bool KeyExists(string key)
         {
-            int number => number,
-            long number => (int)number,
-            string text when int.TryParse(text, out int number) => number,
-            _ => null
-        };
+            using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using var opened = machine.OpenSubKey(key, writable: false);
+            return opened is not null;
+        }
+
+        public int? ReadNumber(string key, string name)
+        {
+            using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using var opened = machine.OpenSubKey(key, writable: false);
+            return opened?.GetValue(name) switch
+            {
+                int number => number,
+                long number => (int)number,
+                string text when int.TryParse(text, out int number) => number,
+                _ => null
+            };
+        }
     }
 
     private static IEnumerable<JsonElement> Items(JsonElement element) =>

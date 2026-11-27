@@ -55,9 +55,9 @@ internal sealed class FirewallProfileCheckProvider : ISecurityCheckProvider
         }
 
         var policy = PolicyState(profile, reading.Policy);
-        reading.Policy.Values.TryGetValue(profile, out var policyValue);
+        var policyValues = reading.Policy.For(profile);
         bool? enabled = reading.Effective.TryGetValue(profile, out bool? state) ? state : null;
-        string detail = Detail(profile, reading, policyValue);
+        string detail = Detail(profile, reading, policyValues);
 
         if (enabled is null)
         {
@@ -84,7 +84,7 @@ internal sealed class FirewallProfileCheckProvider : ISecurityCheckProvider
         }
 
         // Off. Who holds it off decides what can be said about it.
-        if (policyValue is { Enabled: false })
+        if (policyValues.Any(value => !value.Enabled))
         {
             return new SecurityCheckResult
             {
@@ -126,11 +126,10 @@ internal sealed class FirewallProfileCheckProvider : ISecurityCheckProvider
     private static SecurityPolicyState PolicyState(string profile, FirewallPolicyReading policy)
     {
         if (!policy.Readable) return SecurityPolicyState.Unknown;
-        if (policy.Values.ContainsKey(profile)) return SecurityPolicyState.Managed;
-        return policy.Unclear.Contains(profile) ? SecurityPolicyState.Unknown : SecurityPolicyState.NotManaged;
+        return policy.For(profile).Count > 0 ? SecurityPolicyState.Managed : SecurityPolicyState.NotManaged;
     }
 
-    private static string Detail(string profile, FirewallReading reading, FirewallPolicyValue? policyValue)
+    private static string Detail(string profile, FirewallReading reading, IReadOnlyList<FirewallPolicyValue> policyValues)
     {
         var parts = new List<string> { "Effective state of the " + profile + " profile, from the active policy store." };
 
@@ -138,11 +137,12 @@ internal sealed class FirewallProfileCheckProvider : ISecurityCheckProvider
         else parts.Add(reading.InUse.Contains(profile) ? "A network uses this profile now." : "No network uses this profile now.");
 
         if (!reading.Policy.Readable) parts.Add("The policy values could not be read.");
-        else if (policyValue is not null)
-            parts.Add($"{policyValue.Source} sets this profile {(policyValue.Enabled ? "on" : "off")} ({policyValue.Location}).");
-        else if (reading.Policy.Unclear.Contains(profile))
-            parts.Add("An older policy value for the standard profile exists; whether it decides this profile is not known.");
-        else parts.Add("No policy value for this profile was found.");
+        else if (policyValues.Count == 0) parts.Add("No policy value for this profile was found.");
+        else
+        {
+            foreach (var value in policyValues)
+                parts.Add($"{value.Source} sets this profile {(value.Enabled ? "on" : "off")} ({value.Location}).");
+        }
 
         if (reading.OtherProducts is { Count: > 0 })
             parts.Add("Other firewall products registered with Windows: " + string.Join(", ", reading.OtherProducts) + ".");

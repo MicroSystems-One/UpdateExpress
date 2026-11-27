@@ -130,74 +130,106 @@ public class FirewallReaderTests
             Assert.DoesNotContain(verb, script, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static Func<string, string, int?> Registry(params (string Key, int Value)[] values) => (key, name) =>
+    /// <summary>Policy keys with the value of EnableFirewall in each; null for a key that exists without the value.</summary>
+    private sealed class FakeStore : IFirewallPolicyStore
     {
-        Assert.Equal("EnableFirewall", name);
-        foreach (var (k, v) in values)
-            if (string.Equals(k, key, StringComparison.OrdinalIgnoreCase)) return v;
-        return null;
-    };
+        private readonly Dictionary<string, int?> _keys = new(StringComparer.OrdinalIgnoreCase);
+
+        internal FakeStore(params (string Key, int? Value)[] keys)
+        {
+            foreach (var (key, value) in keys) _keys[key] = value;
+        }
+
+        public bool KeyExists(string key) => _keys.ContainsKey(key);
+
+        public int? ReadNumber(string key, string name)
+        {
+            Assert.Equal("EnableFirewall", name);
+            return _keys.TryGetValue(key, out int? value) ? value : null;
+        }
+    }
+
+    private const string Gp = FirewallReader.GroupPolicyKey;
+    private const string Mdm = FirewallReader.MdmKey;
 
     [Fact]
     public void Without_policy_values_no_profile_is_managed()
     {
-        var policy = FirewallReader.ReadPolicy(Registry());
+        var policy = FirewallReader.ReadPolicy(new FakeStore());
 
         Assert.True(policy.Readable);
         Assert.Empty(policy.Values);
-        Assert.Empty(policy.Unclear);
+        Assert.Empty(policy.For("Public"));
     }
 
     [Fact]
     public void Group_Policy_values_are_found_per_profile()
     {
-        var policy = FirewallReader.ReadPolicy(Registry(
-            (FirewallReader.GroupPolicyKey + @"\DomainProfile", 1),
-            (FirewallReader.GroupPolicyKey + @"\PublicProfile", 0)));
+        var policy = FirewallReader.ReadPolicy(new FakeStore((Gp + @"\DomainProfile", 1), (Gp + @"\PublicProfile", 0)));
 
-        Assert.True(policy.Values["Domain"].Enabled);
-        Assert.Equal("Group Policy", policy.Values["Domain"].Source);
-        Assert.Equal(@"HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile", policy.Values["Domain"].Location);
-        Assert.False(policy.Values["Public"].Enabled);
-        Assert.False(policy.Values.ContainsKey("Private"));
+        var domain = Assert.Single(policy.For("Domain"));
+        Assert.True(domain.Enabled);
+        Assert.Equal("Group Policy", domain.Source);
+        Assert.Equal(@"HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile", domain.Location);
+        Assert.False(Assert.Single(policy.For("Public")).Enabled);
+        Assert.Empty(policy.For("Private"));
     }
 
     [Fact]
-    public void An_MDM_value_is_found_and_Group_Policy_is_named_first_when_both_exist()
+    public void An_MDM_value_is_found_and_both_are_kept_when_Group_Policy_has_one_too()
     {
-        var policy = FirewallReader.ReadPolicy(Registry(
-            (FirewallReader.MdmKey + @"\PrivateProfile", 0),
-            (FirewallReader.MdmKey + @"\DomainProfile", 0),
-            (FirewallReader.GroupPolicyKey + @"\DomainProfile", 1)));
+        var policy = FirewallReader.ReadPolicy(new FakeStore(
+            (Mdm + @"\PrivateProfile", 0), (Mdm + @"\DomainProfile", 0), (Gp + @"\DomainProfile", 1)));
 
-        Assert.Equal("MDM", policy.Values["Private"].Source);
-        Assert.False(policy.Values["Private"].Enabled);
-        Assert.Equal("Group Policy", policy.Values["Domain"].Source);
-        Assert.True(policy.Values["Domain"].Enabled);
+        var @private = Assert.Single(policy.For("Private"));
+        Assert.Equal("MDM", @private.Source);
+        Assert.False(@private.Enabled);
+        Assert.Equal(new[] { "Group Policy", "MDM" }, policy.For("Domain").Select(v => v.Source));
+        Assert.Equal(new[] { true, false }, policy.For("Domain").Select(v => v.Enabled));
     }
 
     [Fact]
-    public void The_older_standard_profile_value_counts_for_private_and_leaves_public_open()
+    public void The_older_standard_profile_decides_private_and_public_when_neither_has_a_key_of_its_own()
     {
-        var policy = FirewallReader.ReadPolicy(Registry((FirewallReader.GroupPolicyKey + @"\StandardProfile", 0)));
+        var policy = FirewallReader.ReadPolicy(new FakeStore((Gp + @"\StandardProfile", 0), (Gp + @"\DomainProfile", 1)));
 
-        Assert.False(policy.Values["Private"].Enabled);
-        Assert.False(policy.Values.ContainsKey("Public"));
-        Assert.Contains("Public", policy.Unclear);
-        Assert.DoesNotContain("Domain", policy.Unclear);
+        var @private = Assert.Single(policy.For("Private"));
+        var @public = Assert.Single(policy.For("Public"));
+        Assert.False(@private.Enabled);
+        Assert.False(@public.Enabled);
+        Assert.EndsWith(@"\StandardProfile", @public.Location);
+        // The standard profile never speaks for the domain profile.
+        Assert.True(Assert.Single(policy.For("Domain")).Enabled);
+    }
+
+    [Theory]
+    [InlineData("PrivateProfile")]
+    [InlineData("PublicProfile")]
+    public void The_older_standard_profile_is_ignored_as_soon_as_private_or_public_has_a_key(string existing)
+    {
+        // The key alone is enough, also without a value for the firewall state in it.
+        var policy = FirewallReader.ReadPolicy(new FakeStore((Gp + @"\StandardProfile", 0), (Gp + @"\" + existing, null)));
+
+        Assert.Empty(policy.For("Private"));
+        Assert.Empty(policy.For("Public"));
     }
 
     [Fact]
-    public void A_value_of_its_own_for_public_settles_what_the_standard_profile_left_open()
+    public void With_keys_of_their_own_private_and_public_follow_those()
     {
-        var policy = FirewallReader.ReadPolicy(Registry(
-            (FirewallReader.GroupPolicyKey + @"\StandardProfile", 0),
-            (FirewallReader.GroupPolicyKey + @"\PrivateProfile", 1),
-            (FirewallReader.GroupPolicyKey + @"\PublicProfile", 1)));
+        var policy = FirewallReader.ReadPolicy(new FakeStore(
+            (Gp + @"\StandardProfile", 0), (Gp + @"\PrivateProfile", 1), (Gp + @"\PublicProfile", null)));
 
-        Assert.True(policy.Values["Private"].Enabled);
-        Assert.True(policy.Values["Public"].Enabled);
-        Assert.Empty(policy.Unclear);
+        Assert.True(Assert.Single(policy.For("Private")).Enabled);
+        Assert.Empty(policy.For("Public"));
+    }
+
+    private sealed class LockedStore : IFirewallPolicyStore
+    {
+        private readonly Exception _failure;
+        internal LockedStore(Exception failure) => _failure = failure;
+        public bool KeyExists(string key) => throw _failure;
+        public int? ReadNumber(string key, string name) => throw _failure;
     }
 
     [Theory]
@@ -206,7 +238,7 @@ public class FirewallReaderTests
     [InlineData(typeof(System.IO.IOException))]
     public void Policy_keys_that_may_not_be_read_leave_policy_unknown(Type failure)
     {
-        var policy = FirewallReader.ReadPolicy((_, _) => throw (Exception)Activator.CreateInstance(failure)!);
+        var policy = FirewallReader.ReadPolicy(new LockedStore((Exception)Activator.CreateInstance(failure)!));
 
         Assert.False(policy.Readable);
         Assert.Empty(policy.Values);
@@ -232,10 +264,17 @@ public class FirewallProfileCheckProviderTests
     private static FirewallPolicyReading Policy(params (string Profile, bool Enabled)[] values) => new()
     {
         Readable = true,
-        Values = values.ToDictionary(
-            v => v.Profile,
-            v => new FirewallPolicyValue(v.Enabled, "Group Policy", @"HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\" + v.Profile + "Profile"),
-            StringComparer.OrdinalIgnoreCase)
+        Values = values
+            .GroupBy(v => v.Profile, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<FirewallPolicyValue>)g
+                    .Select((v, i) => new FirewallPolicyValue(
+                        v.Enabled,
+                        i == 0 ? "Group Policy" : "MDM",
+                        i == 0 ? @"HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\" + v.Profile + "Profile" : @"HKLM\" + FirewallReader.MdmKey + @"\" + v.Profile + "Profile"))
+                    .ToArray(),
+                StringComparer.OrdinalIgnoreCase)
     };
 
     private static SecurityCheckResult Public(FirewallReading reading) =>
@@ -378,15 +417,37 @@ public class FirewallProfileCheckProviderTests
         Assert.Contains("The policy values could not be read.", off.Detail);
     }
 
-    [Fact]
-    public void An_older_standard_profile_value_leaves_the_public_profiles_policy_unknown()
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Off_with_two_policy_values_is_managed_by_policy_when_either_says_off(bool groupPolicy, bool mdm)
     {
-        var policy = new FirewallPolicyReading { Readable = true, Unclear = new[] { "Public" } };
+        var result = Public(Reading(@public: false, policy: Policy(("Public", groupPolicy), ("Public", mdm))));
 
-        var result = Public(Reading(@public: false, policy: policy));
+        Assert.Equal(Status.ManagedByPolicy, result.Status);
+        Assert.Contains("Group Policy sets this profile " + (groupPolicy ? "on" : "off"), result.Detail);
+        Assert.Contains("MDM sets this profile " + (mdm ? "on" : "off"), result.Detail);
+    }
+
+    [Fact]
+    public void A_private_profile_that_is_off_is_not_excused_by_an_ignored_standard_profile_value()
+    {
+        // The older value says off, but the public profile has a key of its own, so Windows ignores it.
+        var policy = FirewallReader.ReadPolicy(new IgnoredStandardProfile());
+
+        var result = FirewallProfileCheckProvider.Judge("NET-002", "Private", Reading(@private: false, policy: policy));
 
         Assert.Equal(Status.NotProtected, result.Status);
-        Assert.Equal(SecurityPolicyState.Unknown, result.Policy);
+        Assert.Equal(SecurityPolicyState.NotManaged, result.Policy);
+    }
+
+    private sealed class IgnoredStandardProfile : IFirewallPolicyStore
+    {
+        public bool KeyExists(string key) => key.EndsWith(@"\PublicProfile", StringComparison.OrdinalIgnoreCase) && key.StartsWith(FirewallReader.GroupPolicyKey, StringComparison.OrdinalIgnoreCase);
+        public int? ReadNumber(string key, string name) =>
+            key.Equals(FirewallReader.GroupPolicyKey + @"\StandardProfile", StringComparison.OrdinalIgnoreCase) ? 0
+            : key.Equals(FirewallReader.GroupPolicyKey + @"\PublicProfile", StringComparison.OrdinalIgnoreCase) ? 1
+            : null;
     }
 
     [Fact]
