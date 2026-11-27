@@ -230,6 +230,16 @@ internal static class WindowsUpdateErrorCatalog
                 LearnMoreUrl = RefSupport,
                 IsKnown = true
             },
+            ["0x80131509"] = new()
+            {
+                Code = "0x80131509",
+                Name = "COR_E_INVALIDOPERATION (managed guard)",
+                Summary = "Update Express blocked or aborted the operation before Windows Update returned a result (for example missing hardware ID, interactive driver blocked, or identity recheck failed).",
+                Guidance = "This is usually not a Windows Update download/install code. Open %ProgramData%\\UpdateExpress\\driver-recheck.log, or retry after a fresh scan. If a WUA HRESULT appears in the log line, treat that code instead.",
+                RecommendedFix = null,
+                LearnMoreUrl = RefCodes,
+                IsKnown = true
+            },
         };
 
     internal static string Normalize(string? raw)

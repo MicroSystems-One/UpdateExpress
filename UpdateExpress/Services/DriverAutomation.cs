@@ -421,7 +421,16 @@ internal static class DriverAutomation
                 catch (Exception ex)
                 {
                     AgentLog.Write("Drivers install item failed: " + ex);
-                    manager.CompleteItem(i, "Failed", true);
+                    string code = WindowsUpdateHResult.BestFromException(ex);
+                    string? tip = null;
+                    if (!string.IsNullOrWhiteSpace(code))
+                    {
+                        var info = WindowsUpdateErrorCatalog.Lookup(code);
+                        tip = string.IsNullOrWhiteSpace(info.Summary)
+                            ? code
+                            : $"{info.Code} — {info.Name}. {info.Summary} {info.Guidance}".Trim();
+                    }
+                    manager.CompleteItem(i, WindowsUpdateHResult.FormatForFailedState(ex), true, tip);
                 }
             }
 
