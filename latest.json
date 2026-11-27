@@ -1,7 +1,7 @@
 {
-  "version": "0.7.2.63",
-  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.63/UpdateExpress_v0.7.2.63.exe",
-  "sha256": "924b33652dbc45293d792125b88190360caf6c4f2b1c62d293bad3f9bc52b3e9",
-  "publishedAt": "2026-11-26T20:13:11Z",
-  "releaseNotes": "Windows 11 Assistant button on Windows 10 PCs that meet the Windows 11 requirements; hardware section in This PC; Server as a setup choice with no automatic restart; Windows Server named by its release; N-able install script parses under Windows PowerShell 5.1 again (#157, #158) on 0.7.2.62. Tip 4d7378a. Keep 0.7.2.62 for rollback."
+  "version": "0.7.2.64",
+  "downloadUrl": "https://github.com/MicroSystems-One/UpdateExpress/releases/download/v0.7.2.64/UpdateExpress_v0.7.2.64.exe",
+  "sha256": "c3a50aabc82fdfdf4e9ee3a82409dfef9d2eee369094068f3e373aa52e535f4d",
+  "publishedAt": "2026-11-27T14:42:45Z",
+  "releaseNotes": "Security Overview, Phase 1 (read-only): a shield in the header after the (i) icon shows the result of the last assessment; a click opens the Security Overview window with 19 checks (Windows Firewall, antivirus, Windows Update state, pending restart, Windows support status, automatic logon, Secure Boot, TPM); it changes nothing on the PC (#167) on 0.7.2.63. Tip 6b919ff. Keep 0.7.2.63 for rollback."
 }
