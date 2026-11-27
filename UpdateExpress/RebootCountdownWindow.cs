@@ -5,13 +5,8 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
-using System.Windows.Media;
 using System.Windows.Threading;
 using UpdateExpress.Services;
-using WpfFontFamily = System.Windows.Media.FontFamily;
-using WpfOrientation = System.Windows.Controls.Orientation;
-using WpfHorizontalAlignment = System.Windows.HorizontalAlignment;
-using WpfVerticalAlignment = System.Windows.VerticalAlignment;
 
 namespace UpdateExpress;
 
@@ -35,7 +30,6 @@ internal sealed class RebootCountdownWindow : Window
     }
 
     internal const int PostponeMinutes = 15;
-    private const double ButtonHeight = 27;
     private const string SlotName = @"Local\MicroSystems.UpdateExpress.RebootNotice";
     private const string CancelName = @"Local\MicroSystems.UpdateExpress.RebootNoticeCancel";
 
@@ -57,92 +51,32 @@ internal sealed class RebootCountdownWindow : Window
         _deadlineUtc = DateTime.UtcNow.AddSeconds(Math.Max(1, countdownSeconds));
 
         Title = AppLanguage.T("Update Express – Restart");
-        AppIcon.Apply(this);
-        Width = 560;
-        MinWidth = 460;
-        SizeToContent = SizeToContent.Height;
+        NoticeLook.ApplyTo(this);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = true;
         ShowActivated = true;
         Topmost = true;
-        Background = new SolidColorBrush(Color.FromRgb(0xF3, 0xF3, 0xF3));
-        FontFamily = new WpfFontFamily("Segoe UI");
 
-        var heading = new TextBlock
-        {
-            Text = AppLanguage.T("Restart coming soon"),
-            FontSize = 20,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x1C)),
-            Margin = new Thickness(0, 0, 0, 6)
-        };
-
-        var identity = new TextBlock
-        {
-            Text = Environment.MachineName + "\\" + Environment.UserName,
-            FontSize = 14,
-            FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x1C)),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 0, 0, 8)
-        };
-
-        _countdownText = new TextBlock
-        {
-            FontSize = 28,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x00, 0x67, 0xC0)),
-            Margin = new Thickness(0, 0, 0, 10)
-        };
-
-        var subText = new TextBlock
-        {
-            Text = AppLanguage.T("Save your work now. This PC restarts when the countdown reaches 0.")
-                   + "\n" + AppLanguage.T("Stop cancels the restart. Postpone moves it 15 minutes out."),
-            FontSize = 13,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x52, 0x61, 0x7A)),
-            LineHeight = 20,
-            Margin = new Thickness(0, 0, 0, 16)
-        };
+        var heading = NoticeLook.Heading(AppLanguage.T("Restart coming soon"));
+        var identity = NoticeLook.Strong(Environment.MachineName + "\\" + Environment.UserName);
+        _countdownText = NoticeLook.Highlight();
+        var subText = NoticeLook.Body(
+            AppLanguage.T("Save your work now. This PC restarts when the countdown reaches 0.")
+            + "\n" + AppLanguage.T("Stop cancels the restart. Postpone moves it 15 minutes out."));
 
         // No button is default/cancel: the notice takes the foreground while the user may
         // be typing, and a stray Enter or Esc must not decide for them.
-        var stop = MakeButton(AppLanguage.T("Stop"), primary: false);
+        var stop = NoticeLook.ChromeButton(AppLanguage.T("Stop"), primary: false);
         stop.Click += (_, _) => Finish(Choice.Stop);
 
-        var now = MakeButton(AppLanguage.T("Restart now"), primary: false);
+        var now = NoticeLook.ChromeButton(AppLanguage.T("Restart now"), primary: false);
         now.Click += (_, _) => Finish(Choice.RestartNow);
 
-        var postpone = MakeButton(AppLanguage.T("Postpone 15 minutes"), primary: true);
+        var postpone = NoticeLook.ChromeButton(AppLanguage.T("Postpone 15 minutes"), primary: true);
         postpone.Click += (_, _) => Finish(Choice.Postpone);
 
-        var row = new StackPanel
-        {
-            Orientation = WpfOrientation.Horizontal,
-            HorizontalAlignment = WpfHorizontalAlignment.Center,
-            VerticalAlignment = WpfVerticalAlignment.Center,
-            Height = ButtonHeight
-        };
         // Left → right: Stop | Omstart nå | Utsett 15 minutter (same order as the old dialog).
-        row.Children.Add(stop);
-        row.Children.Add(now);
-        row.Children.Add(postpone);
-
-        Content = new Border
-        {
-            Margin = new Thickness(18),
-            Background = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0xDF, 0xE5, 0xEC)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(22),
-            Child = new StackPanel
-            {
-                Children = { heading, identity, _countdownText, subText, row }
-            }
-        };
+        Content = NoticeLook.Card(heading, identity, _countdownText, subText, NoticeLook.ButtonRow(stop, now, postpone));
 
         UpdateCountdown();
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
@@ -196,20 +130,6 @@ internal sealed class RebootCountdownWindow : Window
         // The title-bar X and Alt+F4 are not a choice; the user picks one of the buttons.
         if (!_decided) e.Cancel = true;
         base.OnClosing(e);
-    }
-
-    private static Button MakeButton(string content, bool primary)
-    {
-        var b = AppDialog.CreateChromeButton(content, primary);
-        b.Height = ButtonHeight;
-        b.MinHeight = ButtonHeight;
-        b.MaxHeight = ButtonHeight;
-        b.MinWidth = 132;
-        b.Padding = new Thickness(12, 0, 12, 0);
-        b.Margin = new Thickness(4, 0, 4, 0);
-        b.VerticalAlignment = WpfVerticalAlignment.Center;
-        b.FontSize = 12;
-        return b;
     }
 
     private void BringToFront(bool activate)
